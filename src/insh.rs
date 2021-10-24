@@ -3,31 +3,41 @@ extern crate termion;
 use std::convert::TryInto;
 use std::fs;
 use std::io::{stdin, stdout, Stdout, Write};
+use termion::color;
 use termion::event::Key;
 use termion::input::TermRead;
 use termion::raw::{IntoRawMode, RawTerminal};
 use termion::screen::*;
 
 pub struct Insh {
-    stdin: std::io::Stdin,
     screen: termion::screen::AlternateScreen<RawTerminal<Stdout>>,
+    selected: usize,
 }
 
 impl Insh {
     pub fn new() -> Self {
-        let stdin = stdin();
         let screen = AlternateScreen::from(stdout().into_raw_mode().unwrap());
+        let selected = 0;
 
-        Insh { stdin, screen }
+        Insh { screen, selected }
     }
 
     pub fn run(&mut self) {
         self.hide_cursor();
         self.display_directory();
 
-        for character in self.stdin.lock().keys() {
+        let stdin = stdin();
+        for character in stdin.lock().keys() {
             match character.unwrap() {
                 Key::Char('q') => break,
+                Key::Char('j') => {
+                    self.selected += 1;
+                    self.display_directory();
+                }
+                Key::Char('k') => {
+                    self.selected = usize::saturating_sub(self.selected, 1);
+                    self.display_directory();
+                }
                 _ => {}
             }
         }
@@ -62,7 +72,19 @@ impl Insh {
                 if let Ok(entry) = entry {
                     let file_name = entry.file_name();
                     let entry_name = file_name.to_string_lossy();
-                    write!(self.screen, "{}", entry_name).unwrap();
+                    if entry_number == self.selected {
+                        write!(
+                            self.screen,
+                            "{}{}{}{}{}",
+                            color::Bg(color::White),
+                            color::Fg(color::Black),
+                            entry_name,
+                            color::Bg(color::Reset),
+                            color::Fg(color::Reset)
+                        ).unwrap();
+                    } else {
+                        write!(self.screen, "{}", entry_name).unwrap();
+                    }
                 }
             }
         }
