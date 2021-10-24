@@ -43,17 +43,21 @@ impl Insh {
         write!(self.screen, "{}", termion::cursor::Show).unwrap();
     }
 
+    fn move_cursor(&mut self, x: usize, y: usize) {
+        write!(
+            self.screen,
+            "{}",
+            termion::cursor::Goto(x.try_into().unwrap(), (y + 1).try_into().unwrap())
+        )
+        .unwrap()
+    }
+
     fn display_directory(&mut self) {
         write!(self.screen, "{}", termion::clear::All).unwrap();
 
         if let Ok(entries) = fs::read_dir(".") {
             for (entry_number, entry) in entries.enumerate() {
-                write!(
-                    self.screen,
-                    "{}",
-                    termion::cursor::Goto(1, (entry_number + 1).try_into().unwrap())
-                )
-                .unwrap();
+                self.move_cursor(1, entry_number);
 
                 if let Ok(entry) = entry {
                     let file_name = entry.file_name();
