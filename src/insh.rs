@@ -11,15 +11,24 @@ use termion::screen::*;
 
 pub struct Insh {
     screen: termion::screen::AlternateScreen<RawTerminal<Stdout>>,
+    terminal_size: (u16, u16),
+    offset: usize,
     selected: usize,
 }
 
 impl Insh {
     pub fn new() -> Self {
         let screen = AlternateScreen::from(stdout().into_raw_mode().unwrap());
+        let terminal_size = termion::terminal_size().unwrap();
+        let offset = 0;
         let selected = 0;
 
-        Insh { screen, selected }
+        Insh {
+            screen,
+            terminal_size,
+            offset,
+            selected,
+        }
     }
 
     pub fn run(&mut self) {
@@ -31,11 +40,21 @@ impl Insh {
             match character.unwrap() {
                 Key::Char('q') => break,
                 Key::Char('j') => {
-                    self.selected += 1;
+                    if self.selected < self.terminal_size.1 as usize - 1 {
+                        self.selected += 1;
+                    } else {
+                        self.offset += 1
+                    }
                     self.display_directory();
                 }
                 Key::Char('k') => {
-                    self.selected = usize::saturating_sub(self.selected, 1);
+                    if self.selected == 0 {
+                        if self.offset > 0 {
+                            self.offset -= 1
+                        }
+                    } else {
+                        self.selected -= 1
+                    }
                     self.display_directory();
                 }
                 _ => {}
@@ -65,14 +84,18 @@ impl Insh {
     fn display_directory(&mut self) {
         write!(self.screen, "{}", termion::clear::All).unwrap();
 
-        if let Ok(entries) = fs::read_dir(".") {
-            for (entry_number, entry) in entries.enumerate() {
-                self.move_cursor(1, entry_number);
+        if let Ok(mut entries) = fs::read_dir(".") {
+            for _ in 0..self.offset {
+                entries.next();
+            }
+
+            for (entry, entry_number) in entries.zip(0..self.terminal_size.1) {
+                self.move_cursor(1, entry_number.into());
 
                 if let Ok(entry) = entry {
                     let file_name = entry.file_name();
                     let entry_name = file_name.to_string_lossy();
-                    if entry_number == self.selected {
+                    if usize::from(entry_number) == self.selected {
                         write!(
                             self.screen,
                             "{}{}{}{}{}",
@@ -81,7 +104,8 @@ impl Insh {
                             entry_name,
                             color::Bg(color::Reset),
                             color::Fg(color::Reset)
-                        ).unwrap();
+                        )
+                        .unwrap();
                     } else {
                         write!(self.screen, "{}", entry_name).unwrap();
                     }
