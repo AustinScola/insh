@@ -6,6 +6,7 @@ use std::fs;
 use std::io::{stdin, stdout, Stdout, Write};
 use std::iter::FromIterator;
 use std::path::PathBuf;
+use std::process::{Child, Command, Stdio};
 use termion::color;
 use termion::event::Key;
 use termion::input::TermRead;
@@ -110,6 +111,20 @@ impl Insh {
                     self.entry_offset = 0;
                     self.entries = self.get_entries();
                     self.display_directory();
+                }
+                Key::Char('e') => {
+                    let selected_path: PathBuf = self.entries[self.selected].path();
+                    if selected_path.is_file() {
+                        let mut vim: Child = Command::new("vim")
+                            .arg(selected_path)
+                            .stdin(Stdio::inherit())
+                            .stdout(Stdio::inherit())
+                            .spawn()
+                            .unwrap();
+                        vim.wait().unwrap();
+                        self.hide_cursor();
+                        self.display_directory();
+                    }
                 }
                 _ => {}
             }
