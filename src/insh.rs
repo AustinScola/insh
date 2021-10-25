@@ -162,19 +162,29 @@ impl Insh {
 
             let file_name = entry.file_name();
             let entry_name = file_name.to_string_lossy();
+            let mut reset = false;
             if usize::from(entry_number) == self.selected {
                 write!(
                     self.screen,
-                    "{}{}{}{}{}",
+                    "{}{}",
                     color::Bg(color::White),
                     color::Fg(color::Black),
-                    entry_name,
-                    color::Bg(color::Reset),
-                    color::Fg(color::Reset)
                 )
                 .unwrap();
-            } else {
-                write!(self.screen, "{}", entry_name).unwrap();
+                reset = true;
+            }
+            write!(self.screen, "{}", entry_name).unwrap();
+            if entry.path().is_dir() {
+                write!(self.screen, "/").unwrap();
+            }
+            if reset {
+                write!(
+                    self.screen,
+                    "{}{}",
+                    color::Bg(color::Reset),
+                    color::Fg(color::Reset),
+                )
+                .unwrap();
             }
         }
         self.screen.flush().unwrap();
