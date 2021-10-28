@@ -156,6 +156,8 @@ impl Insh {
         self.enable_raw_terminal();
         self.lazy_hide_cursor();
 
+        self.change_panic_hook();
+
         self.lazy_display_directory();
         self.update_terminal();
     }
@@ -193,6 +195,18 @@ impl Insh {
             }
         }
         self.update_terminal();
+    }
+
+    fn change_panic_hook(&mut self) {
+        let hook_before = std::panic::take_hook();
+        std::panic::set_hook(Box::new(move |info| {
+            let mut stdout = io::stdout();
+            stdout.queue(terminal::LeaveAlternateScreen).unwrap();
+            stdout.queue(cursor::Show).unwrap();
+            stdout.flush().unwrap();
+            terminal::disable_raw_mode().unwrap();
+            hook_before(info);
+        }));
     }
 
     fn enable_raw_terminal(&mut self) {
