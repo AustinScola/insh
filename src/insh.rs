@@ -365,7 +365,7 @@ impl Insh {
             let mut reset = false;
             if usize::from(entry_number) == self.selected {
                 // Named arguments (not in Rust?) would be nice for lazy_color! Make a macro?
-                self.lazy_start_color(Color::Yellow, Color::Black);
+                self.lazy_start_color(Color::Black, Color::Yellow);
                 reset = true;
             }
             self.lazy_print(&entry_name);
