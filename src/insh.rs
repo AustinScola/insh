@@ -217,6 +217,10 @@ impl Insh {
                     Event::Key(KeyEvent {
                         code: KeyCode::Char('l'),
                         ..
+                    })
+                    | Event::Key(KeyEvent {
+                        code: KeyCode::Enter,
+                        ..
                     }) => {
                         if self.entries.len() > 0 {
                             let selected_path: PathBuf = self.entries[self.selected].path();
@@ -237,6 +241,10 @@ impl Insh {
                     }
                     Event::Key(KeyEvent {
                         code: KeyCode::Char('h'),
+                        ..
+                    })
+                    | Event::Key(KeyEvent {
+                        code: KeyCode::Backspace,
                         ..
                     }) => {
                         self.directory.pop();
