@@ -5,9 +5,9 @@ use std::fs;
 use std::io::{self, Stdout, Write};
 use std::iter::FromIterator;
 use std::path::PathBuf;
-use std::process::{Child, Command, Stdio};
 
 use crate::finder::Finder;
+use crate::vim::Vim;
 
 extern crate crossterm;
 use crossterm::{
@@ -198,13 +198,7 @@ impl Insh {
                     }) => {
                         let selected_path: PathBuf = self.entries[self.selected].path();
                         if selected_path.is_file() {
-                            let mut vim: Child = Command::new("vim")
-                                .arg(selected_path)
-                                .stdin(Stdio::inherit())
-                                .stdout(Stdio::inherit())
-                                .spawn()
-                                .unwrap();
-                            vim.wait().unwrap();
+                            Vim::run(&selected_path);
                             self.lazy_hide_cursor();
                             self.lazy_display_browse();
                             self.update_terminal();
