@@ -14,9 +14,8 @@ use std::env::current_dir;
 use std::fs;
 use std::io::{self, Stdout, Write};
 use std::iter::FromIterator;
-use std::iter::IntoIterator;
 use std::mem::swap;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 
 pub struct Insh {
@@ -56,8 +55,8 @@ struct Finder {
 }
 
 impl Finder {
-    fn new(directory: &PathBuf, pattern: &String) -> Result<Self, regex::Error> {
-        let regex = Regex::new(&pattern)?;
+    fn new(directory: &Path, pattern: &str) -> Result<Self, regex::Error> {
+        let regex = Regex::new(pattern)?;
         let stack = Vec::new();
         let iterator = Finder::get_directory_iterator(directory, regex.clone());
 
@@ -69,7 +68,7 @@ impl Finder {
     }
 
     fn get_directory_iterator(
-        directory: &PathBuf,
+        directory: &Path,
         regex: Regex,
     ) -> Box<dyn Iterator<Item = fs::DirEntry>> {
         let directory_entries = fs::read_dir(&*directory).unwrap();
@@ -79,8 +78,7 @@ impl Finder {
                     || regex.is_match(&entry.as_ref().unwrap().file_name().to_string_lossy())
             })
             .map(|entry| entry.unwrap());
-        let iterator = Box::new(filtered_entries.into_iter());
-        iterator
+        Box::new(filtered_entries)
     }
 }
 
@@ -96,9 +94,9 @@ impl Iterator for Finder {
                         Finder::get_directory_iterator(&entry.path(), self.regex.clone());
                     swap(&mut iterator, &mut self.iterator);
                     self.stack.push(Box::new(iterator));
-                    return self.next();
+                    self.next()
                 } else {
-                    return Some(entry);
+                    Some(entry)
                 }
             }
             None => {
@@ -106,9 +104,9 @@ impl Iterator for Finder {
                 match next_iterator {
                     Some(iterator) => {
                         self.iterator = Box::new(iterator);
-                        return self.next();
+                        self.next()
                     }
-                    None => return None,
+                    None => None,
                 }
             }
         }
@@ -164,12 +162,11 @@ impl Insh {
             entries_iter.next();
         }
 
-        let entries = Vec::from_iter(
+        Vec::from_iter(
             entries_iter
                 .take(self.terminal_size.1.into())
                 .map(|entry| entry.unwrap()),
-        );
-        return entries;
+        )
     }
 
     pub fn run(&mut self) {
@@ -228,7 +225,7 @@ impl Insh {
                         code: KeyCode::Enter,
                         ..
                     }) => {
-                        if self.entries.len() > 0 {
+                        if !self.entries.is_empty() {
                             let selected_path: PathBuf = self.entries[self.selected].path();
 
                             if selected_path.is_dir() {
@@ -377,7 +374,7 @@ impl Insh {
             self.lazy_move_cursor(0, entry_number as u16);
 
             let mut reset = false;
-            if usize::from(entry_number) == self.selected {
+            if entry_number == self.selected {
                 // Named arguments (not in Rust?) would be nice for lazy_color! Make a macro?
                 self.lazy_start_color(Color::Black, Color::Yellow);
                 reset = true;
