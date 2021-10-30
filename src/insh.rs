@@ -188,11 +188,17 @@ impl Insh {
                         ..
                     }) => {
                         if self.selected < self.terminal_size.1 as usize - 1 {
-                            self.selected += 1;
+                            if self.selected < self.entries.len() - 1 {
+                                self.selected += 1;
+                            }
                         } else {
-                            self.entry_offset += 1
+                            self.entry_offset += 1;
+                            self.entries = self.get_entries();
+                            if self.selected >= self.entries.len() {
+                                self.entry_offset -= 1;
+                                self.entries = self.get_entries();
+                            }
                         }
-                        self.entries = self.get_entries();
                         self.lazy_display_browse();
                         self.update_terminal();
                     }
