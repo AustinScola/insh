@@ -1,3 +1,4 @@
+mod finder;
 mod insh;
 
 fn main() {
