@@ -175,6 +175,11 @@ impl Insh {
                                     self.lazy_display_browse();
                                     self.update_terminal();
                                 }
+                            } else if selected_path.is_file() {
+                                Vim::run(&selected_path);
+                                self.lazy_hide_cursor();
+                                self.lazy_display_browse();
+                                self.update_terminal();
                             }
                         }
                     }
