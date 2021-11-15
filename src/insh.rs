@@ -8,6 +8,7 @@ use std::path::PathBuf;
 
 use crate::finder::Finder;
 use crate::vim::Vim;
+use crate::walker::Walker;
 
 extern crate crossterm;
 use crossterm::{
@@ -208,7 +209,7 @@ impl Insh {
                         code: KeyCode::Char('f'),
                         ..
                     }) => {
-                        self.mode = Mode::Find;
+                        self.enter_find_mode();
                         self.lazy_display_find();
                         self.update_terminal();
                     }
@@ -291,6 +292,25 @@ impl Insh {
         self.lazy_disable_alternate_terminal();
         self.disable_raw_terminal();
         self.lazy_show_cursor();
+    }
+
+    fn enter_find_mode(&mut self) {
+        self.mode = Mode::Find;
+
+        self.pattern.clear();
+        self.pattern_state = PatternState::NotCompiled;
+
+        //  Initially show all files.
+        let mut entries = Walker::from(&(*self.directory.as_path()));
+        self.found.clear();
+        for _ in 0..(self.terminal_size.1 - 1).into() {
+            let entry = entries.next();
+            match entry {
+                Some(entry) => self.found.push(entry),
+                None => break,
+            }
+        }
+        self.more = Some(Finder::from(entries));
     }
 
     fn lazy_display_browse(&mut self) {
