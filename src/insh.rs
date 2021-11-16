@@ -335,6 +335,21 @@ impl Insh {
                             self.update_terminal();
                         }
                     }
+                    Event::Key(KeyEvent {
+                        code: KeyCode::Char('e'),
+                        ..
+                    })
+                    | Event::Key(KeyEvent {
+                        code: KeyCode::Enter,
+                        ..
+                    }) => {
+                        let entry_index = self.find_offset + self.find_selected;
+                        let selected_path: PathBuf = self.found[entry_index].path();
+                        Vim::run(&selected_path);
+                        self.lazy_hide_cursor();
+                        self.lazy_display_find();
+                        self.update_terminal();
+                    }
                     _ => {}
                 },
             }
