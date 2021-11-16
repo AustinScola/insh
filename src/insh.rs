@@ -36,11 +36,15 @@ pub struct Insh {
     pattern_state: PatternState,
     found: Vec<fs::DirEntry>,
     more: Option<Finder>,
+    find_offset: usize,
+    find_selected: usize,
 }
 
+#[derive(PartialEq)]
 enum Mode {
     Browse,
     Find,
+    FilteredBrowse,
 }
 
 enum PatternState {
@@ -71,6 +75,8 @@ impl Insh {
         let pattern_state = PatternState::NotCompiled;
         let found = Vec::new();
         let more = None;
+        let find_offset = 0;
+        let find_selected = 0;
 
         Insh {
             stdout,
@@ -89,6 +95,8 @@ impl Insh {
             pattern_state,
             found,
             more,
+            find_offset,
+            find_selected,
         }
     }
 
@@ -261,6 +269,8 @@ impl Insh {
                                 self.more = Some(entries);
                             }
                         }
+                        self.mode = Mode::FilteredBrowse;
+                        self.find_selected = 0;
 
                         self.lazy_display_find();
                         self.update_terminal();
@@ -273,6 +283,57 @@ impl Insh {
                         self.pattern_state = PatternState::NotCompiled;
                         self.lazy_display_find();
                         self.update_terminal();
+                    }
+                    _ => {}
+                },
+                Mode::FilteredBrowse => match event {
+                    Event::Key(KeyEvent {
+                        code: KeyCode::Esc, ..
+                    }) => {
+                        self.mode = Mode::Find;
+                        self.lazy_display_find();
+                        self.update_terminal();
+                    }
+                    Event::Key(KeyEvent {
+                        code: KeyCode::Char('j'),
+                        ..
+                    }) => {
+                        if self.find_selected < self.terminal_size.1 as usize - 2 {
+                            if self.find_selected + self.find_offset < self.found.len() - 1 {
+                                self.find_selected += 1;
+                            }
+                        } else if self.find_selected + self.find_offset < self.found.len() - 1 {
+                            self.find_offset += 1;
+                        } else if let Some(ref mut more) = self.more {
+                            match more.next() {
+                                Some(entry) => {
+                                    self.found.push(entry);
+                                    self.find_offset += 1;
+                                }
+                                None => {
+                                    self.more = None;
+                                }
+                            }
+                        }
+
+                        self.lazy_display_find();
+                        self.update_terminal();
+                    }
+                    Event::Key(KeyEvent {
+                        code: KeyCode::Char('k'),
+                        ..
+                    }) => {
+                        if self.find_selected == 0 {
+                            if self.find_offset > 0 {
+                                self.find_offset -= 1;
+                                self.lazy_display_find();
+                                self.update_terminal();
+                            }
+                        } else {
+                            self.find_selected -= 1;
+                            self.lazy_display_find();
+                            self.update_terminal();
+                        }
                     }
                     _ => {}
                 },
@@ -305,17 +366,28 @@ impl Insh {
         self.pattern.clear();
         self.pattern_state = PatternState::NotCompiled;
 
-        //  Initially show all files.
         let mut entries = Walker::from(&(*self.directory.as_path()));
         self.found.clear();
+        let mut there_are_more = true;
         for _ in 0..(self.terminal_size.1 - 1).into() {
             let entry = entries.next();
             match entry {
                 Some(entry) => self.found.push(entry),
-                None => break,
+                None => {
+                    there_are_more = false;
+                    break;
+                }
             }
         }
-        self.more = Some(Finder::from(entries));
+
+        if there_are_more {
+            self.more = Some(Finder::from(entries));
+        } else {
+            self.more = None;
+        }
+
+        self.find_offset = 0;
+        self.find_selected = 0;
     }
 
     fn lazy_display_browse(&mut self) {
@@ -378,11 +450,28 @@ impl Insh {
         }
 
         // Display found entries
-        for entry_number in 0..self.found.len() {
+        for entry_number in 0..(self.terminal_size.1 as usize - 1) {
             self.lazy_move_cursor(0, (entry_number + 1).try_into().unwrap());
-            let file_name = self.found[entry_number].file_name();
+            let entry_index = self.find_offset + entry_number;
+            if entry_index == self.found.len() {
+                break;
+            }
+            let file_name = self.found[entry_index].file_name();
             let entry_name = file_name.to_string_lossy();
+
+            let reset;
+            if entry_number == self.find_selected && self.mode == Mode::FilteredBrowse {
+                self.lazy_start_color(Color::Black, Color::Yellow);
+                reset = true;
+            } else {
+                reset = false;
+            }
+
             self.lazy_print(&entry_name);
+
+            if reset {
+                self.lazy_reset_color()
+            }
         }
     }
 
