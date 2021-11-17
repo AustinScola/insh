@@ -13,7 +13,7 @@ use crate::walker::Walker;
 extern crate crossterm;
 use crossterm::{
     cursor,
-    event::{self, Event, KeyCode, KeyEvent},
+    event::{self, Event, KeyCode, KeyEvent, KeyModifiers},
     style::{Color, Print, ResetColor, SetBackgroundColor, SetForegroundColor},
     terminal::{self, ClearType},
     QueueableCommand,
@@ -118,11 +118,20 @@ impl Insh {
 
         loop {
             let event = event::read().unwrap();
+
+            if let Event::Key(KeyEvent {
+                code: KeyCode::Char('x'),
+                modifiers: KeyModifiers::CONTROL,
+            }) = event
+            {
+                break;
+            }
+
             match self.mode {
                 Mode::Browse => match event {
                     Event::Key(KeyEvent {
                         code: KeyCode::Char('q'),
-                        ..
+                        modifiers: KeyModifiers::CONTROL,
                     }) => break,
                     Event::Key(KeyEvent {
                         code: KeyCode::Char('j'),
@@ -230,7 +239,8 @@ impl Insh {
                 },
                 Mode::Find => match event {
                     Event::Key(KeyEvent {
-                        code: KeyCode::Esc, ..
+                        code: KeyCode::Char('q'),
+                        modifiers: KeyModifiers::CONTROL,
                     }) => {
                         self.mode = Mode::Browse;
                         self.lazy_display_browse();
@@ -288,7 +298,8 @@ impl Insh {
                 },
                 Mode::FilteredBrowse => match event {
                     Event::Key(KeyEvent {
-                        code: KeyCode::Esc, ..
+                        code: KeyCode::Char('q'),
+                        modifiers: KeyModifiers::CONTROL,
                     }) => {
                         self.mode = Mode::Find;
                         self.lazy_display_find();
