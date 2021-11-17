@@ -7,4 +7,4 @@ REPO_ROOT="$(realpath "${HERE}/..")"
 
 cd "${REPO_ROOT}"
 
-cargo fmt
+cargo fmt "$@"
