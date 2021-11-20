@@ -1,5 +1,6 @@
 mod finder;
 mod insh;
+mod searcher;
 mod vim;
 mod walker;
 

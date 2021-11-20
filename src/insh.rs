@@ -7,6 +7,7 @@ use std::iter::FromIterator;
 use std::path::PathBuf;
 
 use crate::finder::Finder;
+use crate::searcher::{SearchFileHit, Searcher};
 use crate::vim::Vim;
 use crate::walker::Walker;
 
@@ -14,7 +15,7 @@ extern crate crossterm;
 use crossterm::{
     cursor,
     event::{self, Event, KeyCode, KeyEvent, KeyModifiers},
-    style::{Color, Print, ResetColor, SetBackgroundColor, SetForegroundColor},
+    style::{Color, Print, ResetColor, SetAttribute, SetBackgroundColor, SetForegroundColor, Attribute:: {Bold}},
     terminal::{self, ClearType},
     QueueableCommand,
 };
@@ -35,16 +36,25 @@ pub struct Insh {
     pattern: String,
     pattern_state: PatternState,
     found: Vec<fs::DirEntry>,
-    more: Option<Finder>,
+    finder: Option<Finder>,
     find_offset: usize,
     find_selected: usize,
+
+    // Search mode state
+    search: String,
+    hits: Vec<SearchFileHit>,
+    searcher: Option<Searcher>,
 }
 
 #[derive(PartialEq)]
 enum Mode {
     Browse,
+
     Find,
-    FilteredBrowse,
+    BrowseFind,
+
+    Search,
+    BrowseSearch,
 }
 
 enum PatternState {
@@ -74,9 +84,14 @@ impl Insh {
         let pattern = String::new();
         let pattern_state = PatternState::NotCompiled;
         let found = Vec::new();
-        let more = None;
+        let finder = None;
         let find_offset = 0;
         let find_selected = 0;
+
+        // Search mode state
+        let search = String::new();
+        let hits = Vec::new();
+        let searcher = None;
 
         Insh {
             stdout,
@@ -94,9 +109,14 @@ impl Insh {
             pattern,
             pattern_state,
             found,
-            more,
+            finder,
             find_offset,
             find_selected,
+
+            // Search mode state
+            search,
+            hits,
+            searcher,
         }
     }
 
@@ -235,6 +255,14 @@ impl Insh {
                         self.lazy_display_find();
                         self.update_terminal();
                     }
+                    Event::Key(KeyEvent {
+                        code: KeyCode::Char('s'),
+                        ..
+                    }) => {
+                        self.enter_search_mode();
+                        self.lazy_display_search();
+                        self.update_terminal();
+                    }
                     _ => {}
                 },
                 Mode::Find => match event {
@@ -242,7 +270,7 @@ impl Insh {
                         code: KeyCode::Char('q'),
                         modifiers: KeyModifiers::CONTROL,
                     }) => {
-                        self.mode = Mode::Browse;
+                        self.enter_browse_mode();
                         self.lazy_display_browse();
                         self.update_terminal();
                     }
@@ -259,29 +287,7 @@ impl Insh {
                         code: KeyCode::Enter,
                         ..
                     }) => {
-                        self.found.clear();
-                        self.more = None;
-
-                        let entries = Finder::new(&*self.directory, &self.pattern);
-                        match entries {
-                            Err(_) => {
-                                self.pattern_state = PatternState::BadRegex;
-                            }
-                            Ok(mut entries) => {
-                                self.pattern_state = PatternState::GoodRegex;
-                                for _ in 0..(self.terminal_size.1 - 1) {
-                                    let entry = entries.next();
-                                    match entry {
-                                        Some(entry) => self.found.push(entry),
-                                        None => break,
-                                    }
-                                }
-                                self.more = Some(entries);
-                            }
-                        }
-                        self.mode = Mode::FilteredBrowse;
-                        self.find_selected = 0;
-
+                        self.enter_browse_find_mode();
                         self.lazy_display_find();
                         self.update_terminal();
                     }
@@ -296,7 +302,7 @@ impl Insh {
                     }
                     _ => {}
                 },
-                Mode::FilteredBrowse => match event {
+                Mode::BrowseFind => match event {
                     Event::Key(KeyEvent {
                         code: KeyCode::Char('q'),
                         modifiers: KeyModifiers::CONTROL,
@@ -315,14 +321,14 @@ impl Insh {
                             }
                         } else if self.find_selected + self.find_offset < self.found.len() - 1 {
                             self.find_offset += 1;
-                        } else if let Some(ref mut more) = self.more {
-                            match more.next() {
+                        } else if let Some(ref mut finder) = self.finder {
+                            match finder.next() {
                                 Some(entry) => {
                                     self.found.push(entry);
                                     self.find_offset += 1;
                                 }
                                 None => {
-                                    self.more = None;
+                                    self.finder = None;
                                 }
                             }
                         }
@@ -363,6 +369,75 @@ impl Insh {
                     }
                     _ => {}
                 },
+                Mode::Search => match event {
+                    Event::Key(KeyEvent {
+                        code: KeyCode::Char('q'),
+                        modifiers: KeyModifiers::CONTROL,
+                    }) => {
+                        self.enter_browse_mode();
+                        self.lazy_display_browse();
+                        self.update_terminal();
+                    }
+                    Event::Key(KeyEvent {
+                        code: KeyCode::Char(character),
+                        ..
+                    }) => {
+                        self.search.push(character);
+                        self.lazy_display_search();
+                        self.update_terminal();
+                    }
+                    Event::Key(KeyEvent {
+                        code: KeyCode::Backspace,
+                        ..
+                    }) => {
+                        self.search.pop();
+                        self.lazy_display_search();
+                        self.update_terminal();
+                    }
+
+                    Event::Key(KeyEvent {
+                        code: KeyCode::Enter,
+                        ..
+                    }) => {
+                        self.enter_browse_search_mode();
+
+                        self.lazy_display_search();
+                        self.update_terminal();
+                    }
+                    _ => {}
+                },
+                Mode::BrowseSearch => match event {
+                    Event::Key(KeyEvent {
+                        code: KeyCode::Char('q'),
+                        modifiers: KeyModifiers::CONTROL,
+                    }) => {
+                        self.mode = Mode::Search;
+                        self.lazy_display_search();
+                        self.update_terminal();
+                    }
+                    Event::Key(KeyEvent {
+                        code: KeyCode::Char('j'),
+                        ..
+                    }) => {
+                        panic!("NOT IMPLEMENTED: Move selection down.");
+                    }
+                    Event::Key(KeyEvent {
+                        code: KeyCode::Char('k'),
+                        ..
+                    }) => {
+                        panic!("NOT IMPLEMENTED: Move selection up.");
+                    }
+                    Event::Key(KeyEvent {
+                        code: KeyCode::Char('e'),
+                        ..
+                    }) | Event::Key(KeyEvent {
+                        code: KeyCode::Enter,
+                        ..
+                    }) => {
+                        panic!("NOT IMPLEMENTED: Open editor at line hit.");
+                    }
+                    _ => {}
+                },
             }
         }
 
@@ -386,6 +461,10 @@ impl Insh {
         self.lazy_show_cursor();
     }
 
+    fn enter_browse_mode(&mut self) {
+        self.mode = Mode::Browse;
+    }
+
     fn enter_find_mode(&mut self) {
         self.mode = Mode::Find;
 
@@ -407,13 +486,66 @@ impl Insh {
         }
 
         if there_are_more {
-            self.more = Some(Finder::from(entries));
+            self.finder = Some(Finder::from(entries));
         } else {
-            self.more = None;
+            self.finder = None;
         }
 
         self.find_offset = 0;
         self.find_selected = 0;
+    }
+
+    fn enter_browse_find_mode(&mut self) {
+        self.mode = Mode::BrowseFind;
+
+        self.found.clear();
+        self.finder = None;
+
+        let entries = Finder::new(&*self.directory, &self.pattern);
+        match entries {
+            Err(_) => {
+                self.pattern_state = PatternState::BadRegex;
+            }
+            Ok(mut entries) => {
+                self.pattern_state = PatternState::GoodRegex;
+                for _ in 0..(self.terminal_size.1 - 1) {
+                    let entry = entries.next();
+                    match entry {
+                        Some(entry) => self.found.push(entry),
+                        None => break,
+                    }
+                }
+                self.finder = Some(entries);
+            }
+        }
+        self.find_selected = 0;
+    }
+
+    fn enter_search_mode(&mut self) {
+        self.mode = Mode::Search;
+        self.hits.clear();
+        self.search.clear();
+    }
+
+    fn enter_browse_search_mode(&mut self) {
+        self.mode = Mode::BrowseSearch;
+
+        let mut searcher = Searcher::new(&*self.directory, &self.search);
+
+        self.hits.clear();
+        let mut lines: usize = 0;
+        while lines < (self.terminal_size.1 - 1).into() {
+            let hit = searcher.next();
+            match hit {
+                Some(search_file_hit) => {
+                    lines += 1 + search_file_hit.hits.len();
+                    self.hits.push(search_file_hit);
+                }
+                None => break,
+            }
+        }
+
+        self.searcher = Some(searcher);
     }
 
     fn lazy_display_browse(&mut self) {
@@ -486,7 +618,7 @@ impl Insh {
             let entry_name = file_name.to_string_lossy();
 
             let reset;
-            if entry_number == self.find_selected && self.mode == Mode::FilteredBrowse {
+            if entry_number == self.find_selected && self.mode == Mode::BrowseFind {
                 self.lazy_start_color(Color::Black, Color::Yellow);
                 reset = true;
             } else {
@@ -498,6 +630,67 @@ impl Insh {
             if reset {
                 self.lazy_reset_color()
             }
+        }
+    }
+
+    fn lazy_display_search(&mut self) {
+        self.lazy_clear_screen();
+
+        // Display the search phrase.
+        self.lazy_move_cursor(0, 0);
+        let mut search = self.search.clone();
+        search.truncate(self.terminal_size.0.into());
+        self.lazy_print(&search);
+
+        // Display hits.
+        let mut lines = 0;
+        let mut file_hit_number = 0;
+        loop {
+            // Print the file name.
+            self.lazy_move_cursor(0, lines + 1);
+            if file_hit_number >= self.hits.len() {
+                break;
+            }
+            let file_hit = self.hits[file_hit_number].clone();
+            self.lazy_start_bold();
+            self.lazy_print(&file_hit.file.to_string_lossy());
+            self.lazy_reset_color();
+            lines += 1;
+            if lines == (self.terminal_size.1 - 1).into() {
+                break;
+            }
+            file_hit_number += 1;
+
+
+            // Print the lines.
+            let mut line_hit_number = 0;
+            loop {
+                let line_hit = file_hit.hits[line_hit_number].clone();
+
+                self.lazy_move_cursor(0, lines + 1);
+                let mut string = String::new();
+                string.push_str(&line_hit.line_number.to_string());
+                string.push(':');
+                string.push_str(&line_hit.line);
+                self.lazy_print(&string);
+                // self.lazy_print(&line_hit.line);
+                lines += 1;
+                if lines == (self.terminal_size.1 - 1).into() {
+                    return;
+                }
+
+                line_hit_number += 1;
+                if line_hit_number == file_hit.hits.len() {
+                    break;
+                }
+            }
+
+            // Skip a line.
+            lines += 1;
+            if lines == (self.terminal_size.1 - 1).into() {
+                break;
+            }
+            
         }
     }
 
@@ -556,6 +749,10 @@ impl Insh {
 
     fn lazy_reset_color(&mut self) {
         self.stdout.queue(ResetColor).unwrap();
+    }
+
+    fn lazy_start_bold(&mut self) {
+        self.stdout.queue(SetAttribute(Bold)).unwrap();
     }
 
     fn lazy_print(&mut self, string: &str) {
