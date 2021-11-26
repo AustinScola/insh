@@ -15,7 +15,10 @@ extern crate crossterm;
 use crossterm::{
     cursor,
     event::{self, Event, KeyCode, KeyEvent, KeyModifiers},
-    style::{Color, Print, ResetColor, SetAttribute, SetBackgroundColor, SetForegroundColor, Attribute:: {Bold}},
+    style::{
+        Attribute::Bold, Color, Print, ResetColor, SetAttribute, SetBackgroundColor,
+        SetForegroundColor,
+    },
     terminal::{self, ClearType},
     QueueableCommand,
 };
@@ -44,6 +47,10 @@ pub struct Insh {
     search: String,
     hits: Vec<SearchFileHit>,
     searcher: Option<Searcher>,
+    search_file_offset: usize,
+    search_line_offset: Option<usize>,
+    search_file_selected: usize,
+    search_line_selected: Option<usize>,
 }
 
 #[derive(PartialEq)]
@@ -92,6 +99,10 @@ impl Insh {
         let search = String::new();
         let hits = Vec::new();
         let searcher = None;
+        let search_file_offset = 0;
+        let search_line_offset = None;
+        let search_file_selected = 0;
+        let search_line_selected = None;
 
         Insh {
             stdout,
@@ -117,20 +128,107 @@ impl Insh {
             search,
             hits,
             searcher,
+            search_file_offset,
+            search_line_offset,
+            search_file_selected,
+            search_line_selected,
         }
     }
 
-    fn get_entries(&mut self) -> Vec<fs::DirEntry> {
-        let mut entries_iter = fs::read_dir(self.directory.as_path()).unwrap();
-        for _ in 0..self.entry_offset {
-            entries_iter.next();
+    fn get_selected_line(&mut self) -> usize {
+        if self.search_file_offset >= self.hits.len() {
+            return 0;
         }
 
-        Vec::from_iter(
-            entries_iter
-                .take(self.terminal_size.1.into())
-                .map(|entry| entry.unwrap()),
-        )
+        let mut selected_line = 0;
+
+        let mut file_offset = self.search_file_offset;
+        if self.search_file_selected == 0 {
+            if let Some(search_line_selected) = self.search_line_selected {
+                selected_line += search_line_selected + 1;
+            }
+
+            return selected_line;
+        } else {
+            selected_line += self.hits[file_offset].hits.len() + 1;
+        }
+
+        if let Some(search_line_offset) = self.search_line_offset {
+            selected_line -= search_line_offset + 1;
+        }
+
+        if selected_line >= (self.terminal_size.1 - 2).into() {
+            return (self.terminal_size.1 - 2).into();
+        }
+
+        file_offset += 1;
+        selected_line += 1;
+
+        loop {
+            if file_offset >= self.search_file_offset + self.search_file_selected {
+                break;
+            }
+
+            selected_line += self.hits[file_offset].hits.len() + 2;
+            file_offset += 1;
+        }
+
+        if selected_line >= (self.terminal_size.1 - 2).into() {
+            return (self.terminal_size.1 - 2).into();
+        }
+
+        if let Some(search_line_selected) = self.search_line_selected {
+            selected_line += search_line_selected + 1;
+        }
+
+        if selected_line >= (self.terminal_size.1 - 2).into() {
+            return (self.terminal_size.1 - 2).into();
+        }
+
+        selected_line
+    }
+
+    fn search_line_number(&mut self) -> Option<usize> {
+        match self.search_file_selected {
+            0 => match self.search_line_offset {
+                Some(search_line_offset) => match self.search_line_selected {
+                    Some(search_line_selected) => {
+                        Some(search_line_offset + search_line_selected + 1)
+                    }
+                    None => Some(search_line_offset),
+                },
+                None => self.search_line_selected,
+            },
+            _ => self.search_line_selected,
+        }
+    }
+
+    fn increment_search_line_selected(&mut self) {
+        match self.search_line_selected {
+            Some(search_line_selected) => {
+                if search_line_selected < (self.terminal_size.1 - 2).into() {
+                    self.search_line_selected = Some(search_line_selected + 1);
+                }
+            }
+            None => {
+                self.search_line_selected = Some(0);
+            }
+        };
+    }
+
+    fn decrement_search_line_selected(&mut self) {
+        self.search_line_selected = match self.search_line_selected {
+            Some(0) => None,
+            Some(search_line_selected) => Some(search_line_selected - 1),
+            None => Some(0),
+        };
+    }
+
+    fn increment_search_line_offset(&mut self) {
+        self.search_line_offset = Some(match self.search_line_offset {
+            Some(search_line_offset) => search_line_offset + 1,
+            None => 0,
+        });
     }
 
     pub fn run(&mut self) {
@@ -419,18 +517,209 @@ impl Insh {
                         code: KeyCode::Char('j'),
                         ..
                     }) => {
-                        panic!("NOT IMPLEMENTED: Move selection down.");
+                        let first_file = self.hits[self.search_file_offset].clone();
+                        let selected_line = self.get_selected_line();
+                        let search_file_number =
+                            self.search_file_offset + self.search_file_selected;
+                        let search_file_hit = self.hits[search_file_number].clone();
+
+                        let search_line_number = self.search_line_number();
+
+                        if selected_line == (self.terminal_size.1 - 2).into() {
+                            if search_line_number >= Some(search_file_hit.hits.len() - 1) {
+                                if search_file_number == self.hits.len() - 1 {
+                                    if let Some(ref mut searcher) = self.searcher {
+                                        match searcher.next() {
+                                            Some(hit) => {
+                                                self.hits.push(hit);
+
+                                                self.search_line_selected = None;
+                                                self.search_file_selected += 1;
+
+                                                if self.search_line_offset == None {
+                                                    self.search_line_offset = Some(0);
+                                                } else if self.search_line_offset
+                                                    < Some(first_file.hits.len())
+                                                {
+                                                    self.increment_search_line_offset()
+                                                } else {
+                                                    self.search_file_offset += 1;
+                                                    self.search_line_offset = None;
+                                                    self.search_file_selected -= 1;
+                                                }
+
+                                                let first_file =
+                                                    self.hits[self.search_file_offset].clone();
+
+                                                if self.search_line_offset == None {
+                                                    self.search_line_offset = Some(0);
+                                                } else if self.search_line_offset
+                                                    < Some(first_file.hits.len())
+                                                {
+                                                    self.increment_search_line_offset()
+                                                } else {
+                                                    self.search_file_offset += 1;
+                                                    self.search_line_offset = None;
+                                                    self.search_file_selected -= 1;
+                                                }
+                                            }
+                                            None => {
+                                                self.searcher = None;
+                                            }
+                                        }
+                                    }
+                                } else {
+                                    self.search_line_selected = None;
+                                    self.search_file_selected += 1;
+
+                                    if self.search_line_offset == None {
+                                        self.search_line_offset = Some(0);
+                                    } else if self.search_line_offset < Some(first_file.hits.len())
+                                    {
+                                        self.increment_search_line_offset()
+                                    } else {
+                                        self.search_file_offset += 1;
+                                        self.search_line_offset = None;
+                                        self.search_file_selected -= 1;
+                                    }
+
+                                    let first_file = self.hits[self.search_file_offset].clone();
+
+                                    if self.search_line_offset == None {
+                                        self.search_line_offset = Some(0);
+                                    } else if self.search_line_offset < Some(first_file.hits.len())
+                                    {
+                                        self.increment_search_line_offset()
+                                    } else {
+                                        self.search_file_offset += 1;
+                                        self.search_line_offset = None;
+                                        self.search_file_selected -= 1;
+                                    }
+                                }
+                            } else if self.search_line_offset == None {
+                                if self.search_file_selected != 0 {
+                                    self.increment_search_line_selected();
+                                }
+                                self.search_line_offset = Some(0);
+                            } else if self.search_line_offset < Some(first_file.hits.len()) {
+                                if self.search_file_selected != 0 {
+                                    self.increment_search_line_selected();
+                                }
+                                self.increment_search_line_offset()
+                            } else {
+                                self.increment_search_line_selected();
+                                self.search_file_offset += 1;
+                                self.search_line_offset = None;
+                                self.search_file_selected -= 1;
+                            }
+                        } else if selected_line == (self.terminal_size.1 - 3).into()
+                            && search_line_number >= Some(search_file_hit.hits.len() - 1)
+                        {
+                            self.search_line_selected = None;
+                            self.search_file_selected += 1;
+
+                            if self.search_line_offset == None {
+                                self.search_line_offset = Some(0);
+                            } else if self.search_line_offset < Some(first_file.hits.len()) {
+                                self.increment_search_line_offset()
+                            } else {
+                                self.search_file_offset += 1;
+                                self.search_line_offset = None;
+                                self.search_file_selected -= 1;
+                            }
+                        } else if search_line_number >= Some(search_file_hit.hits.len() - 1) {
+                            if search_file_number < self.hits.len() - 1 {
+                                self.search_file_selected += 1;
+                                self.search_line_selected = None;
+                            }
+                        } else {
+                            self.increment_search_line_selected();
+                        }
+
+                        self.lazy_display_search();
+                        self.update_terminal();
                     }
                     Event::Key(KeyEvent {
                         code: KeyCode::Char('k'),
                         ..
                     }) => {
-                        panic!("NOT IMPLEMENTED: Move selection up.");
+                        // Determine the line on the screen that is selected.
+                        let selected_line = self.get_selected_line();
+
+                        if selected_line == 0 {
+                            match self.search_line_offset {
+                                None => {
+                                    if self.search_file_offset != 0 {
+                                        self.search_file_offset -= 1;
+                                        self.search_line_offset =
+                                            Some(self.hits[self.search_file_offset].hits.len() - 1);
+                                    }
+                                }
+                                Some(0) => {
+                                    self.search_line_offset = None;
+                                }
+                                Some(search_line_offset) => {
+                                    self.search_line_offset = Some(search_line_offset - 1);
+                                }
+                            }
+                        } else if self.search_line_selected.is_none() {
+                            if self.search_file_selected == 0 {
+                                if self.search_file_offset > 0 {
+                                    self.search_file_offset -= 1;
+
+                                    let search_file_number =
+                                        self.search_file_offset + self.search_file_selected;
+                                    let search_file_hit = self.hits[search_file_number].clone();
+                                    self.search_line_selected =
+                                        Some(search_file_hit.hits.len() - 1);
+                                }
+                            } else {
+                                self.search_file_selected -= 1;
+                                if selected_line == 1 {
+                                    self.search_line_selected = None;
+                                    let search_file_number =
+                                        self.search_file_offset + self.search_file_selected;
+                                    let search_file_hit = self.hits[search_file_number].clone();
+                                    self.search_line_offset = Some(search_file_hit.hits.len() - 1);
+                                } else {
+                                    let search_file_number =
+                                        self.search_file_offset + self.search_file_selected;
+                                    let search_file_hit = self.hits[search_file_number].clone();
+                                    if self.search_file_selected == 0 {
+                                        self.search_line_selected = match self.search_line_offset {
+                                            Some(search_line_offset) => {
+                                                if search_line_offset
+                                                    == search_file_hit.hits.len() - 1
+                                                {
+                                                    None
+                                                } else {
+                                                    Some(
+                                                        search_file_hit.hits.len()
+                                                            - search_line_offset
+                                                            - 2,
+                                                    )
+                                                }
+                                            }
+                                            None => Some(search_file_hit.hits.len() - 1),
+                                        }
+                                    } else {
+                                        self.search_line_selected =
+                                            Some(search_file_hit.hits.len() - 1);
+                                    }
+                                }
+                            }
+                        } else {
+                            self.decrement_search_line_selected();
+                        }
+
+                        self.lazy_display_search();
+                        self.update_terminal();
                     }
                     Event::Key(KeyEvent {
                         code: KeyCode::Char('e'),
                         ..
-                    }) | Event::Key(KeyEvent {
+                    })
+                    | Event::Key(KeyEvent {
                         code: KeyCode::Enter,
                         ..
                     }) => {
@@ -525,6 +814,11 @@ impl Insh {
         self.mode = Mode::Search;
         self.hits.clear();
         self.search.clear();
+
+        self.search_file_offset = 0;
+        self.search_line_offset = None;
+        self.search_file_selected = 0;
+        self.search_line_selected = None;
     }
 
     fn enter_browse_search_mode(&mut self) {
@@ -546,6 +840,19 @@ impl Insh {
         }
 
         self.searcher = Some(searcher);
+    }
+
+    fn get_entries(&mut self) -> Vec<fs::DirEntry> {
+        let mut entries_iter = fs::read_dir(self.directory.as_path()).unwrap();
+        for _ in 0..self.entry_offset {
+            entries_iter.next();
+        }
+
+        Vec::from_iter(
+            entries_iter
+                .take(self.terminal_size.1.into())
+                .map(|entry| entry.unwrap()),
+        )
     }
 
     fn lazy_display_browse(&mut self) {
@@ -642,9 +949,118 @@ impl Insh {
         search.truncate(self.terminal_size.0.into());
         self.lazy_print(&search);
 
-        // Display hits.
+        let selected_line = self.get_selected_line();
+
+        // Temporarily show some vars for debugging.
+        // TODO: Remove this!
+        self.lazy_move_cursor(20, 0);
+        self.lazy_print(&self.search_file_offset.to_string());
+        self.lazy_move_cursor(25, 0);
+        match self.search_line_offset {
+            Some(num) => {
+                self.lazy_print(&num.to_string());
+            }
+            None => {
+                self.lazy_print("None");
+            }
+        };
+        self.lazy_move_cursor(30, 0);
+        self.lazy_print(&self.search_file_selected.to_string());
+        self.lazy_move_cursor(35, 0);
+        match self.search_line_selected {
+            Some(num) => {
+                self.lazy_print(&num.to_string());
+            }
+            None => {
+                self.lazy_print("None");
+            }
+        };
+        self.lazy_move_cursor(40, 0);
+        self.lazy_print(&selected_line.to_string());
+        self.lazy_move_cursor(45, 0);
+        match self.search_line_number() {
+            Some(num) => {
+                self.lazy_print(&num.to_string());
+            }
+            None => {
+                self.lazy_print("None");
+            }
+        };
+
         let mut lines = 0;
-        let mut file_hit_number = 0;
+
+        // Display the first hit.
+
+        let mut file_hit_number = self.search_file_offset;
+
+        if self.hits.is_empty() {
+            return;
+        }
+
+        // Print the first file name.
+        if self.search_line_offset == None {
+            self.lazy_move_cursor(0, 1);
+            let file_hit = self.hits[file_hit_number].clone();
+            if usize::from(lines) == selected_line {
+                self.lazy_start_color(Color::Black, Color::Yellow);
+            }
+            self.lazy_start_bold();
+            self.lazy_print(&file_hit.file.to_string_lossy());
+            self.lazy_reset_color();
+            lines += 1;
+            if lines == (self.terminal_size.1 - 1) {
+                return;
+            }
+        }
+
+        // Print the line hits of the first file hit.
+        let mut line_hit_number = self.search_line_offset.unwrap_or(0);
+        let file_hit = self.hits[file_hit_number].clone();
+        loop {
+            if line_hit_number == file_hit.hits.len() {
+                // Add a blank line between the first hit and the rest of the hits.
+                lines += 1;
+                if lines == (self.terminal_size.1 - 1) {
+                    return;
+                }
+                break;
+            }
+            if line_hit_number > file_hit.hits.len() {
+                break;
+            }
+
+            let line_hit = file_hit.hits[line_hit_number].clone();
+
+            self.lazy_move_cursor(0, lines + 1);
+
+            let mut reset_color = false;
+            if usize::from(lines) == selected_line {
+                self.lazy_start_color(Color::Black, Color::Yellow);
+                reset_color = true;
+            }
+
+            let mut string = String::new();
+            string.push_str(&line_hit.line_number.to_string());
+            string.push(':');
+            string.push_str(&line_hit.line);
+            self.lazy_print(&string);
+
+            if reset_color {
+                self.lazy_reset_color();
+            }
+
+            lines += 1;
+            if lines == (self.terminal_size.1 - 1) {
+                return;
+            }
+
+            line_hit_number += 1;
+        }
+
+        file_hit_number += 1;
+        line_hit_number = 0;
+
+        // Display the rest of the hits.
         loop {
             // Print the file name.
             self.lazy_move_cursor(0, lines + 1);
@@ -652,30 +1068,42 @@ impl Insh {
                 break;
             }
             let file_hit = self.hits[file_hit_number].clone();
+            if usize::from(lines) == selected_line {
+                self.lazy_start_color(Color::Black, Color::Yellow);
+            }
             self.lazy_start_bold();
             self.lazy_print(&file_hit.file.to_string_lossy());
             self.lazy_reset_color();
             lines += 1;
-            if lines == (self.terminal_size.1 - 1).into() {
+            if lines == (self.terminal_size.1 - 1) {
                 break;
             }
             file_hit_number += 1;
 
-
             // Print the lines.
-            let mut line_hit_number = 0;
             loop {
                 let line_hit = file_hit.hits[line_hit_number].clone();
 
                 self.lazy_move_cursor(0, lines + 1);
+
+                let mut reset_color = false;
+                if usize::from(lines) == selected_line {
+                    self.lazy_start_color(Color::Black, Color::Yellow);
+                    reset_color = true;
+                }
+
                 let mut string = String::new();
                 string.push_str(&line_hit.line_number.to_string());
                 string.push(':');
                 string.push_str(&line_hit.line);
                 self.lazy_print(&string);
-                // self.lazy_print(&line_hit.line);
+
+                if reset_color {
+                    self.lazy_reset_color();
+                }
+
                 lines += 1;
-                if lines == (self.terminal_size.1 - 1).into() {
+                if lines == (self.terminal_size.1 - 1) {
                     return;
                 }
 
@@ -685,12 +1113,13 @@ impl Insh {
                 }
             }
 
+            line_hit_number = 0;
+
             // Skip a line.
             lines += 1;
-            if lines == (self.terminal_size.1 - 1).into() {
+            if lines == (self.terminal_size.1 - 1) {
                 break;
             }
-            
         }
     }
 
