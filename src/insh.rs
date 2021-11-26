@@ -723,7 +723,25 @@ impl Insh {
                         code: KeyCode::Enter,
                         ..
                     }) => {
-                        panic!("NOT IMPLEMENTED: Open editor at line hit.");
+                        let search_file_number =
+                            self.search_file_offset + self.search_file_selected;
+                        let search_file_hit = self.hits[search_file_number].clone();
+
+                        match self.search_line_number() {
+                            Some(search_line_number) => {
+                                let line_number =
+                                    search_file_hit.hits[search_line_number].line_number;
+                                Vim::run_at_line(search_file_hit.file.as_path(), line_number);
+                            }
+                            None => {
+                                let mut command = String::from("/");
+                                command.push_str(&self.search);
+                                Vim::run_with_command(search_file_hit.file.as_path(), command);
+                            }
+                        }
+
+                        self.lazy_display_search();
+                        self.update_terminal();
                     }
                     _ => {}
                 },
