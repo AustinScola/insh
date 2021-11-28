@@ -6,6 +6,7 @@ use std::io::{self, Stdout, Write};
 use std::iter::FromIterator;
 use std::path::PathBuf;
 
+use crate::color::Color;
 use crate::finder::Finder;
 use crate::searcher::{SearchFileHit, Searcher};
 use crate::vim::Vim;
@@ -16,8 +17,7 @@ use crossterm::{
     cursor,
     event::{self, Event, KeyCode, KeyEvent, KeyModifiers},
     style::{
-        Attribute::Bold, Color, Print, ResetColor, SetAttribute, SetBackgroundColor,
-        SetForegroundColor,
+        Attribute::Bold, Print, ResetColor, SetAttribute, SetBackgroundColor, SetForegroundColor,
     },
     terminal::{self, ClearType},
     QueueableCommand,
@@ -885,7 +885,7 @@ impl Insh {
             let mut reset = false;
             if entry_number == self.selected {
                 // Named arguments (not in Rust?) would be nice for lazy_color! Make a macro?
-                self.lazy_start_color(Color::Black, Color::Yellow);
+                self.lazy_start_color(Color::InvertedText, Color::Highlight);
                 reset = true;
             }
             self.lazy_print(&entry_name);
@@ -918,12 +918,12 @@ impl Insh {
         };
         match self.pattern_state {
             PatternState::NotCompiled => {
-                self.lazy_start_text_color(Color::Grey);
+                self.lazy_start_text_color(Color::NotCompiledRegex);
                 self.lazy_print(truncated_pattern);
                 self.lazy_reset_color();
             }
             PatternState::BadRegex => {
-                self.lazy_start_text_color(Color::Red);
+                self.lazy_start_text_color(Color::BadRegex);
                 self.lazy_print(truncated_pattern);
                 self.lazy_reset_color();
             }
@@ -944,7 +944,7 @@ impl Insh {
 
             let reset;
             if entry_number == self.find_selected && self.mode == Mode::BrowseFind {
-                self.lazy_start_color(Color::Black, Color::Yellow);
+                self.lazy_start_color(Color::InvertedText, Color::Highlight);
                 reset = true;
             } else {
                 reset = false;
@@ -1020,7 +1020,7 @@ impl Insh {
             self.lazy_move_cursor(0, 1);
             let file_hit = self.hits[file_hit_number].clone();
             if usize::from(lines) == selected_line {
-                self.lazy_start_color(Color::Black, Color::Yellow);
+                self.lazy_start_color(Color::InvertedText, Color::Highlight);
             }
             self.lazy_start_bold();
             self.lazy_print(&file_hit.file.to_string_lossy());
@@ -1053,7 +1053,7 @@ impl Insh {
 
             let mut reset_color = false;
             if usize::from(lines) == selected_line {
-                self.lazy_start_color(Color::Black, Color::Yellow);
+                self.lazy_start_color(Color::InvertedText, Color::Highlight);
                 reset_color = true;
             }
 
@@ -1087,7 +1087,7 @@ impl Insh {
             }
             let file_hit = self.hits[file_hit_number].clone();
             if usize::from(lines) == selected_line {
-                self.lazy_start_color(Color::Black, Color::Yellow);
+                self.lazy_start_color(Color::InvertedText, Color::Highlight);
             }
             self.lazy_start_bold();
             self.lazy_print(&file_hit.file.to_string_lossy());
@@ -1106,7 +1106,7 @@ impl Insh {
 
                 let mut reset_color = false;
                 if usize::from(lines) == selected_line {
-                    self.lazy_start_color(Color::Black, Color::Yellow);
+                    self.lazy_start_color(Color::InvertedText, Color::Highlight);
                     reset_color = true;
                 }
 
@@ -1186,12 +1186,18 @@ impl Insh {
     }
 
     fn lazy_start_color(&mut self, foreground: Color, background: Color) {
-        self.stdout.queue(SetForegroundColor(foreground)).unwrap();
-        self.stdout.queue(SetBackgroundColor(background)).unwrap();
+        self.stdout
+            .queue(SetForegroundColor(foreground.into()))
+            .unwrap();
+        self.stdout
+            .queue(SetBackgroundColor(background.into()))
+            .unwrap();
     }
 
     fn lazy_start_text_color(&mut self, foreground: Color) {
-        self.stdout.queue(SetForegroundColor(foreground)).unwrap();
+        self.stdout
+            .queue(SetForegroundColor(foreground.into()))
+            .unwrap();
     }
 
     fn lazy_reset_color(&mut self) {

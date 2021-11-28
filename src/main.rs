@@ -1,3 +1,4 @@
+mod color;
 mod finder;
 mod insh;
 mod searcher;
