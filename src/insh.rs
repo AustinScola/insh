@@ -969,42 +969,6 @@ impl Insh {
 
         let selected_line = self.get_selected_line();
 
-        // Temporarily show some vars for debugging.
-        // TODO: Remove this!
-        self.lazy_move_cursor(20, 0);
-        self.lazy_print(&self.search_file_offset.to_string());
-        self.lazy_move_cursor(25, 0);
-        match self.search_line_offset {
-            Some(num) => {
-                self.lazy_print(&num.to_string());
-            }
-            None => {
-                self.lazy_print("None");
-            }
-        };
-        self.lazy_move_cursor(30, 0);
-        self.lazy_print(&self.search_file_selected.to_string());
-        self.lazy_move_cursor(35, 0);
-        match self.search_line_selected {
-            Some(num) => {
-                self.lazy_print(&num.to_string());
-            }
-            None => {
-                self.lazy_print("None");
-            }
-        };
-        self.lazy_move_cursor(40, 0);
-        self.lazy_print(&selected_line.to_string());
-        self.lazy_move_cursor(45, 0);
-        match self.search_line_number() {
-            Some(num) => {
-                self.lazy_print(&num.to_string());
-            }
-            None => {
-                self.lazy_print("None");
-            }
-        };
-
         let mut lines = 0;
 
         // Display the first hit.
