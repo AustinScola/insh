@@ -9,6 +9,7 @@ use std::path::PathBuf;
 use crate::color::Color;
 use crate::finder::Finder;
 use crate::searcher::{SearchFileHit, Searcher};
+use crate::terminal_size::TerminalSize;
 use crate::vim::Vim;
 use crate::walker::Walker;
 
@@ -25,7 +26,7 @@ use crossterm::{
 
 pub struct Insh {
     stdout: Stdout,
-    terminal_size: (u16, u16),
+    terminal_size: TerminalSize,
 
     mode: Mode,
 
@@ -73,7 +74,7 @@ enum PatternState {
 impl Insh {
     pub fn new() -> Insh {
         let stdout = io::stdout();
-        let terminal_size = crossterm::terminal::size().unwrap();
+        let terminal_size: TerminalSize = crossterm::terminal::size().unwrap().into();
 
         let mode = Mode::Browse;
 
@@ -82,7 +83,7 @@ impl Insh {
         let directory: Box<PathBuf> = Box::new(current_dir().unwrap());
         let entries_iter = fs::read_dir(&*directory).unwrap();
         let entries: Vec<fs::DirEntry> = entries_iter
-            .take(terminal_size.1.into())
+            .take(terminal_size.height.into())
             .map(|entry| entry.unwrap())
             .collect();
         let entry_offset = 0;
@@ -157,8 +158,8 @@ impl Insh {
             selected_line -= search_line_offset + 1;
         }
 
-        if selected_line >= (self.terminal_size.1 - 2).into() {
-            return (self.terminal_size.1 - 2).into();
+        if selected_line >= (self.terminal_size.height - 2).into() {
+            return (self.terminal_size.height - 2).into();
         }
 
         file_offset += 1;
@@ -173,16 +174,16 @@ impl Insh {
             file_offset += 1;
         }
 
-        if selected_line >= (self.terminal_size.1 - 2).into() {
-            return (self.terminal_size.1 - 2).into();
+        if selected_line >= (self.terminal_size.height - 2).into() {
+            return (self.terminal_size.height - 2).into();
         }
 
         if let Some(search_line_selected) = self.search_line_selected {
             selected_line += search_line_selected + 1;
         }
 
-        if selected_line >= (self.terminal_size.1 - 2).into() {
-            return (self.terminal_size.1 - 2).into();
+        if selected_line >= (self.terminal_size.height - 2).into() {
+            return (self.terminal_size.height - 2).into();
         }
 
         selected_line
@@ -206,7 +207,7 @@ impl Insh {
     fn increment_search_line_selected(&mut self) {
         match self.search_line_selected {
             Some(search_line_selected) => {
-                if search_line_selected < (self.terminal_size.1 - 2).into() {
+                if search_line_selected < (self.terminal_size.height - 2).into() {
                     self.search_line_selected = Some(search_line_selected + 1);
                 }
             }
@@ -255,7 +256,7 @@ impl Insh {
                         code: KeyCode::Char('j'),
                         ..
                     }) => {
-                        if self.selected < self.terminal_size.1 as usize - 1 {
+                        if self.selected < self.terminal_size.height as usize - 1 {
                             if self.selected < self.entries.len() - 1 {
                                 self.selected += 1;
                             }
@@ -413,7 +414,7 @@ impl Insh {
                         code: KeyCode::Char('j'),
                         ..
                     }) => {
-                        if self.find_selected < self.terminal_size.1 as usize - 2 {
+                        if self.find_selected < self.terminal_size.height as usize - 2 {
                             if self.find_selected + self.find_offset < self.found.len() - 1 {
                                 self.find_selected += 1;
                             }
@@ -525,7 +526,7 @@ impl Insh {
 
                         let search_line_number = self.search_line_number();
 
-                        if selected_line == (self.terminal_size.1 - 2).into() {
+                        if selected_line == (self.terminal_size.height - 2).into() {
                             if search_line_number >= Some(search_file_hit.hits.len() - 1) {
                                 if search_file_number == self.hits.len() - 1 {
                                     if let Some(ref mut searcher) = self.searcher {
@@ -612,7 +613,7 @@ impl Insh {
                                 self.search_line_offset = None;
                                 self.search_file_selected -= 1;
                             }
-                        } else if selected_line == (self.terminal_size.1 - 3).into()
+                        } else if selected_line == (self.terminal_size.height - 3).into()
                             && search_line_number >= Some(search_file_hit.hits.len() - 1)
                         {
                             self.search_line_selected = None;
@@ -781,7 +782,7 @@ impl Insh {
         let mut entries = Walker::from(&(*self.directory.as_path()));
         self.found.clear();
         let mut there_are_more = true;
-        for _ in 0..(self.terminal_size.1 - 1).into() {
+        for _ in 0..(self.terminal_size.height - 1).into() {
             let entry = entries.next();
             match entry {
                 Some(entry) => self.found.push(entry),
@@ -815,7 +816,7 @@ impl Insh {
             }
             Ok(mut entries) => {
                 self.pattern_state = PatternState::GoodRegex;
-                for _ in 0..(self.terminal_size.1 - 1) {
+                for _ in 0..(self.terminal_size.height - 1) {
                     let entry = entries.next();
                     match entry {
                         Some(entry) => self.found.push(entry),
@@ -846,7 +847,7 @@ impl Insh {
 
         self.hits.clear();
         let mut lines: usize = 0;
-        while lines < (self.terminal_size.1 - 1).into() {
+        while lines < (self.terminal_size.height - 1).into() {
             let hit = searcher.next();
             match hit {
                 Some(search_file_hit) => {
@@ -868,7 +869,7 @@ impl Insh {
 
         Vec::from_iter(
             entries_iter
-                .take(self.terminal_size.1.into())
+                .take(self.terminal_size.height.into())
                 .map(|entry| entry.unwrap()),
         )
     }
@@ -910,10 +911,10 @@ impl Insh {
         let truncated_pattern = match self
             .pattern
             .len()
-            .partial_cmp(&(self.terminal_size.0 as usize))
+            .partial_cmp(&(self.terminal_size.width as usize))
             .unwrap()
         {
-            Ordering::Greater | Ordering::Equal => &pattern[0..self.terminal_size.0 as usize],
+            Ordering::Greater | Ordering::Equal => &pattern[0..self.terminal_size.width as usize],
             _ => pattern,
         };
         match self.pattern_state {
@@ -933,7 +934,7 @@ impl Insh {
         }
 
         // Display found entries
-        for entry_number in 0..(self.terminal_size.1 as usize - 1) {
+        for entry_number in 0..(self.terminal_size.height as usize - 1) {
             self.lazy_move_cursor(0, (entry_number + 1).try_into().unwrap());
             let entry_index = self.find_offset + entry_number;
             if entry_index == self.found.len() {
@@ -964,7 +965,7 @@ impl Insh {
         // Display the search phrase.
         self.lazy_move_cursor(0, 0);
         let mut search = self.search.clone();
-        search.truncate(self.terminal_size.0.into());
+        search.truncate(self.terminal_size.width.into());
         self.lazy_print(&search);
 
         let selected_line = self.get_selected_line();
@@ -990,7 +991,7 @@ impl Insh {
             self.lazy_print(&file_hit.file.to_string_lossy());
             self.lazy_reset_color();
             lines += 1;
-            if lines == (self.terminal_size.1 - 1) {
+            if lines == (self.terminal_size.height - 1) {
                 return;
             }
         }
@@ -1002,7 +1003,7 @@ impl Insh {
             if line_hit_number == file_hit.hits.len() {
                 // Add a blank line between the first hit and the rest of the hits.
                 lines += 1;
-                if lines == (self.terminal_size.1 - 1) {
+                if lines == (self.terminal_size.height - 1) {
                     return;
                 }
                 break;
@@ -1032,7 +1033,7 @@ impl Insh {
             }
 
             lines += 1;
-            if lines == (self.terminal_size.1 - 1) {
+            if lines == (self.terminal_size.height - 1) {
                 return;
             }
 
@@ -1057,7 +1058,7 @@ impl Insh {
             self.lazy_print(&file_hit.file.to_string_lossy());
             self.lazy_reset_color();
             lines += 1;
-            if lines == (self.terminal_size.1 - 1) {
+            if lines == (self.terminal_size.height - 1) {
                 break;
             }
             file_hit_number += 1;
@@ -1085,7 +1086,7 @@ impl Insh {
                 }
 
                 lines += 1;
-                if lines == (self.terminal_size.1 - 1) {
+                if lines == (self.terminal_size.height - 1) {
                     return;
                 }
 
@@ -1099,7 +1100,7 @@ impl Insh {
 
             // Skip a line.
             lines += 1;
-            if lines == (self.terminal_size.1 - 1) {
+            if lines == (self.terminal_size.height - 1) {
                 break;
             }
         }
