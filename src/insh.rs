@@ -6,6 +6,7 @@ use std::io::{self, Stdout, Write};
 use std::iter::FromIterator;
 use std::path::PathBuf;
 
+use crate::bash_shell::BashShell;
 use crate::color::Color;
 use crate::finder::Finder;
 use crate::searcher::{SearchFileHit, Searcher};
@@ -346,6 +347,25 @@ impl Insh {
                             self.update_terminal();
                         }
                     }
+                    Event::Key(KeyEvent {
+                        code: KeyCode::Char('b'),
+                        ..
+                    }) => {
+                        self.disable_raw_terminal();
+                        self.lazy_clear_screen();
+                        self.lazy_move_cursor(0, 0);
+                        self.lazy_show_cursor();
+                        self.update_terminal();
+
+                        BashShell::run(&self.directory);
+
+                        self.enable_raw_terminal();
+                        self.lazy_hide_cursor();
+
+                        self.lazy_display_browse();
+                        self.update_terminal();
+                    }
+
                     Event::Key(KeyEvent {
                         code: KeyCode::Char('f'),
                         ..

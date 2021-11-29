@@ -1,3 +1,4 @@
+mod bash_shell;
 mod color;
 mod finder;
 mod insh;
