@@ -2,8 +2,7 @@
 
 set -euo pipefail
 
-HERE="$(dirname "$(readlink -f "$BASH_SOURCE")")"
-REPO_ROOT="$(realpath "${HERE}/..")"
+REPO_ROOT="$(git rev-parse --show-toplevel)"
 
 cd "${REPO_ROOT}"
 
