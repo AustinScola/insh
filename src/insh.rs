@@ -476,6 +476,10 @@ impl Insh {
                         ..
                     })
                     | Event::Key(KeyEvent {
+                        code: KeyCode::Char('l'),
+                        ..
+                    })
+                    | Event::Key(KeyEvent {
                         code: KeyCode::Enter,
                         ..
                     }) => {
@@ -738,6 +742,10 @@ impl Insh {
                     }
                     Event::Key(KeyEvent {
                         code: KeyCode::Char('e'),
+                        ..
+                    })
+                    | Event::Key(KeyEvent {
+                        code: KeyCode::Char('l'),
                         ..
                     })
                     | Event::Key(KeyEvent {
