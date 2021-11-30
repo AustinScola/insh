@@ -1,4 +1,3 @@
-use std::cmp::Ordering;
 use std::convert::TryInto;
 use std::env::current_dir;
 use std::fs;
@@ -935,31 +934,25 @@ impl Insh {
 
         // Display the search bar.
         self.lazy_move_cursor(0, 0);
-        let pattern: &str = &(&self.pattern).clone();
-        let truncated_pattern = match self
-            .pattern
-            .len()
-            .partial_cmp(&(self.terminal_size.width as usize))
-            .unwrap()
-        {
-            Ordering::Greater | Ordering::Equal => &pattern[0..self.terminal_size.width as usize],
-            _ => pattern,
+
+        self.lazy_start_background_color(Color::InvertedBackground);
+        let mut pattern = self.pattern.clone();
+        pattern.truncate(self.terminal_size.width.into());
+        pattern = format!(
+            "{:width$}",
+            pattern,
+            width = self.terminal_size.width as usize
+        );
+
+        let text_color = match self.pattern_state {
+            PatternState::NotCompiled => Color::NotCompiledRegex,
+            PatternState::BadRegex => Color::BadRegex,
+            PatternState::GoodRegex => Color::InvertedText,
         };
-        match self.pattern_state {
-            PatternState::NotCompiled => {
-                self.lazy_start_text_color(Color::NotCompiledRegex);
-                self.lazy_print(truncated_pattern);
-                self.lazy_reset_color();
-            }
-            PatternState::BadRegex => {
-                self.lazy_start_text_color(Color::BadRegex);
-                self.lazy_print(truncated_pattern);
-                self.lazy_reset_color();
-            }
-            PatternState::GoodRegex => {
-                self.lazy_print(truncated_pattern);
-            }
-        }
+
+        self.lazy_start_text_color(text_color);
+        self.lazy_print(&pattern);
+        self.lazy_reset_color();
 
         // Display found entries
         for entry_number in 0..(self.terminal_size.height as usize - 1) {
@@ -992,9 +985,20 @@ impl Insh {
 
         // Display the search phrase.
         self.lazy_move_cursor(0, 0);
+
+        self.lazy_start_background_color(Color::InvertedBackground);
+
         let mut search = self.search.clone();
         search.truncate(self.terminal_size.width.into());
+        search = format!(
+            "{:width$}",
+            search,
+            width = self.terminal_size.width as usize
+        );
+
+        self.lazy_start_text_color(Color::InvertedText);
         self.lazy_print(&search);
+        self.lazy_reset_color();
 
         let selected_line = self.get_selected_line();
 
@@ -1187,10 +1191,12 @@ impl Insh {
             .unwrap();
     }
 
-    fn lazy_start_text_color(&mut self, foreground: Color) {
-        self.stdout
-            .queue(SetForegroundColor(foreground.into()))
-            .unwrap();
+    fn lazy_start_text_color(&mut self, color: Color) {
+        self.stdout.queue(SetForegroundColor(color.into())).unwrap();
+    }
+
+    fn lazy_start_background_color(&mut self, color: Color) {
+        self.stdout.queue(SetBackgroundColor(color.into())).unwrap();
     }
 
     fn lazy_reset_color(&mut self) {
