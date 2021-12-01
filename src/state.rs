@@ -32,10 +32,10 @@ pub enum PatternState {
 }
 
 pub struct BrowseState {
-    pub selected: usize,
     pub directory: Box<PathBuf>,
     pub entries: Vec<fs::DirEntry>,
     pub entry_offset: usize,
+    pub selected: usize,
 }
 
 pub struct FindState {

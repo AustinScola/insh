@@ -40,7 +40,6 @@ impl Insh {
         let mode = Mode::Browse;
 
         // Browse mode state.
-        let selected = 0;
         let directory: Box<PathBuf> = Box::new(current_dir().unwrap());
         let entries_iter = fs::read_dir(&*directory).unwrap();
         let entries: Vec<fs::DirEntry> = entries_iter
@@ -48,12 +47,13 @@ impl Insh {
             .map(|entry| entry.unwrap())
             .collect();
         let entry_offset = 0;
+        let selected = 0;
 
         let browse = BrowseState {
-            selected,
             directory,
             entries,
             entry_offset,
+            selected,
         };
 
         // Find mode state.
