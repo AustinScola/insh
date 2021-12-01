@@ -34,7 +34,7 @@ pub enum PatternState {
 pub struct BrowseState {
     pub directory: Box<PathBuf>,
     pub entries: Vec<fs::DirEntry>,
-    pub entry_offset: usize,
+    pub offset: usize,
     pub selected: usize,
 }
 
@@ -43,16 +43,16 @@ pub struct FindState {
     pub pattern_state: PatternState,
     pub found: Vec<fs::DirEntry>,
     pub finder: Option<Finder>,
-    pub find_offset: usize,
-    pub find_selected: usize,
+    pub offset: usize,
+    pub selected: usize,
 }
 
 pub struct SearchState {
     pub search: String,
     pub hits: Vec<SearchFileHit>,
     pub searcher: Option<Searcher>,
-    pub search_file_offset: usize,
-    pub search_line_offset: Option<usize>,
-    pub search_file_selected: usize,
-    pub search_line_selected: Option<usize>,
+    pub file_offset: usize,
+    pub line_offset: Option<usize>,
+    pub file_selected: usize,
+    pub line_selected: Option<usize>,
 }

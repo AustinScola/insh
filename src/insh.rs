@@ -46,13 +46,13 @@ impl Insh {
             .take(terminal_size.height.into())
             .map(|entry| entry.unwrap())
             .collect();
-        let entry_offset = 0;
+        let browse_offset = 0;
         let selected = 0;
 
         let browse = BrowseState {
             directory,
             entries,
-            entry_offset,
+            offset: browse_offset,
             selected,
         };
 
@@ -69,8 +69,8 @@ impl Insh {
             pattern_state,
             found,
             finder,
-            find_offset,
-            find_selected,
+            offset: find_offset,
+            selected: find_selected,
         };
 
         // Search mode state
@@ -86,10 +86,10 @@ impl Insh {
             search,
             hits,
             searcher,
-            search_file_offset,
-            search_line_offset,
-            search_file_selected,
-            search_line_selected,
+            file_offset: search_file_offset,
+            line_offset: search_line_offset,
+            file_selected: search_file_selected,
+            line_selected: search_line_selected,
         };
 
         let state = State {
@@ -106,15 +106,15 @@ impl Insh {
     }
 
     fn get_selected_line(&mut self) -> usize {
-        if self.state.search.search_file_offset >= self.state.search.hits.len() {
+        if self.state.search.file_offset >= self.state.search.hits.len() {
             return 0;
         }
 
         let mut selected_line = 0;
 
-        let mut file_offset = self.state.search.search_file_offset;
-        if self.state.search.search_file_selected == 0 {
-            if let Some(search_line_selected) = self.state.search.search_line_selected {
+        let mut file_offset = self.state.search.file_offset;
+        if self.state.search.file_selected == 0 {
+            if let Some(search_line_selected) = self.state.search.line_selected {
                 selected_line += search_line_selected + 1;
             }
 
@@ -123,7 +123,7 @@ impl Insh {
             selected_line += self.state.search.hits[file_offset].hits.len() + 1;
         }
 
-        if let Some(search_line_offset) = self.state.search.search_line_offset {
+        if let Some(search_line_offset) = self.state.search.line_offset {
             selected_line -= search_line_offset + 1;
         }
 
@@ -135,9 +135,7 @@ impl Insh {
         selected_line += 1;
 
         loop {
-            if file_offset
-                >= self.state.search.search_file_offset + self.state.search.search_file_selected
-            {
+            if file_offset >= self.state.search.file_offset + self.state.search.file_selected {
                 break;
             }
 
@@ -149,7 +147,7 @@ impl Insh {
             return (self.state.terminal_size.height - 2).into();
         }
 
-        if let Some(search_line_selected) = self.state.search.search_line_selected {
+        if let Some(search_line_selected) = self.state.search.line_selected {
             selected_line += search_line_selected + 1;
         }
 
@@ -161,35 +159,35 @@ impl Insh {
     }
 
     fn search_line_number(&mut self) -> Option<usize> {
-        match self.state.search.search_file_selected {
-            0 => match self.state.search.search_line_offset {
-                Some(search_line_offset) => match self.state.search.search_line_selected {
+        match self.state.search.file_selected {
+            0 => match self.state.search.line_offset {
+                Some(search_line_offset) => match self.state.search.line_selected {
                     Some(search_line_selected) => {
                         Some(search_line_offset + search_line_selected + 1)
                     }
                     None => Some(search_line_offset),
                 },
-                None => self.state.search.search_line_selected,
+                None => self.state.search.line_selected,
             },
-            _ => self.state.search.search_line_selected,
+            _ => self.state.search.line_selected,
         }
     }
 
     fn increment_search_line_selected(&mut self) {
-        match self.state.search.search_line_selected {
+        match self.state.search.line_selected {
             Some(search_line_selected) => {
                 if search_line_selected < (self.state.terminal_size.height - 2).into() {
-                    self.state.search.search_line_selected = Some(search_line_selected + 1);
+                    self.state.search.line_selected = Some(search_line_selected + 1);
                 }
             }
             None => {
-                self.state.search.search_line_selected = Some(0);
+                self.state.search.line_selected = Some(0);
             }
         };
     }
 
     fn decrement_search_line_selected(&mut self) {
-        self.state.search.search_line_selected = match self.state.search.search_line_selected {
+        self.state.search.line_selected = match self.state.search.line_selected {
             Some(0) => None,
             Some(search_line_selected) => Some(search_line_selected - 1),
             None => Some(0),
@@ -197,7 +195,7 @@ impl Insh {
     }
 
     fn increment_search_line_offset(&mut self) {
-        self.state.search.search_line_offset = Some(match self.state.search.search_line_offset {
+        self.state.search.line_offset = Some(match self.state.search.line_offset {
             Some(search_line_offset) => search_line_offset + 1,
             None => 0,
         });
@@ -233,10 +231,10 @@ impl Insh {
                                 self.state.browse.selected += 1;
                             }
                         } else {
-                            self.state.browse.entry_offset += 1;
+                            self.state.browse.offset += 1;
                             self.state.browse.entries = self.get_entries();
                             if self.state.browse.selected >= self.state.browse.entries.len() {
-                                self.state.browse.entry_offset -= 1;
+                                self.state.browse.offset -= 1;
                                 self.state.browse.entries = self.get_entries();
                             }
                         }
@@ -248,8 +246,8 @@ impl Insh {
                         ..
                     }) => {
                         if self.state.browse.selected == 0 {
-                            if self.state.browse.entry_offset > 0 {
-                                self.state.browse.entry_offset -= 1;
+                            if self.state.browse.offset > 0 {
+                                self.state.browse.offset -= 1;
                                 self.state.browse.entries = self.get_entries();
                                 self.lazy_display_browse();
                                 self.update_terminal();
@@ -279,7 +277,7 @@ impl Insh {
                                     self.state.browse.directory.pop();
                                 } else {
                                     self.state.browse.selected = 0;
-                                    self.state.browse.entry_offset = 0;
+                                    self.state.browse.offset = 0;
                                     self.state.browse.entries = self.get_entries();
                                     self.lazy_display_browse();
                                     self.update_terminal();
@@ -302,7 +300,7 @@ impl Insh {
                     }) => {
                         self.state.browse.directory.pop();
                         self.state.browse.selected = 0;
-                        self.state.browse.entry_offset = 0;
+                        self.state.browse.offset = 0;
                         self.state.browse.entries = self.get_entries();
                         self.lazy_display_browse();
                         self.update_terminal();
@@ -407,23 +405,21 @@ impl Insh {
                         code: KeyCode::Char('j'),
                         ..
                     }) => {
-                        if self.state.find.find_selected
-                            < self.state.terminal_size.height as usize - 2
-                        {
-                            if self.state.find.find_selected + self.state.find.find_offset
+                        if self.state.find.selected < self.state.terminal_size.height as usize - 2 {
+                            if self.state.find.selected + self.state.find.offset
                                 < self.state.find.found.len() - 1
                             {
-                                self.state.find.find_selected += 1;
+                                self.state.find.selected += 1;
                             }
-                        } else if self.state.find.find_selected + self.state.find.find_offset
+                        } else if self.state.find.selected + self.state.find.offset
                             < self.state.find.found.len() - 1
                         {
-                            self.state.find.find_offset += 1;
+                            self.state.find.offset += 1;
                         } else if let Some(ref mut finder) = self.state.find.finder {
                             match finder.next() {
                                 Some(entry) => {
                                     self.state.find.found.push(entry);
-                                    self.state.find.find_offset += 1;
+                                    self.state.find.offset += 1;
                                 }
                                 None => {
                                     self.state.find.finder = None;
@@ -438,14 +434,14 @@ impl Insh {
                         code: KeyCode::Char('k'),
                         ..
                     }) => {
-                        if self.state.find.find_selected == 0 {
-                            if self.state.find.find_offset > 0 {
-                                self.state.find.find_offset -= 1;
+                        if self.state.find.selected == 0 {
+                            if self.state.find.offset > 0 {
+                                self.state.find.offset -= 1;
                                 self.lazy_display_find();
                                 self.update_terminal();
                             }
                         } else {
-                            self.state.find.find_selected -= 1;
+                            self.state.find.selected -= 1;
                             self.lazy_display_find();
                             self.update_terminal();
                         }
@@ -462,8 +458,7 @@ impl Insh {
                         code: KeyCode::Enter,
                         ..
                     }) => {
-                        let entry_index =
-                            self.state.find.find_offset + self.state.find.find_selected;
+                        let entry_index = self.state.find.offset + self.state.find.selected;
                         let selected_path: PathBuf = self.state.find.found[entry_index].path();
                         Vim::run(&selected_path);
                         self.lazy_hide_cursor();
@@ -523,10 +518,10 @@ impl Insh {
                         ..
                     }) => {
                         let first_file =
-                            self.state.search.hits[self.state.search.search_file_offset].clone();
+                            self.state.search.hits[self.state.search.file_offset].clone();
                         let selected_line = self.get_selected_line();
-                        let search_file_number = self.state.search.search_file_offset
-                            + self.state.search.search_file_selected;
+                        let search_file_number =
+                            self.state.search.file_offset + self.state.search.file_selected;
                         let search_file_hit = self.state.search.hits[search_file_number].clone();
 
                         let search_line_number = self.search_line_number();
@@ -539,35 +534,35 @@ impl Insh {
                                             Some(hit) => {
                                                 self.state.search.hits.push(hit);
 
-                                                self.state.search.search_line_selected = None;
-                                                self.state.search.search_file_selected += 1;
+                                                self.state.search.line_selected = None;
+                                                self.state.search.file_selected += 1;
 
-                                                if self.state.search.search_line_offset == None {
-                                                    self.state.search.search_line_offset = Some(0);
-                                                } else if self.state.search.search_line_offset
+                                                if self.state.search.line_offset == None {
+                                                    self.state.search.line_offset = Some(0);
+                                                } else if self.state.search.line_offset
                                                     < Some(first_file.hits.len())
                                                 {
                                                     self.increment_search_line_offset()
                                                 } else {
-                                                    self.state.search.search_file_offset += 1;
-                                                    self.state.search.search_line_offset = None;
-                                                    self.state.search.search_file_selected -= 1;
+                                                    self.state.search.file_offset += 1;
+                                                    self.state.search.line_offset = None;
+                                                    self.state.search.file_selected -= 1;
                                                 }
 
                                                 let first_file = self.state.search.hits
-                                                    [self.state.search.search_file_offset]
+                                                    [self.state.search.file_offset]
                                                     .clone();
 
-                                                if self.state.search.search_line_offset == None {
-                                                    self.state.search.search_line_offset = Some(0);
-                                                } else if self.state.search.search_line_offset
+                                                if self.state.search.line_offset == None {
+                                                    self.state.search.line_offset = Some(0);
+                                                } else if self.state.search.line_offset
                                                     < Some(first_file.hits.len())
                                                 {
                                                     self.increment_search_line_offset()
                                                 } else {
-                                                    self.state.search.search_file_offset += 1;
-                                                    self.state.search.search_line_offset = None;
-                                                    self.state.search.search_file_selected -= 1;
+                                                    self.state.search.file_offset += 1;
+                                                    self.state.search.line_offset = None;
+                                                    self.state.search.file_selected -= 1;
                                                 }
                                             }
                                             None => {
@@ -576,76 +571,72 @@ impl Insh {
                                         }
                                     }
                                 } else {
-                                    self.state.search.search_line_selected = None;
-                                    self.state.search.search_file_selected += 1;
+                                    self.state.search.line_selected = None;
+                                    self.state.search.file_selected += 1;
 
-                                    if self.state.search.search_line_offset == None {
-                                        self.state.search.search_line_offset = Some(0);
-                                    } else if self.state.search.search_line_offset
+                                    if self.state.search.line_offset == None {
+                                        self.state.search.line_offset = Some(0);
+                                    } else if self.state.search.line_offset
                                         < Some(first_file.hits.len())
                                     {
                                         self.increment_search_line_offset()
                                     } else {
-                                        self.state.search.search_file_offset += 1;
-                                        self.state.search.search_line_offset = None;
-                                        self.state.search.search_file_selected -= 1;
+                                        self.state.search.file_offset += 1;
+                                        self.state.search.line_offset = None;
+                                        self.state.search.file_selected -= 1;
                                     }
 
                                     let first_file = self.state.search.hits
-                                        [self.state.search.search_file_offset]
+                                        [self.state.search.file_offset]
                                         .clone();
 
-                                    if self.state.search.search_line_offset == None {
-                                        self.state.search.search_line_offset = Some(0);
-                                    } else if self.state.search.search_line_offset
+                                    if self.state.search.line_offset == None {
+                                        self.state.search.line_offset = Some(0);
+                                    } else if self.state.search.line_offset
                                         < Some(first_file.hits.len())
                                     {
                                         self.increment_search_line_offset()
                                     } else {
-                                        self.state.search.search_file_offset += 1;
-                                        self.state.search.search_line_offset = None;
-                                        self.state.search.search_file_selected -= 1;
+                                        self.state.search.file_offset += 1;
+                                        self.state.search.line_offset = None;
+                                        self.state.search.file_selected -= 1;
                                     }
                                 }
-                            } else if self.state.search.search_line_offset == None {
-                                if self.state.search.search_file_selected != 0 {
+                            } else if self.state.search.line_offset == None {
+                                if self.state.search.file_selected != 0 {
                                     self.increment_search_line_selected();
                                 }
-                                self.state.search.search_line_offset = Some(0);
-                            } else if self.state.search.search_line_offset
-                                < Some(first_file.hits.len())
-                            {
-                                if self.state.search.search_file_selected != 0 {
+                                self.state.search.line_offset = Some(0);
+                            } else if self.state.search.line_offset < Some(first_file.hits.len()) {
+                                if self.state.search.file_selected != 0 {
                                     self.increment_search_line_selected();
                                 }
                                 self.increment_search_line_offset()
                             } else {
                                 self.increment_search_line_selected();
-                                self.state.search.search_file_offset += 1;
-                                self.state.search.search_line_offset = None;
-                                self.state.search.search_file_selected -= 1;
+                                self.state.search.file_offset += 1;
+                                self.state.search.line_offset = None;
+                                self.state.search.file_selected -= 1;
                             }
                         } else if selected_line == (self.state.terminal_size.height - 3).into()
                             && search_line_number >= Some(search_file_hit.hits.len() - 1)
                         {
-                            self.state.search.search_line_selected = None;
-                            self.state.search.search_file_selected += 1;
+                            self.state.search.line_selected = None;
+                            self.state.search.file_selected += 1;
 
-                            if self.state.search.search_line_offset == None {
-                                self.state.search.search_line_offset = Some(0);
-                            } else if self.state.search.search_line_offset
-                                < Some(first_file.hits.len())
-                            {
+                            if self.state.search.line_offset == None {
+                                self.state.search.line_offset = Some(0);
+                            } else if self.state.search.line_offset < Some(first_file.hits.len()) {
                                 self.increment_search_line_offset()
                             } else {
-                                self.state.search.search_file_offset += 1;
-                                self.state.search.search_line_offset = None;
-                                self.state.search.search_file_selected -= 1;
+                                self.state.search.file_offset += 1;
+                                self.state.search.line_offset = None;
+                                self.state.search.file_selected -= 1;
                             }
                         } else if search_line_number >= Some(search_file_hit.hits.len() - 1) {
                             if search_file_number < self.state.search.hits.len() - 1 {
-                                self.state.search.search_file_selected += 1;
-                                self.state.search.search_line_selected = None;
+                                self.state.search.file_selected += 1;
+                                self.state.search.line_selected = None;
                             }
                         } else {
                             self.increment_search_line_selected();
@@ -662,13 +653,12 @@ impl Insh {
                         let selected_line = self.get_selected_line();
 
                         if selected_line == 0 {
-                            match self.state.search.search_line_offset {
+                            match self.state.search.line_offset {
                                 None => {
-                                    if self.state.search.search_file_offset != 0 {
-                                        self.state.search.search_file_offset -= 1;
-                                        self.state.search.search_line_offset = Some(
-                                            self.state.search.hits
-                                                [self.state.search.search_file_offset]
+                                    if self.state.search.file_offset != 0 {
+                                        self.state.search.file_offset -= 1;
+                                        self.state.search.line_offset = Some(
+                                            self.state.search.hits[self.state.search.file_offset]
                                                 .hits
                                                 .len()
                                                 - 1,
@@ -676,43 +666,42 @@ impl Insh {
                                     }
                                 }
                                 Some(0) => {
-                                    self.state.search.search_line_offset = None;
+                                    self.state.search.line_offset = None;
                                 }
                                 Some(search_line_offset) => {
-                                    self.state.search.search_line_offset =
-                                        Some(search_line_offset - 1);
+                                    self.state.search.line_offset = Some(search_line_offset - 1);
                                 }
                             }
-                        } else if self.state.search.search_line_selected.is_none() {
-                            if self.state.search.search_file_selected == 0 {
-                                if self.state.search.search_file_offset > 0 {
-                                    self.state.search.search_file_offset -= 1;
+                        } else if self.state.search.line_selected.is_none() {
+                            if self.state.search.file_selected == 0 {
+                                if self.state.search.file_offset > 0 {
+                                    self.state.search.file_offset -= 1;
 
-                                    let search_file_number = self.state.search.search_file_offset
-                                        + self.state.search.search_file_selected;
+                                    let search_file_number = self.state.search.file_offset
+                                        + self.state.search.file_selected;
                                     let search_file_hit =
                                         self.state.search.hits[search_file_number].clone();
-                                    self.state.search.search_line_selected =
+                                    self.state.search.line_selected =
                                         Some(search_file_hit.hits.len() - 1);
                                 }
                             } else {
-                                self.state.search.search_file_selected -= 1;
+                                self.state.search.file_selected -= 1;
                                 if selected_line == 1 {
-                                    self.state.search.search_line_selected = None;
-                                    let search_file_number = self.state.search.search_file_offset
-                                        + self.state.search.search_file_selected;
+                                    self.state.search.line_selected = None;
+                                    let search_file_number = self.state.search.file_offset
+                                        + self.state.search.file_selected;
                                     let search_file_hit =
                                         self.state.search.hits[search_file_number].clone();
-                                    self.state.search.search_line_offset =
+                                    self.state.search.line_offset =
                                         Some(search_file_hit.hits.len() - 1);
                                 } else {
-                                    let search_file_number = self.state.search.search_file_offset
-                                        + self.state.search.search_file_selected;
+                                    let search_file_number = self.state.search.file_offset
+                                        + self.state.search.file_selected;
                                     let search_file_hit =
                                         self.state.search.hits[search_file_number].clone();
-                                    if self.state.search.search_file_selected == 0 {
-                                        self.state.search.search_line_selected =
-                                            match self.state.search.search_line_offset {
+                                    if self.state.search.file_selected == 0 {
+                                        self.state.search.line_selected =
+                                            match self.state.search.line_offset {
                                                 Some(search_line_offset) => {
                                                     if search_line_offset
                                                         == search_file_hit.hits.len() - 1
@@ -729,7 +718,7 @@ impl Insh {
                                                 None => Some(search_file_hit.hits.len() - 1),
                                             }
                                     } else {
-                                        self.state.search.search_line_selected =
+                                        self.state.search.line_selected =
                                             Some(search_file_hit.hits.len() - 1);
                                     }
                                 }
@@ -753,8 +742,8 @@ impl Insh {
                         code: KeyCode::Enter,
                         ..
                     }) => {
-                        let search_file_number = self.state.search.search_file_offset
-                            + self.state.search.search_file_selected;
+                        let search_file_number =
+                            self.state.search.file_offset + self.state.search.file_selected;
                         let search_file_hit = self.state.search.hits[search_file_number].clone();
 
                         match self.search_line_number() {
@@ -828,8 +817,8 @@ impl Insh {
             self.state.find.finder = None;
         }
 
-        self.state.find.find_offset = 0;
-        self.state.find.find_selected = 0;
+        self.state.find.offset = 0;
+        self.state.find.selected = 0;
     }
 
     fn enter_browse_find_mode(&mut self) {
@@ -855,7 +844,7 @@ impl Insh {
                 self.state.find.finder = Some(entries);
             }
         }
-        self.state.find.find_selected = 0;
+        self.state.find.selected = 0;
     }
 
     fn enter_search_mode(&mut self) {
@@ -863,10 +852,10 @@ impl Insh {
         self.state.search.hits.clear();
         self.state.search.search.clear();
 
-        self.state.search.search_file_offset = 0;
-        self.state.search.search_line_offset = None;
-        self.state.search.search_file_selected = 0;
-        self.state.search.search_line_selected = None;
+        self.state.search.file_offset = 0;
+        self.state.search.line_offset = None;
+        self.state.search.file_selected = 0;
+        self.state.search.line_selected = None;
     }
 
     fn enter_browse_search_mode(&mut self) {
@@ -892,7 +881,7 @@ impl Insh {
 
     fn get_entries(&mut self) -> Vec<fs::DirEntry> {
         let mut entries_iter = fs::read_dir(self.state.browse.directory.as_path()).unwrap();
-        for _ in 0..self.state.browse.entry_offset {
+        for _ in 0..self.state.browse.offset {
             entries_iter.next();
         }
 
@@ -959,7 +948,7 @@ impl Insh {
         // Display found entries
         for entry_number in 0..(self.state.terminal_size.height as usize - 1) {
             self.lazy_move_cursor(0, (entry_number + 1).try_into().unwrap());
-            let entry_index = self.state.find.find_offset + entry_number;
+            let entry_index = self.state.find.offset + entry_number;
             if entry_index == self.state.find.found.len() {
                 break;
             }
@@ -967,8 +956,7 @@ impl Insh {
             let entry_name = file_name.to_string_lossy();
 
             let reset;
-            if entry_number == self.state.find.find_selected && self.state.mode == Mode::BrowseFind
-            {
+            if entry_number == self.state.find.selected && self.state.mode == Mode::BrowseFind {
                 self.lazy_start_color(Color::InvertedText, Color::Highlight);
                 reset = true;
             } else {
@@ -1009,14 +997,14 @@ impl Insh {
 
         // Display the first hit.
 
-        let mut file_hit_number = self.state.search.search_file_offset;
+        let mut file_hit_number = self.state.search.file_offset;
 
         if self.state.search.hits.is_empty() {
             return;
         }
 
         // Print the first file name.
-        if self.state.search.search_line_offset == None {
+        if self.state.search.line_offset == None {
             self.lazy_move_cursor(0, 1);
             let file_hit = self.state.search.hits[file_hit_number].clone();
             if usize::from(lines) == selected_line {
@@ -1032,7 +1020,7 @@ impl Insh {
         }
 
         // Print the line hits of the first file hit.
-        let mut line_hit_number = self.state.search.search_line_offset.unwrap_or(0);
+        let mut line_hit_number = self.state.search.line_offset.unwrap_or(0);
         let file_hit = self.state.search.hits[file_hit_number].clone();
         loop {
             if line_hit_number == file_hit.hits.len() {
