@@ -355,6 +355,9 @@ impl Insh {
                         code: KeyCode::Char('j'),
                         ..
                     }) => {
+                        if !self.state.find.found_files() {
+                            break;
+                        }
                         if self.state.find.selected < self.state.terminal_size.height as usize - 2 {
                             if self.state.find.selected + self.state.find.offset
                                 < self.state.find.found.len() - 1
@@ -482,133 +485,140 @@ impl Insh {
                         code: KeyCode::Char('j'),
                         ..
                     }) => {
-                        let first_file =
-                            self.state.search.hits[self.state.search.file_offset].clone();
-                        let selected_line = self.get_selected_line();
-                        let search_file_number =
-                            self.state.search.file_offset + self.state.search.file_selected;
-                        let search_file_hit = self.state.search.hits[search_file_number].clone();
+                        if self.state.search.found_hits() {
+                            let first_file =
+                                self.state.search.hits[self.state.search.file_offset].clone();
+                            let selected_line = self.get_selected_line();
+                            let search_file_number =
+                                self.state.search.file_offset + self.state.search.file_selected;
+                            let search_file_hit =
+                                self.state.search.hits[search_file_number].clone();
 
-                        let search_line_number = self.state.search.line_number();
+                            let search_line_number = self.state.search.line_number();
 
-                        if selected_line == (self.state.terminal_size.height - 2).into() {
-                            if search_line_number >= Some(search_file_hit.hits.len() - 1) {
-                                if search_file_number == self.state.search.hits.len() - 1 {
-                                    if let Some(ref mut searcher) = self.state.search.searcher {
-                                        match searcher.next() {
-                                            Some(hit) => {
-                                                self.state.search.hits.push(hit);
+                            if selected_line == (self.state.terminal_size.height - 2).into() {
+                                if search_line_number >= Some(search_file_hit.hits.len() - 1) {
+                                    if search_file_number == self.state.search.hits.len() - 1 {
+                                        if let Some(ref mut searcher) = self.state.search.searcher {
+                                            match searcher.next() {
+                                                Some(hit) => {
+                                                    self.state.search.hits.push(hit);
 
-                                                self.state.search.line_selected = None;
-                                                self.state.search.file_selected += 1;
+                                                    self.state.search.line_selected = None;
+                                                    self.state.search.file_selected += 1;
 
-                                                if self.state.search.line_offset == None {
-                                                    self.state.search.line_offset = Some(0);
-                                                } else if self.state.search.line_offset
-                                                    < Some(first_file.hits.len())
-                                                {
-                                                    self.increment_search_line_offset()
-                                                } else {
-                                                    self.state.search.file_offset += 1;
-                                                    self.state.search.line_offset = None;
-                                                    self.state.search.file_selected -= 1;
+                                                    if self.state.search.line_offset == None {
+                                                        self.state.search.line_offset = Some(0);
+                                                    } else if self.state.search.line_offset
+                                                        < Some(first_file.hits.len())
+                                                    {
+                                                        self.increment_search_line_offset()
+                                                    } else {
+                                                        self.state.search.file_offset += 1;
+                                                        self.state.search.line_offset = None;
+                                                        self.state.search.file_selected -= 1;
+                                                    }
+
+                                                    let first_file = self.state.search.hits
+                                                        [self.state.search.file_offset]
+                                                        .clone();
+
+                                                    if self.state.search.line_offset == None {
+                                                        self.state.search.line_offset = Some(0);
+                                                    } else if self.state.search.line_offset
+                                                        < Some(first_file.hits.len())
+                                                    {
+                                                        self.increment_search_line_offset()
+                                                    } else {
+                                                        self.state.search.file_offset += 1;
+                                                        self.state.search.line_offset = None;
+                                                        self.state.search.file_selected -= 1;
+                                                    }
                                                 }
-
-                                                let first_file = self.state.search.hits
-                                                    [self.state.search.file_offset]
-                                                    .clone();
-
-                                                if self.state.search.line_offset == None {
-                                                    self.state.search.line_offset = Some(0);
-                                                } else if self.state.search.line_offset
-                                                    < Some(first_file.hits.len())
-                                                {
-                                                    self.increment_search_line_offset()
-                                                } else {
-                                                    self.state.search.file_offset += 1;
-                                                    self.state.search.line_offset = None;
-                                                    self.state.search.file_selected -= 1;
+                                                None => {
+                                                    self.state.search.searcher = None;
                                                 }
-                                            }
-                                            None => {
-                                                self.state.search.searcher = None;
                                             }
                                         }
+                                    } else {
+                                        self.state.search.line_selected = None;
+                                        self.state.search.file_selected += 1;
+
+                                        if self.state.search.line_offset == None {
+                                            self.state.search.line_offset = Some(0);
+                                        } else if self.state.search.line_offset
+                                            < Some(first_file.hits.len())
+                                        {
+                                            self.increment_search_line_offset()
+                                        } else {
+                                            self.state.search.file_offset += 1;
+                                            self.state.search.line_offset = None;
+                                            self.state.search.file_selected -= 1;
+                                        }
+
+                                        let first_file = self.state.search.hits
+                                            [self.state.search.file_offset]
+                                            .clone();
+
+                                        if self.state.search.line_offset == None {
+                                            self.state.search.line_offset = Some(0);
+                                        } else if self.state.search.line_offset
+                                            < Some(first_file.hits.len())
+                                        {
+                                            self.increment_search_line_offset()
+                                        } else {
+                                            self.state.search.file_offset += 1;
+                                            self.state.search.line_offset = None;
+                                            self.state.search.file_selected -= 1;
+                                        }
                                     }
+                                } else if self.state.search.line_offset == None {
+                                    if self.state.search.file_selected != 0 {
+                                        self.increment_search_line_selected();
+                                    }
+                                    self.state.search.line_offset = Some(0);
+                                } else if self.state.search.line_offset
+                                    < Some(first_file.hits.len())
+                                {
+                                    if self.state.search.file_selected != 0 {
+                                        self.increment_search_line_selected();
+                                    }
+                                    self.increment_search_line_offset()
                                 } else {
-                                    self.state.search.line_selected = None;
+                                    self.increment_search_line_selected();
+                                    self.state.search.file_offset += 1;
+                                    self.state.search.line_offset = None;
+                                    self.state.search.file_selected -= 1;
+                                }
+                            } else if selected_line == (self.state.terminal_size.height - 3).into()
+                                && search_line_number >= Some(search_file_hit.hits.len() - 1)
+                            {
+                                self.state.search.line_selected = None;
+                                self.state.search.file_selected += 1;
+
+                                if self.state.search.line_offset == None {
+                                    self.state.search.line_offset = Some(0);
+                                } else if self.state.search.line_offset
+                                    < Some(first_file.hits.len())
+                                {
+                                    self.increment_search_line_offset()
+                                } else {
+                                    self.state.search.file_offset += 1;
+                                    self.state.search.line_offset = None;
+                                    self.state.search.file_selected -= 1;
+                                }
+                            } else if search_line_number >= Some(search_file_hit.hits.len() - 1) {
+                                if search_file_number < self.state.search.hits.len() - 1 {
                                     self.state.search.file_selected += 1;
-
-                                    if self.state.search.line_offset == None {
-                                        self.state.search.line_offset = Some(0);
-                                    } else if self.state.search.line_offset
-                                        < Some(first_file.hits.len())
-                                    {
-                                        self.increment_search_line_offset()
-                                    } else {
-                                        self.state.search.file_offset += 1;
-                                        self.state.search.line_offset = None;
-                                        self.state.search.file_selected -= 1;
-                                    }
-
-                                    let first_file = self.state.search.hits
-                                        [self.state.search.file_offset]
-                                        .clone();
-
-                                    if self.state.search.line_offset == None {
-                                        self.state.search.line_offset = Some(0);
-                                    } else if self.state.search.line_offset
-                                        < Some(first_file.hits.len())
-                                    {
-                                        self.increment_search_line_offset()
-                                    } else {
-                                        self.state.search.file_offset += 1;
-                                        self.state.search.line_offset = None;
-                                        self.state.search.file_selected -= 1;
-                                    }
+                                    self.state.search.line_selected = None;
                                 }
-                            } else if self.state.search.line_offset == None {
-                                if self.state.search.file_selected != 0 {
-                                    self.increment_search_line_selected();
-                                }
-                                self.state.search.line_offset = Some(0);
-                            } else if self.state.search.line_offset < Some(first_file.hits.len()) {
-                                if self.state.search.file_selected != 0 {
-                                    self.increment_search_line_selected();
-                                }
-                                self.increment_search_line_offset()
                             } else {
                                 self.increment_search_line_selected();
-                                self.state.search.file_offset += 1;
-                                self.state.search.line_offset = None;
-                                self.state.search.file_selected -= 1;
                             }
-                        } else if selected_line == (self.state.terminal_size.height - 3).into()
-                            && search_line_number >= Some(search_file_hit.hits.len() - 1)
-                        {
-                            self.state.search.line_selected = None;
-                            self.state.search.file_selected += 1;
 
-                            if self.state.search.line_offset == None {
-                                self.state.search.line_offset = Some(0);
-                            } else if self.state.search.line_offset < Some(first_file.hits.len()) {
-                                self.increment_search_line_offset()
-                            } else {
-                                self.state.search.file_offset += 1;
-                                self.state.search.line_offset = None;
-                                self.state.search.file_selected -= 1;
-                            }
-                        } else if search_line_number >= Some(search_file_hit.hits.len() - 1) {
-                            if search_file_number < self.state.search.hits.len() - 1 {
-                                self.state.search.file_selected += 1;
-                                self.state.search.line_selected = None;
-                            }
-                        } else {
-                            self.increment_search_line_selected();
+                            self.lazy_display_search();
+                            self.update_terminal();
                         }
-
-                        self.lazy_display_search();
-                        self.update_terminal();
                     }
                     Event::Key(KeyEvent {
                         code: KeyCode::Char('k'),
