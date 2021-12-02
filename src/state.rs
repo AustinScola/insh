@@ -85,7 +85,7 @@ impl Default for FindState {
 }
 
 impl FindState {
-    pub fn selected_path(&mut self) -> PathBuf {
+    pub fn selected_path(&self) -> PathBuf {
         let index = self.offset + self.selected;
         self.found[index].path()
     }
