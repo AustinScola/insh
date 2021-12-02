@@ -3,7 +3,7 @@ use crate::searcher::{SearchFileHit, Searcher};
 use crate::terminal_size::TerminalSize;
 use std::env::current_dir;
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 pub struct State {
     pub terminal_size: TerminalSize,
@@ -89,6 +89,14 @@ impl FindState {
         let index = self.offset + self.selected;
         self.found[index].path()
     }
+
+    pub fn selected_path_parent(&self) -> Box<Path> {
+        let selected_path = self.selected_path();
+        let selected_path_parent = selected_path
+            .parent()
+            .expect("The selected path is not a file.");
+        Box::from(selected_path_parent)
+    }
 }
 
 pub struct SearchState {
@@ -119,6 +127,21 @@ impl Default for SearchState {
             line_offset,
             file_selected,
             line_selected,
+        }
+    }
+}
+
+impl SearchState {
+    pub fn line_number(&mut self) -> Option<usize> {
+        match self.file_selected {
+            0 => match self.line_offset {
+                Some(line_offset) => match self.line_selected {
+                    Some(line_selected) => Some(line_offset + line_selected + 1),
+                    None => Some(line_offset),
+                },
+                None => self.line_selected,
+            },
+            _ => self.line_selected,
         }
     }
 }

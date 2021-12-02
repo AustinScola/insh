@@ -121,21 +121,6 @@ impl Insh {
         selected_line
     }
 
-    fn search_line_number(&mut self) -> Option<usize> {
-        match self.state.search.file_selected {
-            0 => match self.state.search.line_offset {
-                Some(search_line_offset) => match self.state.search.line_selected {
-                    Some(search_line_selected) => {
-                        Some(search_line_offset + search_line_selected + 1)
-                    }
-                    None => Some(search_line_offset),
-                },
-                None => self.state.search.line_selected,
-            },
-            _ => self.state.search.line_selected,
-        }
-    }
-
     fn increment_search_line_selected(&mut self) {
         match self.state.search.line_selected {
             Some(search_line_selected) => {
@@ -415,12 +400,9 @@ impl Insh {
                         code: KeyCode::Char('g'),
                         ..
                     }) => {
-                        let selected_path = self.state.find.selected_path();
-                        let parent = selected_path
-                            .parent()
-                            .expect("selected path is not a file.");
+                        let selected_path_parent = self.state.find.selected_path_parent();
 
-                        self.state.browse.directory = Box::new(parent.to_path_buf());
+                        self.state.browse.directory = Box::new(selected_path_parent.to_path_buf());
                         self.state.browse.offset = 0;
                         self.state.browse.selected = 0;
                         self.state.browse.entries = self.get_entries();
@@ -441,9 +423,9 @@ impl Insh {
                         code: KeyCode::Enter,
                         ..
                     }) => {
-                        let entry_index = self.state.find.offset + self.state.find.selected;
-                        let selected_path: PathBuf = self.state.find.found[entry_index].path();
+                        let selected_path = self.state.find.selected_path();
                         Vim::run(&selected_path);
+
                         self.lazy_hide_cursor();
                         self.lazy_display_find();
                         self.update_terminal();
@@ -507,7 +489,7 @@ impl Insh {
                             self.state.search.file_offset + self.state.search.file_selected;
                         let search_file_hit = self.state.search.hits[search_file_number].clone();
 
-                        let search_line_number = self.search_line_number();
+                        let search_line_number = self.state.search.line_number();
 
                         if selected_line == (self.state.terminal_size.height - 2).into() {
                             if search_line_number >= Some(search_file_hit.hits.len() - 1) {
@@ -729,7 +711,7 @@ impl Insh {
                             self.state.search.file_offset + self.state.search.file_selected;
                         let search_file_hit = self.state.search.hits[search_file_number].clone();
 
-                        match self.search_line_number() {
+                        match self.state.search.line_number() {
                             Some(search_line_number) => {
                                 let line_number =
                                     search_file_hit.hits[search_line_number].line_number;
