@@ -84,6 +84,13 @@ impl Default for FindState {
     }
 }
 
+impl FindState {
+    pub fn selected_path(&mut self) -> PathBuf {
+        let index = self.offset + self.selected;
+        self.found[index].path()
+    }
+}
+
 pub struct SearchState {
     pub search: String,
     pub hits: Vec<SearchFileHit>,

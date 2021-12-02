@@ -412,6 +412,24 @@ impl Insh {
                         }
                     }
                     Event::Key(KeyEvent {
+                        code: KeyCode::Char('g'),
+                        ..
+                    }) => {
+                        let selected_path = self.state.find.selected_path();
+                        let parent = selected_path
+                            .parent()
+                            .expect("selected path is not a file.");
+
+                        self.state.browse.directory = Box::new(parent.to_path_buf());
+                        self.state.browse.offset = 0;
+                        self.state.browse.selected = 0;
+                        self.state.browse.entries = self.get_entries();
+
+                        self.enter_browse_mode();
+                        self.lazy_display_browse();
+                        self.update_terminal();
+                    }
+                    Event::Key(KeyEvent {
                         code: KeyCode::Char('e'),
                         ..
                     })
