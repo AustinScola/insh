@@ -1,5 +1,5 @@
 use std::convert::TryInto;
-use std::env::current_dir;
+use std::default::Default;
 use std::fs;
 use std::io::{self, Stdout, Write};
 use std::iter::FromIterator;
@@ -9,7 +9,7 @@ use crate::bash_shell::BashShell;
 use crate::color::Color;
 use crate::finder::Finder;
 use crate::searcher::Searcher;
-use crate::state::{BrowseState, FindState, Mode, PatternState, SearchState, State};
+use crate::state::{Mode, PatternState, State};
 use crate::terminal_size::TerminalSize;
 use crate::vim::Vim;
 use crate::walker::Walker;
@@ -39,58 +39,9 @@ impl Insh {
 
         let mode = Mode::Browse;
 
-        // Browse mode state.
-        let directory: Box<PathBuf> = Box::new(current_dir().unwrap());
-        let entries_iter = fs::read_dir(&*directory).unwrap();
-        let entries: Vec<fs::DirEntry> = entries_iter
-            .take(terminal_size.height.into())
-            .map(|entry| entry.unwrap())
-            .collect();
-        let browse_offset = 0;
-        let selected = 0;
-
-        let browse = BrowseState {
-            directory,
-            entries,
-            offset: browse_offset,
-            selected,
-        };
-
-        // Find mode state.
-        let pattern = String::new();
-        let pattern_state = PatternState::NotCompiled;
-        let found = Vec::new();
-        let finder = None;
-        let find_offset = 0;
-        let find_selected = 0;
-
-        let find = FindState {
-            pattern,
-            pattern_state,
-            found,
-            finder,
-            offset: find_offset,
-            selected: find_selected,
-        };
-
-        // Search mode state
-        let search = String::new();
-        let hits = Vec::new();
-        let searcher = None;
-        let search_file_offset = 0;
-        let search_line_offset = None;
-        let search_file_selected = 0;
-        let search_line_selected = None;
-
-        let search = SearchState {
-            search,
-            hits,
-            searcher,
-            file_offset: search_file_offset,
-            line_offset: search_line_offset,
-            file_selected: search_file_selected,
-            line_selected: search_line_selected,
-        };
+        let browse = Default::default();
+        let find = Default::default();
+        let search = Default::default();
 
         let state = State {
             terminal_size,
@@ -103,6 +54,18 @@ impl Insh {
         };
 
         Insh { stdout, state }
+    }
+
+    fn before_run(&mut self) {
+        self.load_initial_entries();
+    }
+
+    fn load_initial_entries(&mut self) {
+        let entries_iter = fs::read_dir(&*self.state.browse.directory).unwrap();
+        self.state.browse.entries = entries_iter
+            .take(self.state.terminal_size.height.into())
+            .map(|entry| entry.unwrap())
+            .collect();
     }
 
     fn get_selected_line(&mut self) -> usize {
@@ -202,6 +165,8 @@ impl Insh {
     }
 
     pub fn run(&mut self) {
+        self.before_run();
+
         self.set_up();
 
         loop {
