@@ -140,7 +140,7 @@ impl SearchState {
         !self.hits.is_empty()
     }
 
-    pub fn line_number(&mut self) -> Option<usize> {
+    pub fn line_number(&self) -> Option<usize> {
         match self.file_selected {
             0 => match self.line_offset {
                 Some(line_offset) => match self.line_selected {
