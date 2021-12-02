@@ -85,6 +85,10 @@ impl Default for FindState {
 }
 
 impl FindState {
+    pub fn found_files(&self) -> bool {
+        !self.found.is_empty()
+    }
+
     pub fn selected_path(&self) -> PathBuf {
         let index = self.offset + self.selected;
         self.found[index].path()
@@ -132,6 +136,10 @@ impl Default for SearchState {
 }
 
 impl SearchState {
+    pub fn found_hits(&self) -> bool {
+        !self.hits.is_empty()
+    }
+
     pub fn line_number(&mut self) -> Option<usize> {
         match self.file_selected {
             0 => match self.line_offset {
