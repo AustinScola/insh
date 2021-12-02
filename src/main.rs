@@ -3,6 +3,7 @@ mod color;
 mod finder;
 mod insh;
 mod searcher;
+mod state;
 mod terminal_size;
 mod vim;
 mod walker;
