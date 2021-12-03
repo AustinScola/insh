@@ -154,6 +154,8 @@ impl Insh {
 
         self.set_up();
 
+        self.display();
+
         loop {
             let event = event::read().unwrap();
 
@@ -188,8 +190,6 @@ impl Insh {
                                 self.state.browse.entries = self.get_entries();
                             }
                         }
-                        self.lazy_display_browse();
-                        self.update_terminal();
                     }
                     Event::Key(KeyEvent {
                         code: KeyCode::Char('k'),
@@ -199,14 +199,10 @@ impl Insh {
                             if self.state.browse.offset > 0 {
                                 self.state.browse.offset -= 1;
                                 self.state.browse.entries = self.get_entries();
-                                self.lazy_display_browse();
-                                self.update_terminal();
                             }
                         } else {
                             self.state.browse.selected -= 1;
                             self.state.browse.entries = self.get_entries();
-                            self.lazy_display_browse();
-                            self.update_terminal();
                         }
                     }
                     Event::Key(KeyEvent {
@@ -229,14 +225,10 @@ impl Insh {
                                     self.state.browse.selected = 0;
                                     self.state.browse.offset = 0;
                                     self.state.browse.entries = self.get_entries();
-                                    self.lazy_display_browse();
-                                    self.update_terminal();
                                 }
                             } else if selected_path.is_file() {
                                 Vim::run(&selected_path);
                                 self.lazy_hide_cursor();
-                                self.lazy_display_browse();
-                                self.update_terminal();
                             }
                         }
                     }
@@ -252,8 +244,6 @@ impl Insh {
                         self.state.browse.selected = 0;
                         self.state.browse.offset = 0;
                         self.state.browse.entries = self.get_entries();
-                        self.lazy_display_browse();
-                        self.update_terminal();
                     }
                     Event::Key(KeyEvent {
                         code: KeyCode::Char('e'),
@@ -264,8 +254,6 @@ impl Insh {
                         if selected_path.is_file() {
                             Vim::run(&selected_path);
                             self.lazy_hide_cursor();
-                            self.lazy_display_browse();
-                            self.update_terminal();
                         }
                     }
                     Event::Key(KeyEvent {
@@ -282,9 +270,6 @@ impl Insh {
 
                         self.enable_raw_terminal();
                         self.lazy_hide_cursor();
-
-                        self.lazy_display_browse();
-                        self.update_terminal();
                     }
 
                     Event::Key(KeyEvent {
@@ -292,16 +277,12 @@ impl Insh {
                         ..
                     }) => {
                         self.enter_find_mode();
-                        self.lazy_display_find();
-                        self.update_terminal();
                     }
                     Event::Key(KeyEvent {
                         code: KeyCode::Char('s'),
                         ..
                     }) => {
                         self.enter_search_mode();
-                        self.lazy_display_search();
-                        self.update_terminal();
                     }
                     _ => {}
                 },
@@ -311,8 +292,6 @@ impl Insh {
                         modifiers: KeyModifiers::CONTROL,
                     }) => {
                         self.enter_browse_mode();
-                        self.lazy_display_browse();
-                        self.update_terminal();
                     }
                     Event::Key(KeyEvent {
                         code: KeyCode::Backspace,
@@ -320,16 +299,12 @@ impl Insh {
                     }) => {
                         self.state.find.pattern.pop();
                         self.state.find.pattern_state = PatternState::NotCompiled;
-                        self.lazy_display_find();
-                        self.update_terminal();
                     }
                     Event::Key(KeyEvent {
                         code: KeyCode::Enter,
                         ..
                     }) => {
                         self.enter_browse_find_mode();
-                        self.lazy_display_find();
-                        self.update_terminal();
                     }
                     Event::Key(KeyEvent {
                         code: KeyCode::Char(c),
@@ -337,8 +312,6 @@ impl Insh {
                     }) => {
                         self.state.find.pattern.push(c);
                         self.state.find.pattern_state = PatternState::NotCompiled;
-                        self.lazy_display_find();
-                        self.update_terminal();
                     }
                     _ => {}
                 },
@@ -348,8 +321,6 @@ impl Insh {
                         modifiers: KeyModifiers::CONTROL,
                     }) => {
                         self.state.mode = Mode::Find;
-                        self.lazy_display_find();
-                        self.update_terminal();
                     }
                     Event::Key(KeyEvent {
                         code: KeyCode::Char('j'),
@@ -379,9 +350,6 @@ impl Insh {
                                 }
                             }
                         }
-
-                        self.lazy_display_find();
-                        self.update_terminal();
                     }
                     Event::Key(KeyEvent {
                         code: KeyCode::Char('k'),
@@ -390,13 +358,9 @@ impl Insh {
                         if self.state.find.selected == 0 {
                             if self.state.find.offset > 0 {
                                 self.state.find.offset -= 1;
-                                self.lazy_display_find();
-                                self.update_terminal();
                             }
                         } else {
                             self.state.find.selected -= 1;
-                            self.lazy_display_find();
-                            self.update_terminal();
                         }
                     }
                     Event::Key(KeyEvent {
@@ -411,8 +375,6 @@ impl Insh {
                         self.state.browse.entries = self.get_entries();
 
                         self.enter_browse_mode();
-                        self.lazy_display_browse();
-                        self.update_terminal();
                     }
                     Event::Key(KeyEvent {
                         code: KeyCode::Char('e'),
@@ -430,8 +392,6 @@ impl Insh {
                         Vim::run(&selected_path);
 
                         self.lazy_hide_cursor();
-                        self.lazy_display_find();
-                        self.update_terminal();
                     }
                     _ => {}
                 },
@@ -441,24 +401,18 @@ impl Insh {
                         modifiers: KeyModifiers::CONTROL,
                     }) => {
                         self.enter_browse_mode();
-                        self.lazy_display_browse();
-                        self.update_terminal();
                     }
                     Event::Key(KeyEvent {
                         code: KeyCode::Char(character),
                         ..
                     }) => {
                         self.state.search.search.push(character);
-                        self.lazy_display_search();
-                        self.update_terminal();
                     }
                     Event::Key(KeyEvent {
                         code: KeyCode::Backspace,
                         ..
                     }) => {
                         self.state.search.search.pop();
-                        self.lazy_display_search();
-                        self.update_terminal();
                     }
 
                     Event::Key(KeyEvent {
@@ -466,9 +420,6 @@ impl Insh {
                         ..
                     }) => {
                         self.enter_browse_search_mode();
-
-                        self.lazy_display_search();
-                        self.update_terminal();
                     }
                     _ => {}
                 },
@@ -478,8 +429,6 @@ impl Insh {
                         modifiers: KeyModifiers::CONTROL,
                     }) => {
                         self.state.mode = Mode::Search;
-                        self.lazy_display_search();
-                        self.update_terminal();
                     }
                     Event::Key(KeyEvent {
                         code: KeyCode::Char('j'),
@@ -615,9 +564,6 @@ impl Insh {
                             } else {
                                 self.increment_search_line_selected();
                             }
-
-                            self.lazy_display_search();
-                            self.update_terminal();
                         }
                     }
                     Event::Key(KeyEvent {
@@ -701,9 +647,6 @@ impl Insh {
                         } else {
                             self.decrement_search_line_selected();
                         }
-
-                        self.lazy_display_search();
-                        self.update_terminal();
                     }
                     Event::Key(KeyEvent {
                         code: KeyCode::Char('e'),
@@ -733,13 +676,12 @@ impl Insh {
                                 Vim::run_with_command(search_file_hit.file.as_path(), command);
                             }
                         }
-
-                        self.lazy_display_search();
-                        self.update_terminal();
                     }
                     _ => {}
                 },
             }
+
+            self.display();
         }
 
         self.clean_up();
@@ -751,15 +693,28 @@ impl Insh {
         self.lazy_hide_cursor();
 
         self.change_panic_hook();
-
-        self.lazy_display_browse();
-        self.update_terminal();
     }
 
     fn clean_up(&mut self) {
         self.lazy_disable_alternate_terminal();
         self.disable_raw_terminal();
         self.lazy_show_cursor();
+    }
+
+    fn display(&mut self) {
+        match self.state.mode {
+            Mode::Browse => {
+                self.lazy_display_browse();
+            }
+            Mode::Find | Mode::BrowseFind => {
+                self.lazy_display_find();
+            }
+            Mode::Search | Mode::BrowseSearch => {
+                self.lazy_display_search();
+            }
+        }
+
+        self.update_terminal();
     }
 
     fn enter_browse_mode(&mut self) {
