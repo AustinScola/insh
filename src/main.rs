@@ -1,5 +1,7 @@
+mod action;
 mod bash_shell;
 mod color;
+mod effect;
 mod finder;
 mod insh;
 mod searcher;
