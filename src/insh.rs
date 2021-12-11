@@ -2,17 +2,14 @@ use std::convert::TryInto;
 use std::default::Default;
 use std::fs;
 use std::io::{self, Stdout, Write};
-use std::iter::FromIterator;
-use std::path::PathBuf;
 
+use crate::action::Action;
 use crate::bash_shell::BashShell;
 use crate::color::Color;
-use crate::finder::Finder;
-use crate::searcher::Searcher;
+use crate::effect::Effect;
 use crate::state::{Mode, PatternState, State};
 use crate::terminal_size::TerminalSize;
 use crate::vim::Vim;
-use crate::walker::Walker;
 
 extern crate crossterm;
 use crossterm::{
@@ -68,87 +65,6 @@ impl Insh {
             .collect();
     }
 
-    fn get_selected_line(&mut self) -> usize {
-        if self.state.search.file_offset >= self.state.search.hits.len() {
-            return 0;
-        }
-
-        let mut selected_line = 0;
-
-        let mut file_offset = self.state.search.file_offset;
-        if self.state.search.file_selected == 0 {
-            if let Some(search_line_selected) = self.state.search.line_selected {
-                selected_line += search_line_selected + 1;
-            }
-
-            return selected_line;
-        } else {
-            selected_line += self.state.search.hits[file_offset].hits.len() + 1;
-        }
-
-        if let Some(search_line_offset) = self.state.search.line_offset {
-            selected_line -= search_line_offset + 1;
-        }
-
-        if selected_line >= (self.state.terminal_size.height - 2).into() {
-            return (self.state.terminal_size.height - 2).into();
-        }
-
-        file_offset += 1;
-        selected_line += 1;
-
-        loop {
-            if file_offset >= self.state.search.file_offset + self.state.search.file_selected {
-                break;
-            }
-
-            selected_line += self.state.search.hits[file_offset].hits.len() + 2;
-            file_offset += 1;
-        }
-
-        if selected_line >= (self.state.terminal_size.height - 2).into() {
-            return (self.state.terminal_size.height - 2).into();
-        }
-
-        if let Some(search_line_selected) = self.state.search.line_selected {
-            selected_line += search_line_selected + 1;
-        }
-
-        if selected_line >= (self.state.terminal_size.height - 2).into() {
-            return (self.state.terminal_size.height - 2).into();
-        }
-
-        selected_line
-    }
-
-    fn increment_search_line_selected(&mut self) {
-        match self.state.search.line_selected {
-            Some(search_line_selected) => {
-                if search_line_selected < (self.state.terminal_size.height - 2).into() {
-                    self.state.search.line_selected = Some(search_line_selected + 1);
-                }
-            }
-            None => {
-                self.state.search.line_selected = Some(0);
-            }
-        };
-    }
-
-    fn decrement_search_line_selected(&mut self) {
-        self.state.search.line_selected = match self.state.search.line_selected {
-            Some(0) => None,
-            Some(search_line_selected) => Some(search_line_selected - 1),
-            None => Some(0),
-        };
-    }
-
-    fn increment_search_line_offset(&mut self) {
-        self.state.search.line_offset = Some(match self.state.search.line_offset {
-            Some(search_line_offset) => search_line_offset + 1,
-            None => 0,
-        });
-    }
-
     pub fn run(&mut self) {
         self.before_run();
 
@@ -157,6 +73,26 @@ impl Insh {
         self.display();
 
         loop {
+            let action = self.next_action();
+
+            let effect: Option<Effect> = self.state.perform(&action);
+
+            if let Some(effect) = effect {
+                self.perform(effect);
+            }
+
+            if action == Action::Exit {
+                break;
+            }
+
+            self.display();
+        }
+
+        self.clean_up();
+    }
+
+    fn next_action(&self) -> Action {
+        loop {
             let event = event::read().unwrap();
 
             if let Event::Key(KeyEvent {
@@ -164,7 +100,7 @@ impl Insh {
                 modifiers: KeyModifiers::CONTROL,
             }) = event
             {
-                break;
+                return Action::Exit;
             }
 
             match self.state.mode {
@@ -172,39 +108,15 @@ impl Insh {
                     Event::Key(KeyEvent {
                         code: KeyCode::Char('q'),
                         modifiers: KeyModifiers::CONTROL,
-                    }) => break,
+                    }) => return Action::Exit,
                     Event::Key(KeyEvent {
                         code: KeyCode::Char('j'),
                         ..
-                    }) => {
-                        if self.state.browse.selected < self.state.terminal_size.height as usize - 1
-                        {
-                            if self.state.browse.selected < self.state.browse.entries.len() - 1 {
-                                self.state.browse.selected += 1;
-                            }
-                        } else {
-                            self.state.browse.offset += 1;
-                            self.state.browse.entries = self.get_entries();
-                            if self.state.browse.selected >= self.state.browse.entries.len() {
-                                self.state.browse.offset -= 1;
-                                self.state.browse.entries = self.get_entries();
-                            }
-                        }
-                    }
+                    }) => return Action::BrowseScrollDown,
                     Event::Key(KeyEvent {
                         code: KeyCode::Char('k'),
                         ..
-                    }) => {
-                        if self.state.browse.selected == 0 {
-                            if self.state.browse.offset > 0 {
-                                self.state.browse.offset -= 1;
-                                self.state.browse.entries = self.get_entries();
-                            }
-                        } else {
-                            self.state.browse.selected -= 1;
-                            self.state.browse.entries = self.get_entries();
-                        }
-                    }
+                    }) => return Action::BrowseScrollUp,
                     Event::Key(KeyEvent {
                         code: KeyCode::Char('l'),
                         ..
@@ -212,26 +124,7 @@ impl Insh {
                     | Event::Key(KeyEvent {
                         code: KeyCode::Enter,
                         ..
-                    }) => {
-                        if !self.state.browse.entries.is_empty() {
-                            let selected_path: PathBuf =
-                                self.state.browse.entries[self.state.browse.selected].path();
-
-                            if selected_path.is_dir() {
-                                self.state.browse.directory.push(selected_path);
-                                if !self.state.browse.directory.exists() {
-                                    self.state.browse.directory.pop();
-                                } else {
-                                    self.state.browse.selected = 0;
-                                    self.state.browse.offset = 0;
-                                    self.state.browse.entries = self.get_entries();
-                                }
-                            } else if selected_path.is_file() {
-                                Vim::run(&selected_path);
-                                self.lazy_hide_cursor();
-                            }
-                        }
-                    }
+                    }) => return Action::BrowseDrillDown,
                     Event::Key(KeyEvent {
                         code: KeyCode::Char('h'),
                         ..
@@ -239,50 +132,24 @@ impl Insh {
                     | Event::Key(KeyEvent {
                         code: KeyCode::Backspace,
                         ..
-                    }) => {
-                        self.state.browse.directory.pop();
-                        self.state.browse.selected = 0;
-                        self.state.browse.offset = 0;
-                        self.state.browse.entries = self.get_entries();
-                    }
+                    }) => return Action::BrowseDrillUp,
                     Event::Key(KeyEvent {
                         code: KeyCode::Char('e'),
                         ..
-                    }) => {
-                        let selected_path: PathBuf =
-                            self.state.browse.entries[self.state.browse.selected].path();
-                        if selected_path.is_file() {
-                            Vim::run(&selected_path);
-                            self.lazy_hide_cursor();
-                        }
-                    }
+                    }) => return Action::BrowseEdit,
                     Event::Key(KeyEvent {
                         code: KeyCode::Char('b'),
                         ..
-                    }) => {
-                        self.disable_raw_terminal();
-                        self.lazy_clear_screen();
-                        self.lazy_move_cursor(0, 0);
-                        self.lazy_show_cursor();
-                        self.update_terminal();
-
-                        BashShell::run(&self.state.browse.directory);
-
-                        self.enable_raw_terminal();
-                        self.lazy_hide_cursor();
-                    }
-
+                    }) => return Action::RunBash,
                     Event::Key(KeyEvent {
                         code: KeyCode::Char('f'),
                         ..
-                    }) => {
-                        self.enter_find_mode();
-                    }
+                    }) => return Action::EnterFindMode,
                     Event::Key(KeyEvent {
                         code: KeyCode::Char('s'),
                         ..
                     }) => {
-                        self.enter_search_mode();
+                        return Action::EnterSearchMode;
                     }
                     _ => {}
                 },
@@ -290,28 +157,22 @@ impl Insh {
                     Event::Key(KeyEvent {
                         code: KeyCode::Char('q'),
                         modifiers: KeyModifiers::CONTROL,
-                    }) => {
-                        self.enter_browse_mode();
-                    }
+                    }) => return Action::EnterBrowseMode,
                     Event::Key(KeyEvent {
                         code: KeyCode::Backspace,
                         ..
                     }) => {
-                        self.state.find.pattern.pop();
-                        self.state.find.pattern_state = PatternState::NotCompiled;
+                        return Action::FindDeletePreviousCharacter;
                     }
                     Event::Key(KeyEvent {
                         code: KeyCode::Enter,
                         ..
-                    }) => {
-                        self.enter_browse_find_mode();
-                    }
+                    }) => return Action::EnterBrowseFindMode,
                     Event::Key(KeyEvent {
-                        code: KeyCode::Char(c),
+                        code: KeyCode::Char(character),
                         ..
                     }) => {
-                        self.state.find.pattern.push(c);
-                        self.state.find.pattern_state = PatternState::NotCompiled;
+                        return Action::FindAppendCharacter(character);
                     }
                     _ => {}
                 },
@@ -320,61 +181,21 @@ impl Insh {
                         code: KeyCode::Char('q'),
                         modifiers: KeyModifiers::CONTROL,
                     }) => {
-                        self.state.mode = Mode::Find;
+                        return Action::EnterFindMode;
                     }
                     Event::Key(KeyEvent {
                         code: KeyCode::Char('j'),
                         ..
-                    }) => {
-                        if !self.state.find.found_files() {
-                            break;
-                        }
-                        if self.state.find.selected < self.state.terminal_size.height as usize - 2 {
-                            if self.state.find.selected + self.state.find.offset
-                                < self.state.find.found.len() - 1
-                            {
-                                self.state.find.selected += 1;
-                            }
-                        } else if self.state.find.selected + self.state.find.offset
-                            < self.state.find.found.len() - 1
-                        {
-                            self.state.find.offset += 1;
-                        } else if let Some(ref mut finder) = self.state.find.finder {
-                            match finder.next() {
-                                Some(entry) => {
-                                    self.state.find.found.push(entry);
-                                    self.state.find.offset += 1;
-                                }
-                                None => {
-                                    self.state.find.finder = None;
-                                }
-                            }
-                        }
-                    }
+                    }) => return Action::FindScrollDown,
                     Event::Key(KeyEvent {
                         code: KeyCode::Char('k'),
                         ..
-                    }) => {
-                        if self.state.find.selected == 0 {
-                            if self.state.find.offset > 0 {
-                                self.state.find.offset -= 1;
-                            }
-                        } else {
-                            self.state.find.selected -= 1;
-                        }
-                    }
+                    }) => return Action::FindScrollUp,
                     Event::Key(KeyEvent {
                         code: KeyCode::Char('g'),
                         ..
                     }) => {
-                        let selected_path_parent = self.state.find.selected_path_parent();
-
-                        self.state.browse.directory = Box::new(selected_path_parent.to_path_buf());
-                        self.state.browse.offset = 0;
-                        self.state.browse.selected = 0;
-                        self.state.browse.entries = self.get_entries();
-
-                        self.enter_browse_mode();
+                        return Action::FindBrowseSelectedParent;
                     }
                     Event::Key(KeyEvent {
                         code: KeyCode::Char('e'),
@@ -388,10 +209,7 @@ impl Insh {
                         code: KeyCode::Enter,
                         ..
                     }) => {
-                        let selected_path = self.state.find.selected_path();
-                        Vim::run(&selected_path);
-
-                        self.lazy_hide_cursor();
+                        return Action::FindEditFile;
                     }
                     _ => {}
                 },
@@ -399,28 +217,23 @@ impl Insh {
                     Event::Key(KeyEvent {
                         code: KeyCode::Char('q'),
                         modifiers: KeyModifiers::CONTROL,
-                    }) => {
-                        self.enter_browse_mode();
-                    }
+                    }) => return Action::EnterBrowseMode,
                     Event::Key(KeyEvent {
                         code: KeyCode::Char(character),
                         ..
                     }) => {
-                        self.state.search.search.push(character);
+                        return Action::SearchAppendCharacter(character);
                     }
                     Event::Key(KeyEvent {
                         code: KeyCode::Backspace,
                         ..
                     }) => {
-                        self.state.search.search.pop();
+                        return Action::SearchDeletePreviousCharacter;
                     }
-
                     Event::Key(KeyEvent {
                         code: KeyCode::Enter,
                         ..
-                    }) => {
-                        self.enter_browse_search_mode();
-                    }
+                    }) => return Action::EnterBrowseSearchMode,
                     _ => {}
                 },
                 Mode::BrowseSearch => match event {
@@ -428,225 +241,19 @@ impl Insh {
                         code: KeyCode::Char('q'),
                         modifiers: KeyModifiers::CONTROL,
                     }) => {
-                        self.state.mode = Mode::Search;
+                        return Action::EnterSearchMode;
                     }
                     Event::Key(KeyEvent {
                         code: KeyCode::Char('j'),
                         ..
                     }) => {
-                        if self.state.search.found_hits() {
-                            let first_file =
-                                self.state.search.hits[self.state.search.file_offset].clone();
-                            let selected_line = self.get_selected_line();
-                            let search_file_number =
-                                self.state.search.file_offset + self.state.search.file_selected;
-                            let search_file_hit =
-                                self.state.search.hits[search_file_number].clone();
-
-                            let search_line_number = self.state.search.line_number();
-
-                            if selected_line == (self.state.terminal_size.height - 2).into() {
-                                if search_line_number >= Some(search_file_hit.hits.len() - 1) {
-                                    if search_file_number == self.state.search.hits.len() - 1 {
-                                        if let Some(ref mut searcher) = self.state.search.searcher {
-                                            match searcher.next() {
-                                                Some(hit) => {
-                                                    self.state.search.hits.push(hit);
-
-                                                    self.state.search.line_selected = None;
-                                                    self.state.search.file_selected += 1;
-
-                                                    if self.state.search.line_offset == None {
-                                                        self.state.search.line_offset = Some(0);
-                                                    } else if self.state.search.line_offset
-                                                        < Some(first_file.hits.len())
-                                                    {
-                                                        self.increment_search_line_offset()
-                                                    } else {
-                                                        self.state.search.file_offset += 1;
-                                                        self.state.search.line_offset = None;
-                                                        self.state.search.file_selected -= 1;
-                                                    }
-
-                                                    let first_file = self.state.search.hits
-                                                        [self.state.search.file_offset]
-                                                        .clone();
-
-                                                    if self.state.search.line_offset == None {
-                                                        self.state.search.line_offset = Some(0);
-                                                    } else if self.state.search.line_offset
-                                                        < Some(first_file.hits.len())
-                                                    {
-                                                        self.increment_search_line_offset()
-                                                    } else {
-                                                        self.state.search.file_offset += 1;
-                                                        self.state.search.line_offset = None;
-                                                        self.state.search.file_selected -= 1;
-                                                    }
-                                                }
-                                                None => {
-                                                    self.state.search.searcher = None;
-                                                }
-                                            }
-                                        }
-                                    } else {
-                                        self.state.search.line_selected = None;
-                                        self.state.search.file_selected += 1;
-
-                                        if self.state.search.line_offset == None {
-                                            self.state.search.line_offset = Some(0);
-                                        } else if self.state.search.line_offset
-                                            < Some(first_file.hits.len())
-                                        {
-                                            self.increment_search_line_offset()
-                                        } else {
-                                            self.state.search.file_offset += 1;
-                                            self.state.search.line_offset = None;
-                                            self.state.search.file_selected -= 1;
-                                        }
-
-                                        let first_file = self.state.search.hits
-                                            [self.state.search.file_offset]
-                                            .clone();
-
-                                        if self.state.search.line_offset == None {
-                                            self.state.search.line_offset = Some(0);
-                                        } else if self.state.search.line_offset
-                                            < Some(first_file.hits.len())
-                                        {
-                                            self.increment_search_line_offset()
-                                        } else {
-                                            self.state.search.file_offset += 1;
-                                            self.state.search.line_offset = None;
-                                            self.state.search.file_selected -= 1;
-                                        }
-                                    }
-                                } else if self.state.search.line_offset == None {
-                                    if self.state.search.file_selected != 0 {
-                                        self.increment_search_line_selected();
-                                    }
-                                    self.state.search.line_offset = Some(0);
-                                } else if self.state.search.line_offset
-                                    < Some(first_file.hits.len())
-                                {
-                                    if self.state.search.file_selected != 0 {
-                                        self.increment_search_line_selected();
-                                    }
-                                    self.increment_search_line_offset()
-                                } else {
-                                    self.increment_search_line_selected();
-                                    self.state.search.file_offset += 1;
-                                    self.state.search.line_offset = None;
-                                    self.state.search.file_selected -= 1;
-                                }
-                            } else if selected_line == (self.state.terminal_size.height - 3).into()
-                                && search_line_number >= Some(search_file_hit.hits.len() - 1)
-                            {
-                                self.state.search.line_selected = None;
-                                self.state.search.file_selected += 1;
-
-                                if self.state.search.line_offset == None {
-                                    self.state.search.line_offset = Some(0);
-                                } else if self.state.search.line_offset
-                                    < Some(first_file.hits.len())
-                                {
-                                    self.increment_search_line_offset()
-                                } else {
-                                    self.state.search.file_offset += 1;
-                                    self.state.search.line_offset = None;
-                                    self.state.search.file_selected -= 1;
-                                }
-                            } else if search_line_number >= Some(search_file_hit.hits.len() - 1) {
-                                if search_file_number < self.state.search.hits.len() - 1 {
-                                    self.state.search.file_selected += 1;
-                                    self.state.search.line_selected = None;
-                                }
-                            } else {
-                                self.increment_search_line_selected();
-                            }
-                        }
+                        return Action::SearchScrollDown;
                     }
                     Event::Key(KeyEvent {
                         code: KeyCode::Char('k'),
                         ..
                     }) => {
-                        // Determine the line on the screen that is selected.
-                        let selected_line = self.get_selected_line();
-
-                        if selected_line == 0 {
-                            match self.state.search.line_offset {
-                                None => {
-                                    if self.state.search.file_offset != 0 {
-                                        self.state.search.file_offset -= 1;
-                                        self.state.search.line_offset = Some(
-                                            self.state.search.hits[self.state.search.file_offset]
-                                                .hits
-                                                .len()
-                                                - 1,
-                                        );
-                                    }
-                                }
-                                Some(0) => {
-                                    self.state.search.line_offset = None;
-                                }
-                                Some(search_line_offset) => {
-                                    self.state.search.line_offset = Some(search_line_offset - 1);
-                                }
-                            }
-                        } else if self.state.search.line_selected.is_none() {
-                            if self.state.search.file_selected == 0 {
-                                if self.state.search.file_offset > 0 {
-                                    self.state.search.file_offset -= 1;
-
-                                    let search_file_number = self.state.search.file_offset
-                                        + self.state.search.file_selected;
-                                    let search_file_hit =
-                                        self.state.search.hits[search_file_number].clone();
-                                    self.state.search.line_selected =
-                                        Some(search_file_hit.hits.len() - 1);
-                                }
-                            } else {
-                                self.state.search.file_selected -= 1;
-                                if selected_line == 1 {
-                                    self.state.search.line_selected = None;
-                                    let search_file_number = self.state.search.file_offset
-                                        + self.state.search.file_selected;
-                                    let search_file_hit =
-                                        self.state.search.hits[search_file_number].clone();
-                                    self.state.search.line_offset =
-                                        Some(search_file_hit.hits.len() - 1);
-                                } else {
-                                    let search_file_number = self.state.search.file_offset
-                                        + self.state.search.file_selected;
-                                    let search_file_hit =
-                                        self.state.search.hits[search_file_number].clone();
-                                    if self.state.search.file_selected == 0 {
-                                        self.state.search.line_selected =
-                                            match self.state.search.line_offset {
-                                                Some(search_line_offset) => {
-                                                    if search_line_offset
-                                                        == search_file_hit.hits.len() - 1
-                                                    {
-                                                        None
-                                                    } else {
-                                                        Some(
-                                                            search_file_hit.hits.len()
-                                                                - search_line_offset
-                                                                - 2,
-                                                        )
-                                                    }
-                                                }
-                                                None => Some(search_file_hit.hits.len() - 1),
-                                            }
-                                    } else {
-                                        self.state.search.line_selected =
-                                            Some(search_file_hit.hits.len() - 1);
-                                    }
-                                }
-                            }
-                        } else {
-                            self.decrement_search_line_selected();
-                        }
+                        return Action::SearchScrollUp;
                     }
                     Event::Key(KeyEvent {
                         code: KeyCode::Char('e'),
@@ -660,31 +267,43 @@ impl Insh {
                         code: KeyCode::Enter,
                         ..
                     }) => {
-                        let search_file_number =
-                            self.state.search.file_offset + self.state.search.file_selected;
-                        let search_file_hit = self.state.search.hits[search_file_number].clone();
-
-                        match self.state.search.line_number() {
-                            Some(search_line_number) => {
-                                let line_number =
-                                    search_file_hit.hits[search_line_number].line_number;
-                                Vim::run_at_line(search_file_hit.file.as_path(), line_number);
-                            }
-                            None => {
-                                let mut command = String::from("/");
-                                command.push_str(&self.state.search.search);
-                                Vim::run_with_command(search_file_hit.file.as_path(), command);
-                            }
-                        }
+                        return Action::SearchEditFile;
                     }
-                    _ => {}
+                    _ => {
+                        continue;
+                    }
                 },
             }
-
-            self.display();
         }
+    }
 
-        self.clean_up();
+    fn perform(&mut self, effect: Effect) {
+        match effect {
+            Effect::RunBash(directory) => {
+                self.disable_raw_terminal();
+                self.lazy_clear_screen();
+                self.lazy_move_cursor(0, 0);
+                self.lazy_show_cursor();
+                self.update_terminal();
+
+                BashShell::run(&directory);
+
+                self.enable_raw_terminal();
+                self.lazy_hide_cursor();
+            }
+            Effect::RunVim(filename) => {
+                Vim::run(&filename);
+                self.lazy_hide_cursor();
+            }
+            Effect::RunVimAtLine(filename, line_number) => {
+                Vim::run_at_line(&filename, line_number);
+                self.lazy_hide_cursor();
+            }
+            Effect::RunVimWithCommand(filename, command) => {
+                Vim::run_with_command(&filename, command);
+                self.lazy_hide_cursor();
+            }
+        }
     }
 
     fn set_up(&mut self) {
@@ -715,111 +334,6 @@ impl Insh {
         }
 
         self.update_terminal();
-    }
-
-    fn enter_browse_mode(&mut self) {
-        self.state.mode = Mode::Browse;
-    }
-
-    fn enter_find_mode(&mut self) {
-        self.state.mode = Mode::Find;
-
-        self.state.find.pattern.clear();
-        self.state.find.pattern_state = PatternState::NotCompiled;
-
-        let mut entries = Walker::from(&(*self.state.browse.directory.as_path()));
-        self.state.find.found.clear();
-        let mut there_are_more = true;
-        for _ in 0..(self.state.terminal_size.height - 1).into() {
-            let entry = entries.next();
-            match entry {
-                Some(entry) => self.state.find.found.push(entry),
-                None => {
-                    there_are_more = false;
-                    break;
-                }
-            }
-        }
-
-        if there_are_more {
-            self.state.find.finder = Some(Finder::from(entries));
-        } else {
-            self.state.find.finder = None;
-        }
-
-        self.state.find.offset = 0;
-        self.state.find.selected = 0;
-    }
-
-    fn enter_browse_find_mode(&mut self) {
-        self.state.mode = Mode::BrowseFind;
-
-        self.state.find.found.clear();
-        self.state.find.finder = None;
-
-        let entries = Finder::new(&*self.state.browse.directory, &self.state.find.pattern);
-        match entries {
-            Err(_) => {
-                self.state.find.pattern_state = PatternState::BadRegex;
-            }
-            Ok(mut entries) => {
-                self.state.find.pattern_state = PatternState::GoodRegex;
-                for _ in 0..(self.state.terminal_size.height - 1) {
-                    let entry = entries.next();
-                    match entry {
-                        Some(entry) => self.state.find.found.push(entry),
-                        None => break,
-                    }
-                }
-                self.state.find.finder = Some(entries);
-            }
-        }
-        self.state.find.selected = 0;
-    }
-
-    fn enter_search_mode(&mut self) {
-        self.state.mode = Mode::Search;
-        self.state.search.hits.clear();
-        self.state.search.search.clear();
-
-        self.state.search.file_offset = 0;
-        self.state.search.line_offset = None;
-        self.state.search.file_selected = 0;
-        self.state.search.line_selected = None;
-    }
-
-    fn enter_browse_search_mode(&mut self) {
-        self.state.mode = Mode::BrowseSearch;
-
-        let mut searcher = Searcher::new(&*self.state.browse.directory, &self.state.search.search);
-
-        self.state.search.hits.clear();
-        let mut lines: usize = 0;
-        while lines < (self.state.terminal_size.height - 1).into() {
-            let hit = searcher.next();
-            match hit {
-                Some(search_file_hit) => {
-                    lines += 1 + search_file_hit.hits.len();
-                    self.state.search.hits.push(search_file_hit);
-                }
-                None => break,
-            }
-        }
-
-        self.state.search.searcher = Some(searcher);
-    }
-
-    fn get_entries(&mut self) -> Vec<fs::DirEntry> {
-        let mut entries_iter = fs::read_dir(self.state.browse.directory.as_path()).unwrap();
-        for _ in 0..self.state.browse.offset {
-            entries_iter.next();
-        }
-
-        Vec::from_iter(
-            entries_iter
-                .take(self.state.terminal_size.height.into())
-                .map(|entry| entry.unwrap()),
-        )
     }
 
     fn lazy_display_browse(&mut self) {
@@ -921,7 +435,7 @@ impl Insh {
         self.lazy_print(&search);
         self.lazy_reset_color();
 
-        let selected_line = self.get_selected_line();
+        let selected_line = self.state.search_selected_line();
 
         let mut lines = 0;
 
