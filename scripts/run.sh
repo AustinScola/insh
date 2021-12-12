@@ -6,4 +6,4 @@ REPO_ROOT="$(git rev-parse --show-toplevel)"
 
 cd "${REPO_ROOT}"
 
-cargo run
+cargo run -- "$@"
