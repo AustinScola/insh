@@ -1,5 +1,4 @@
 use std::convert::TryInto;
-use std::default::Default;
 use std::fs;
 use std::io::{self, Stdout, Write};
 
@@ -8,7 +7,6 @@ use crate::bash_shell::BashShell;
 use crate::color::Color;
 use crate::effect::Effect;
 use crate::state::{Mode, PatternState, State};
-use crate::terminal_size::TerminalSize;
 use crate::vim::Vim;
 
 extern crate crossterm;
@@ -28,31 +26,13 @@ pub struct Insh {
     state: State,
 }
 
-impl Insh {
-    pub fn new() -> Insh {
+impl From<State> for Insh {
+    fn from(state: State) -> Self {
         let stdout = io::stdout();
-
-        let terminal_size: TerminalSize = crossterm::terminal::size().unwrap().into();
-
-        let mode = Mode::Browse;
-
-        let browse = Default::default();
-        let find = Default::default();
-        let search = Default::default();
-
-        let state = State {
-            terminal_size,
-
-            mode,
-
-            browse,
-            find,
-            search,
-        };
-
         Insh { stdout, state }
     }
-
+}
+impl Insh {
     fn before_run(&mut self) {
         self.load_initial_entries();
     }

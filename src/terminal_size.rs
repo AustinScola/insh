@@ -11,3 +11,9 @@ impl From<(u16, u16)> for TerminalSize {
         }
     }
 }
+
+impl Default for TerminalSize {
+    fn default() -> Self {
+        crossterm::terminal::size().unwrap().into()
+    }
+}
