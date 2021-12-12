@@ -20,7 +20,35 @@ pub struct State {
     pub search: SearchState,
 }
 
+impl Default for State {
+    fn default() -> Self {
+        State {
+            terminal_size: Default::default(),
+            mode: Default::default(),
+            browse: Default::default(),
+            find: Default::default(),
+            search: Default::default(),
+        }
+    }
+}
+
 impl State {
+    pub fn new() -> Self {
+        Default::default()
+    }
+
+    pub fn new_find() -> Self {
+        let mut state: State = Default::default();
+        state.enter_find_mode();
+        state
+    }
+
+    pub fn new_search() -> Self {
+        let mut state: State = Default::default();
+        state.enter_search_mode();
+        state
+    }
+
     pub fn search_selected_line(&self) -> usize {
         if self.search.file_offset >= self.search.hits.len() {
             return 0;
@@ -559,6 +587,12 @@ pub enum Mode {
 
     Search,
     BrowseSearch,
+}
+
+impl Default for Mode {
+    fn default() -> Self {
+        Mode::Browse
+    }
 }
 
 pub enum PatternState {
