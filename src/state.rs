@@ -118,13 +118,13 @@ impl State {
                 self.browse_scroll_down();
             }
             Action::BrowseScrollUp => {
-                self.browse_scroll_up();
+                self.browse.scroll_up();
             }
             Action::BrowseDrillDown => {
-                effect = self.browse_drill_down();
+                effect = self.browse.drill_down();
             }
             Action::BrowseDrillUp => {
-                self.browse_drill_up();
+                self.browse.pop_directory();
             }
             Action::BrowseEdit => {
                 effect = self.browse.edit_selected_file();
@@ -279,76 +279,19 @@ impl State {
         self.search.searcher = Some(searcher);
     }
 
-    fn get_browse_entries(&mut self) {
-        let mut entries_iter = fs::read_dir(self.browse.directory.as_path()).unwrap();
-        for _ in 0..self.browse.offset {
-            entries_iter.next();
-        }
-
-        self.browse.entries = Vec::from_iter(
-            entries_iter
-                .take(self.terminal_size.height.into())
-                .map(|entry| entry.unwrap()),
-        )
-    }
-
     fn run_bash(&mut self) -> Effect {
         let directory = &self.browse.directory;
         Effect::RunBash(directory.to_path_buf())
     }
 
     fn browse_scroll_down(&mut self) {
-        if self.browse.selected < self.terminal_size.height as usize - 1 {
-            if self.browse.selected < self.browse.entries.len() - 1 {
+        if self.browse.offset + self.browse.selected < self.browse.entries.len() - 2 {
+            if self.browse.selected < self.terminal_size.height as usize - 1 {
                 self.browse.selected += 1;
-            }
-        } else {
-            self.browse.offset += 1;
-            self.get_browse_entries();
-            if self.browse.selected >= self.browse.entries.len() {
-                self.browse.offset -= 1;
-                self.get_browse_entries();
+            } else {
+                self.browse.offset += 1;
             }
         }
-    }
-
-    fn browse_scroll_up(&mut self) {
-        if self.browse.selected == 0 {
-            if self.browse.offset > 0 {
-                self.browse.offset -= 1;
-                self.get_browse_entries();
-            }
-        } else {
-            self.browse.selected -= 1;
-            self.get_browse_entries();
-        }
-    }
-
-    fn browse_drill_down(&mut self) -> Option<Effect> {
-        if !self.browse.entries.is_empty() {
-            let selected_path: PathBuf = self.browse.entries[self.browse.selected].path();
-
-            if selected_path.is_dir() {
-                self.browse.directory.push(selected_path);
-                if !self.browse.directory.exists() {
-                    self.browse.directory.pop();
-                } else {
-                    self.browse.selected = 0;
-                    self.browse.offset = 0;
-                    self.get_browse_entries();
-                }
-            } else if selected_path.is_file() {
-                return Some(Effect::RunVim(Box::from(selected_path.as_path())));
-            }
-        }
-        None
-    }
-
-    fn browse_drill_up(&mut self) {
-        self.browse.directory.pop();
-        self.browse.selected = 0;
-        self.browse.offset = 0;
-        self.get_browse_entries();
     }
 
     fn find_scroll_down(&mut self) {
@@ -376,13 +319,8 @@ impl State {
     }
 
     fn find_browse_selected_parent(&mut self) {
-        let selected_path_parent = self.find.selected_path_parent();
-
-        self.browse.directory = Box::new(selected_path_parent.to_path_buf());
-        self.browse.offset = 0;
-        self.browse.selected = 0;
-        self.get_browse_entries();
-
+        let directory = self.find.selected_path_parent().to_path_buf();
+        self.browse.change_directory(directory);
         self.enter_browse_mode();
     }
 
@@ -625,6 +563,61 @@ impl Default for BrowseState {
 }
 
 impl BrowseState {
+    fn selected_path(&self) -> PathBuf {
+        self.entries[self.selected + self.offset].path()
+    }
+
+    fn scroll_up(&mut self) {
+        if self.selected == 0 {
+            if self.offset > 0 {
+                self.offset -= 1;
+            }
+        } else {
+            self.selected -= 1;
+        }
+    }
+
+    fn drill_down(&mut self) -> Option<Effect> {
+        if self.entries.is_empty() {
+            return None;
+        }
+
+        let selected_path: PathBuf = self.selected_path();
+        if selected_path.is_dir() {
+            self.push_directory();
+        } else if selected_path.is_file() {
+            return Some(Effect::RunVim(Box::from(selected_path.as_path())));
+        }
+        None
+    }
+
+    fn push_directory(&mut self) {
+        self.directory.push(self.selected_path());
+        self.selected = 0;
+        self.offset = 0;
+        self.get_entries();
+    }
+
+    fn pop_directory(&mut self) {
+        self.directory.pop();
+        self.selected = 0;
+        self.offset = 0;
+        self.get_entries();
+    }
+
+    fn change_directory(&mut self, directory: PathBuf) {
+        self.directory = Box::new(directory);
+        self.offset = 0;
+        self.selected = 0;
+        self.get_entries();
+    }
+
+    fn get_entries(&mut self) {
+        let entries_iter = fs::read_dir(self.directory.as_path()).unwrap();
+        let entries = Vec::from_iter(entries_iter.map(|entry| entry.unwrap()));
+        self.entries = entries;
+    }
+
     pub fn edit_selected_file(&mut self) -> Option<Effect> {
         let selected_path = self.entries[self.selected].path();
         let selected_path = selected_path.as_path();
