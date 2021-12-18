@@ -1,5 +1,5 @@
+use std::cmp;
 use std::convert::TryInto;
-use std::fs;
 use std::io::{self, Stdout, Write};
 
 use crate::action::Action;
@@ -33,21 +33,7 @@ impl From<State> for Insh {
     }
 }
 impl Insh {
-    fn before_run(&mut self) {
-        self.load_initial_entries();
-    }
-
-    fn load_initial_entries(&mut self) {
-        let entries_iter = fs::read_dir(&*self.state.browse.directory).unwrap();
-        self.state.browse.entries = entries_iter
-            .take(self.state.terminal_size.height.into())
-            .map(|entry| entry.unwrap())
-            .collect();
-    }
-
     pub fn run(&mut self) {
-        self.before_run();
-
         self.set_up();
 
         self.display();
@@ -319,14 +305,20 @@ impl Insh {
     fn lazy_display_browse(&mut self) {
         self.lazy_clear_screen();
 
-        for entry_number in 0..self.state.browse.entries.len() {
-            let file_name = self.state.browse.entries[entry_number].file_name();
+        let start = self.state.browse.offset;
+        let end: usize = cmp::min(
+            self.state.browse.offset + (self.state.terminal_size.height as usize),
+            self.state.browse.entries.len() - 1,
+        );
+        for (line_number, entry_number) in (start..end).enumerate() {
+            let entry = &self.state.browse.entries[entry_number];
+            let file_name = entry.file_name();
             let entry_name = file_name.to_string_lossy();
 
-            self.lazy_move_cursor(0, entry_number as u16);
+            self.lazy_move_cursor(0, line_number as u16);
 
             let mut reset = false;
-            if entry_number == self.state.browse.selected {
+            if line_number == self.state.browse.selected {
                 // Named arguments (not in Rust?) would be nice for lazy_color! Make a macro?
                 self.lazy_start_color(Color::InvertedText, Color::Highlight);
                 reset = true;
