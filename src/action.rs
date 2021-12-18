@@ -17,6 +17,7 @@ pub enum Action {
     BrowseDrillDown,
     BrowseDrillUp,
     BrowseEdit,
+    BrowseRefresh,
 
     // Find mode actions.
     FindScrollDown,

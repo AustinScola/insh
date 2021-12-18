@@ -112,6 +112,10 @@ impl Insh {
                         ..
                     }) => return Action::BrowseEdit,
                     Event::Key(KeyEvent {
+                        code: KeyCode::Char('r'),
+                        ..
+                    }) => return Action::BrowseRefresh,
+                    Event::Key(KeyEvent {
                         code: KeyCode::Char('b'),
                         ..
                     }) => return Action::RunBash,
