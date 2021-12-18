@@ -553,12 +553,16 @@ impl Default for BrowseState {
         let offset = 0;
         let selected = 0;
 
-        BrowseState {
+        let mut browse_state = BrowseState {
             directory,
             entries,
             offset,
             selected,
-        }
+        };
+
+        browse_state.get_entries();
+
+        browse_state
     }
 }
 
@@ -614,7 +618,8 @@ impl BrowseState {
 
     fn get_entries(&mut self) {
         let entries_iter = fs::read_dir(self.directory.as_path()).unwrap();
-        let entries = Vec::from_iter(entries_iter.map(|entry| entry.unwrap()));
+        let mut entries = Vec::from_iter(entries_iter.map(|entry| entry.unwrap()));
+        entries.sort_unstable_by_key(|a| a.file_name());
         self.entries = entries;
     }
 

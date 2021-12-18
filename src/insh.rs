@@ -1,6 +1,5 @@
 use std::cmp;
 use std::convert::TryInto;
-use std::fs;
 use std::io::{self, Stdout, Write};
 
 use crate::action::Action;
@@ -34,21 +33,7 @@ impl From<State> for Insh {
     }
 }
 impl Insh {
-    fn before_run(&mut self) {
-        self.load_initial_entries();
-    }
-
-    fn load_initial_entries(&mut self) {
-        let entries_iter = fs::read_dir(&*self.state.browse.directory).unwrap();
-        self.state.browse.entries = entries_iter
-            .take(self.state.terminal_size.height.into())
-            .map(|entry| entry.unwrap())
-            .collect();
-    }
-
     pub fn run(&mut self) {
-        self.before_run();
-
         self.set_up();
 
         self.display();
