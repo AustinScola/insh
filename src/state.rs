@@ -135,6 +135,9 @@ impl State {
             Action::BrowseEdit => {
                 effect = self.browse.edit_selected_file();
             }
+            Action::BrowseRefresh => {
+                self.browse.refresh();
+            }
 
             // Find actions.
             Action::EnterFindMode => {
@@ -630,6 +633,12 @@ impl BrowseState {
 
     fn change_directory(&mut self, directory: PathBuf) {
         self.directory = Box::new(directory);
+        self.offset = 0;
+        self.selected = 0;
+        self.get_entries();
+    }
+
+    fn refresh(&mut self) {
         self.offset = 0;
         self.selected = 0;
         self.get_entries();
