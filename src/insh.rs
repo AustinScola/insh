@@ -84,6 +84,14 @@ impl Insh {
                         ..
                     }) => return Action::BrowseScrollUp,
                     Event::Key(KeyEvent {
+                        code: KeyCode::Char('G'),
+                        ..
+                    }) => return Action::BrowseGoToBottom,
+                    Event::Key(KeyEvent {
+                        code: KeyCode::Char('g'),
+                        ..
+                    }) => return Action::BrowseGoToTop,
+                    Event::Key(KeyEvent {
                         code: KeyCode::Char('l'),
                         ..
                     })
@@ -308,7 +316,7 @@ impl Insh {
         let start = self.state.browse.offset;
         let end: usize = cmp::min(
             self.state.browse.offset + (self.state.terminal_size.height as usize),
-            self.state.browse.entries.len() - 1,
+            self.state.browse.entries.len(),
         );
         for (line_number, entry_number) in (start..end).enumerate() {
             let entry = &self.state.browse.entries[entry_number];

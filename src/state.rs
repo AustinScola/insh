@@ -120,6 +120,12 @@ impl State {
             Action::BrowseScrollUp => {
                 self.browse.scroll_up();
             }
+            Action::BrowseGoToBottom => {
+                self.browse_go_to_bottom();
+            }
+            Action::BrowseGoToTop => {
+                self.browse.go_to_top();
+            }
             Action::BrowseDrillDown => {
                 effect = self.browse.drill_down();
             }
@@ -285,12 +291,21 @@ impl State {
     }
 
     fn browse_scroll_down(&mut self) {
-        if self.browse.offset + self.browse.selected < self.browse.entries.len() - 2 {
+        if self.browse.offset + self.browse.selected < self.browse.entries.len() - 1 {
             if self.browse.selected < self.terminal_size.height as usize - 1 {
                 self.browse.selected += 1;
             } else {
                 self.browse.offset += 1;
             }
+        }
+    }
+
+    fn browse_go_to_bottom(&mut self) {
+        if self.browse.entries.len() <= self.terminal_size.height as usize {
+            self.browse.selected = self.browse.entries.len() - 1;
+        } else {
+            self.browse.offset = self.browse.entries.len() - self.terminal_size.height as usize;
+            self.browse.selected = self.terminal_size.height as usize - 1;
         }
     }
 
@@ -579,6 +594,10 @@ impl BrowseState {
         } else {
             self.selected -= 1;
         }
+    }
+    fn go_to_top(&mut self) {
+        self.offset = 0;
+        self.selected = 0;
     }
 
     fn drill_down(&mut self) -> Option<Effect> {
