@@ -12,6 +12,8 @@ pub enum Action {
     // Browse mode actions.
     BrowseScrollDown,
     BrowseScrollUp,
+    BrowseGoToBottom,
+    BrowseGoToTop,
     BrowseDrillDown,
     BrowseDrillUp,
     BrowseEdit,
