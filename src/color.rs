@@ -25,3 +25,13 @@ impl From<Color> for CrosstermColor {
         }
     }
 }
+
+impl Color {
+    pub fn focus_or_important(focus: bool) -> Self {
+        if focus {
+            Self::Highlight
+        } else {
+            Self::InvertedBackground
+        }
+    }
+}

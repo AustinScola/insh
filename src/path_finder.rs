@@ -4,21 +4,21 @@ use std::path::Path;
 
 use crate::walker::Walker;
 
-pub struct Finder {
+pub struct PathFinder {
     regex: Regex,
     walker: Walker,
 }
 
-impl Finder {
+impl PathFinder {
     pub fn new(directory: &Path, pattern: &str) -> Result<Self, regex::Error> {
         let regex = Regex::new(pattern)?;
         let walker = Walker::from(directory);
 
-        Ok(Finder { regex, walker })
+        Ok(PathFinder { regex, walker })
     }
 }
 
-impl Iterator for Finder {
+impl Iterator for PathFinder {
     type Item = fs::DirEntry;
 
     fn next(&mut self) -> Option<fs::DirEntry> {
@@ -39,9 +39,9 @@ impl Iterator for Finder {
     }
 }
 
-impl From<Walker> for Finder {
+impl From<Walker> for PathFinder {
     fn from(walker: Walker) -> Self {
-        Finder {
+        PathFinder {
             regex: Regex::new(".*").unwrap(),
             walker,
         }
