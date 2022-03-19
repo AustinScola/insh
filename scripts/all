@@ -7,8 +7,8 @@ HERE="${REPO_ROOT}/scripts"
 
 cd "${HERE}"
 
-./format.sh
+./format
 
-./check.sh
+./check
 
-./lint.sh
+./lint
