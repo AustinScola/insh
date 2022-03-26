@@ -82,15 +82,34 @@ mod state {
     use crate::stateful::Stateful;
 
     use std::env;
-    use std::path::PathBuf;
+    use std::path::{PathBuf, MAIN_SEPARATOR as PATH_SEPARATOR};
 
     pub struct State {
         directory: PathBuf,
+        home: Option<PathBuf>,
     }
 
     impl State {
         pub fn directory_string(&self) -> String {
-            self.directory.to_str().unwrap().to_string()
+            let mut string: String;
+            if let Some(home) = &self.home {
+                if let Ok(path) = self.directory.strip_prefix(home) {
+                    let mut string = String::from("~");
+                    string.push(PATH_SEPARATOR);
+
+                    let path_string = path.to_str().unwrap();
+                    if path_string.len() > 0 {
+                        string.push_str(path.to_str().unwrap());
+                        string.push(PATH_SEPARATOR);
+                    }
+
+                    return string;
+                }
+            }
+
+            let mut string = self.directory.to_str().unwrap().to_string();
+            string.push(PATH_SEPARATOR);
+            string
         }
 
         fn set_directory(&mut self, directory: PathBuf) {
@@ -105,7 +124,8 @@ mod state {
     impl Default for State {
         fn default() -> Self {
             let directory: PathBuf = env::current_dir().unwrap();
-            State { directory }
+            let home: Option<PathBuf> = dirs::home_dir();
+            State { directory, home }
         }
     }
 
