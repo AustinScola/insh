@@ -130,15 +130,16 @@ mod state {
     use crate::stateful::Stateful;
 
     use std::cmp::{self, Ordering};
-    use std::fs::DirEntry;
-    use std::path::PathBuf;
+    use std::path::{Path, PathBuf};
+
+    use walkdir::DirEntry as Entry;
 
     pub struct State {
         size: Size,
         directory: PathBuf,
         focussed: bool,
         hits: Option<bool>,
-        entries: Vec<DirEntry>,
+        entries: Vec<Entry>,
         selected: Option<usize>,
         offset: usize,
     }
@@ -166,11 +167,11 @@ mod state {
             self.hits
         }
 
-        pub fn entries(&self) -> &Vec<DirEntry> {
+        pub fn entries(&self) -> &Vec<Entry> {
             &self.entries
         }
 
-        pub fn visible_entries(&self) -> &[DirEntry] {
+        pub fn visible_entries(&self) -> &[Entry] {
             if self.entries.is_empty() {
                 return &[];
             }
@@ -187,7 +188,7 @@ mod state {
             self.selected.map(|selected| self.offset + selected)
         }
 
-        fn entry_path(&self) -> Option<PathBuf> {
+        fn entry_path(&self) -> Option<&Path> {
             match self.entry_number() {
                 Some(entry_number) => Some(self.entries[entry_number].path()),
                 None => None,
@@ -293,7 +294,9 @@ mod state {
 
         fn edit(&mut self) -> Option<Effect> {
             match self.entry_path() {
-                Some(path) => Some(Effect::OpenVim { file: path }),
+                Some(path) => Some(Effect::OpenVim {
+                    file: path.to_path_buf(),
+                }),
                 None => None,
             }
         }

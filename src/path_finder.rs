@@ -1,8 +1,9 @@
 use regex::Regex;
-use std::fs;
 use std::path::Path;
 
-use crate::walker::Walker;
+use walkdir::{
+    DirEntry as Entry, Error as WalkerEntryError, IntoIter as Walker, WalkDir as WalkerBuilder,
+};
 
 pub struct PathFinder {
     regex: Regex,
@@ -12,28 +13,32 @@ pub struct PathFinder {
 impl PathFinder {
     pub fn new(directory: &Path, pattern: &str) -> Result<Self, regex::Error> {
         let regex = Regex::new(pattern)?;
-        let walker = Walker::from(directory);
+        let walker = WalkerBuilder::new(directory).into_iter();
 
         Ok(PathFinder { regex, walker })
     }
 }
 
 impl Iterator for PathFinder {
-    type Item = fs::DirEntry;
+    type Item = Entry;
 
-    fn next(&mut self) -> Option<fs::DirEntry> {
-        let mut next_entry = self.walker.next();
+    fn next(&mut self) -> Option<Entry> {
         loop {
-            match next_entry {
-                Some(entry) => {
-                    if self.regex.is_match(&entry.file_name().to_string_lossy()) {
-                        return Some(entry);
-                    }
-                    next_entry = self.walker.next();
-                }
+            let entry: Option<Result<Entry, WalkerEntryError>> = self.walker.next();
+
+            match entry {
                 None => {
                     return None;
                 }
+                Some(entry) => match entry {
+                    Err(_) => continue,
+                    Ok(entry) => {
+                        if self.regex.is_match(&entry.file_name().to_string_lossy()) {
+                            return Some(entry);
+                        }
+                        continue;
+                    }
+                },
             }
         }
     }
