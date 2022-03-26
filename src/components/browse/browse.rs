@@ -1,6 +1,6 @@
 use super::{ContentsComponent, ContentsEffect, ContentsEvent, ContentsProps};
 use crate::component::Component;
-use crate::components::common::{Directory, DirectoryEffect, DirectoryEvent};
+use crate::components::common::{Directory, DirectoryEffect, DirectoryEvent, DirectoryProps};
 use crate::rendering::{Fabric, Size};
 use crate::stateful::Stateful;
 
@@ -25,7 +25,7 @@ pub struct Browse {
 
 impl Component<Props, Event, Effect> for Browse {
     fn new(props: Props) -> Self {
-        let state = State::new(props);
+        let state = State::from(props);
         Self { state }
     }
 
@@ -97,12 +97,14 @@ struct State {
     focus: Focus,
 }
 
-impl State {
-    fn new(props: Props) -> Self {
-        let directory = Directory::default();
+impl From<Props> for State {
+    fn from(props: Props) -> Self {
+        let directory_props = DirectoryProps::new(props.directory.clone());
+        let directory = Directory::new(directory_props);
 
         let contents_size = Size::new(props.size.rows - 1, props.size.columns);
-        let contents = ContentsComponent::new(ContentsProps::new(contents_size));
+        let contents_props = ContentsProps::new(props.directory, contents_size);
+        let contents = ContentsComponent::new(contents_props);
 
         let focus = Focus::default();
         State {

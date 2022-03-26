@@ -12,12 +12,13 @@ use std::path::PathBuf;
 use crossterm::event::{Event as CrosstermEvent, KeyCode, KeyEvent};
 
 pub struct Props {
+    directory: PathBuf,
     size: Size,
 }
 
 impl Props {
-    pub fn new(size: Size) -> Self {
-        Self { size }
+    pub fn new(directory: PathBuf, size: Size) -> Self {
+        Self { directory, size }
     }
 }
 
@@ -27,7 +28,7 @@ pub struct Contents {
 
 impl Component<Props, Event, Effect> for Contents {
     fn new(props: Props) -> Self {
-        let state = State::new(props.size);
+        let state = State::from(props);
         Self { state }
     }
 
@@ -130,8 +131,9 @@ struct State {
 }
 
 impl State {
-    pub fn new(size: Size) -> Self {
-        let directory: PathBuf = env::current_dir().unwrap();
+    pub fn from(props: Props) -> Self {
+        let size = props.size;
+        let directory: PathBuf = props.directory;
         let entries = State::get_entries(&directory);
         let selected = if !entries.is_empty() { Some(0) } else { None };
         let offset = 0;

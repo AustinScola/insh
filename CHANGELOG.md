@@ -8,3 +8,4 @@
 # 0.2.3
 - Fix crashing of finder from there being too many files open.
 - Fix the displayed directory in the finder.
+- Fix the directory that the goto command (`g`) in the finder navigates to.
