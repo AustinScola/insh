@@ -108,7 +108,9 @@ mod state {
             }
 
             let mut string = self.directory.to_str().unwrap().to_string();
-            string.push(PATH_SEPARATOR);
+            if self.directory.parent().is_some() {
+                string.push(PATH_SEPARATOR);
+            }
             string
         }
 
