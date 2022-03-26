@@ -2,7 +2,7 @@ mod props {
     use std::path::PathBuf;
 
     pub struct Props {
-        directory: PathBuf,
+        pub directory: PathBuf,
     }
 
     impl Props {
@@ -25,8 +25,8 @@ mod directory {
     }
 
     impl Component<Props, Event, Effect> for Directory {
-        fn new(_props: Props) -> Self {
-            let state = State::default();
+        fn new(props: Props) -> Self {
+            let state = State::from(props);
             Self { state }
         }
 
@@ -78,7 +78,7 @@ mod event {
 pub use event::Event;
 
 mod state {
-    use super::{Action, Effect};
+    use super::{Action, Effect, Props};
     use crate::stateful::Stateful;
 
     use std::env;
@@ -126,6 +126,15 @@ mod state {
             let directory: PathBuf = env::current_dir().unwrap();
             let home: Option<PathBuf> = dirs::home_dir();
             State { directory, home }
+        }
+    }
+
+    impl From<Props> for State {
+        fn from(props: Props) -> Self {
+            Self {
+                directory: props.directory,
+                ..Default::default()
+            }
         }
     }
 
