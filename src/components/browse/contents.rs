@@ -78,6 +78,10 @@ impl Contents {
                             ..
                         } => Some(Action::Up),
                         KeyEvent {
+                            code: KeyCode::Char('r'),
+                            ..
+                        } => Some(Action::Refresh),
+                        KeyEvent {
                             code: KeyCode::Char('l'),
                             ..
                         }
@@ -246,6 +250,13 @@ impl State {
         }
     }
 
+    /// Refresh the contents of the browser to reflect the current state of the file system.
+    fn refresh(&mut self) {
+        // TODO: Maintain the currently selected entry (if possible) and maintain the currently
+        // selected scroll position (if possible).
+        self.reset_entries();
+    }
+
     fn push(&mut self) -> Option<Effect> {
         if let Some(entry) = self.entry() {
             let path = entry.path();
@@ -298,6 +309,9 @@ impl Stateful<Action, Effect> for State {
             Action::Up => {
                 self.up();
             }
+            Action::Refresh => {
+                self.refresh();
+            }
             Action::Push => {
                 effect = self.push();
             }
@@ -319,6 +333,7 @@ enum Action {
     Resize { size: Size },
     Down,
     Up,
+    Refresh,
     Push,
     Pop,
     OpenFinder,
