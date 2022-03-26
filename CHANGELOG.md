@@ -7,3 +7,4 @@
 
 # 0.2.3
 - Fix crashing of finder from there being too many files open.
+- Fix the displayed directory in the finder.
