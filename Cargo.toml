@@ -10,6 +10,7 @@ clap = "3.1.0"
 dirs = "4.0.0"
 unicode-segmentation = "1.9.0"
 itertools = "0.10.3"
+walkdir = "2.3.2"
 
 [dev-dependencies]
 test-case = "2.0.0"

@@ -8,7 +8,6 @@ mod programs;
 mod rendering;
 mod stateful;
 mod system_effect;
-mod walker;
 
 use app::App;
 use component::Component;
