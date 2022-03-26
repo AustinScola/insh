@@ -125,9 +125,10 @@ mod finder {
 pub use finder::Finder;
 
 mod state {
-    use super::super::{Directory, DirectoryProps, Found, FoundProps, Phrase};
+    use super::super::{Found, FoundProps, Phrase};
     use super::{Action, Effect, Focus, Props};
     use crate::component::Component;
+    use crate::components::common::{Directory, DirectoryProps};
     use crate::rendering::Size;
     use crate::stateful::Stateful;
 
