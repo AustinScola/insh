@@ -302,9 +302,15 @@ mod state {
         }
 
         fn goto(&mut self) -> Option<Effect> {
-            Some(Effect::Goto {
-                directory: self.directory.clone(),
-            })
+            match self.entry_path() {
+                Some(entry) => {
+                    let destination = entry.parent().unwrap().to_path_buf();
+                    Some(Effect::Goto {
+                        directory: destination,
+                    })
+                }
+                None => None,
+            }
         }
     }
 
