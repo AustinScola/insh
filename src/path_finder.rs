@@ -13,7 +13,7 @@ pub struct PathFinder {
 impl PathFinder {
     pub fn new(directory: &Path, pattern: &str) -> Result<Self, regex::Error> {
         let regex = Regex::new(pattern)?;
-        let walker = WalkerBuilder::new(directory).into_iter();
+        let walker = WalkerBuilder::new(directory).min_depth(1).into_iter();
 
         Ok(PathFinder { regex, walker })
     }
