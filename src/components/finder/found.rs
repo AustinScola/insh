@@ -251,6 +251,7 @@ mod state {
             // TODO: handle regex errors!
             let path_finder = PathFinder::new(&self.directory, &phrase).unwrap();
             self.entries = path_finder.collect();
+            self.offset = 0;
 
             if self.entries.is_empty() {
                 self.selected = None;
