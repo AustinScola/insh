@@ -33,6 +33,10 @@ impl Iterator for PathFinder {
                 Some(entry) => match entry {
                     Err(_) => continue,
                     Ok(entry) => {
+                        if entry.path().is_dir() {
+                            continue;
+                        }
+
                         if self.regex.is_match(&entry.file_name().to_string_lossy()) {
                             return Some(entry);
                         }
