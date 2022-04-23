@@ -1,6 +1,7 @@
-use super::{ContentsComponent, ContentsEffect, ContentsEvent, ContentsProps};
+use super::{Contents, ContentsEffect, ContentsEvent, ContentsProps};
 use crate::component::Component;
 use crate::components::common::{Directory, DirectoryEffect, DirectoryEvent, DirectoryProps};
+use crate::programs::VimArgs;
 use crate::rendering::{Fabric, Size};
 use crate::stateful::Stateful;
 
@@ -61,8 +62,11 @@ impl Component<Props, Event, Effect> for Browse {
                             Some(ContentsEffect::OpenFinder { directory }) => {
                                 effect = Some(Effect::OpenFinder { directory });
                             }
-                            Some(ContentsEffect::OpenVim { file }) => {
-                                effect = Some(Effect::OpenVim { file });
+                            Some(ContentsEffect::OpenSearcher { directory }) => {
+                                effect = Some(Effect::OpenSearcher { directory });
+                            }
+                            Some(ContentsEffect::OpenVim(vim_args)) => {
+                                effect = Some(Effect::OpenVim(vim_args));
                             }
                             Some(ContentsEffect::RunBash { directory }) => {
                                 effect = Some(Effect::RunBash { directory });
@@ -93,7 +97,7 @@ impl Component<Props, Event, Effect> for Browse {
 
 struct State {
     directory: Directory,
-    contents: ContentsComponent,
+    contents: Contents,
     focus: Focus,
 }
 
@@ -104,9 +108,10 @@ impl From<Props> for State {
 
         let contents_size = Size::new(props.size.rows - 1, props.size.columns);
         let contents_props = ContentsProps::new(props.directory, contents_size);
-        let contents = ContentsComponent::new(contents_props);
+        let contents = Contents::new(contents_props);
 
         let focus = Focus::default();
+
         State {
             directory,
             contents,
@@ -136,6 +141,7 @@ enum Action {}
 
 pub enum Effect {
     OpenFinder { directory: PathBuf },
-    OpenVim { file: PathBuf },
+    OpenSearcher { directory: PathBuf },
+    OpenVim(VimArgs),
     RunBash { directory: PathBuf },
 }

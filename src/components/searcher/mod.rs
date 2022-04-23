@@ -1,7 +1,7 @@
-mod browse;
 mod contents;
+mod searcher;
 
-pub use browse::{Browse, Effect as BrowseEffect, Event as BrowseEvent, Props as BrowseProps};
 use contents::{
     Contents, Effect as ContentsEffect, Event as ContentsEvent, Props as ContentsProps,
 };
+pub use searcher::{Effect as SearcherEffect, Props as SearcherProps, Searcher};

@@ -1,6 +1,6 @@
 use super::{Location, Size, Yarn};
 
-use std::cmp::{self, Ordering};
+use std::cmp::Ordering;
 
 use crossterm::style::Color;
 use itertools::izip;

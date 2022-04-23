@@ -1,11 +1,10 @@
 use crate::color::Color;
 use crate::component::Component;
+use crate::programs::{VimArgs, VimArgsBuilder};
 use crate::rendering::{Fabric, Size, Yarn};
 use crate::stateful::Stateful;
 
-use std::cmp;
-use std::cmp::Ordering;
-use std::env;
+use std::cmp::{self, Ordering};
 use std::fs::{self, DirEntry};
 use std::path::PathBuf;
 
@@ -106,6 +105,10 @@ impl Contents {
                             code: KeyCode::Char('f'),
                             ..
                         } => Some(Action::OpenFinder),
+                        KeyEvent {
+                            code: KeyCode::Char('s'),
+                            ..
+                        } => Some(Action::OpenSearcher),
                         _ => None,
                     }
                 } else {
@@ -268,7 +271,8 @@ impl State {
             }
 
             if path.is_file() {
-                return Some(Effect::OpenVim { file: path });
+                let vim_args: VimArgs = VimArgsBuilder::new().path(&path).build();
+                return Some(Effect::OpenVim(vim_args));
             }
         }
         None
@@ -287,6 +291,12 @@ impl State {
 
     fn open_finder(&self) -> Option<Effect> {
         Some(Effect::OpenFinder {
+            directory: self.directory.clone(),
+        })
+    }
+
+    fn open_searcher(&self) -> Option<Effect> {
+        Some(Effect::OpenSearcher {
             directory: self.directory.clone(),
         })
     }
@@ -323,6 +333,9 @@ impl Stateful<Action, Effect> for State {
             Action::OpenFinder => {
                 effect = self.open_finder();
             }
+            Action::OpenSearcher => {
+                effect = self.open_searcher();
+            }
             Action::RunBash => {
                 effect = self.run_bash();
             }
@@ -339,12 +352,14 @@ enum Action {
     Push,
     Pop,
     OpenFinder,
+    OpenSearcher,
     RunBash,
 }
 
 pub enum Effect {
     SetDirectory { directory: PathBuf },
     OpenFinder { directory: PathBuf },
-    OpenVim { file: PathBuf },
+    OpenSearcher { directory: PathBuf },
+    OpenVim(VimArgs),
     RunBash { directory: PathBuf },
 }

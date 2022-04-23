@@ -16,8 +16,9 @@ mod props {
 pub use props::Props;
 
 mod finder {
-    use super::super::{FoundEffect, FoundEvent, PhraseEffect, PhraseEvent};
+    use super::super::{FoundEffect, FoundEvent};
     use super::{Action, Effect, Focus, Props, State};
+    use crate::components::common::{PhraseEffect, PhraseEvent};
     use crate::rendering::{Fabric, Size};
     use crate::stateful::Stateful;
     use crate::Component;
@@ -51,7 +52,7 @@ mod finder {
                         let phrase_event = PhraseEvent::CrosstermEvent { event };
                         let phrase_effect = self.state.phrase.handle(phrase_event);
                         match phrase_effect {
-                            Some(PhraseEffect::Find { phrase }) => {
+                            Some(PhraseEffect::Enter { phrase }) => {
                                 let found_event = FoundEvent::Find {
                                     phrase: phrase.clone(),
                                 };
@@ -87,7 +88,7 @@ mod finder {
                             Some(FoundEffect::Goto { directory }) => {
                                 Some(Effect::Browse { directory })
                             }
-                            Some(FoundEffect::OpenVim { file }) => Some(Effect::OpenVim { file }),
+                            Some(FoundEffect::OpenVim(vim_args)) => Some(Effect::OpenVim(vim_args)),
                             None => None,
                         }
                     }
@@ -125,10 +126,10 @@ mod finder {
 pub use finder::Finder;
 
 mod state {
-    use super::super::{Found, FoundProps, Phrase};
+    use super::super::{Found, FoundProps};
     use super::{Action, Effect, Focus, Props};
     use crate::component::Component;
-    use crate::components::common::{Directory, DirectoryProps};
+    use crate::components::common::{Directory, DirectoryProps, Phrase};
     use crate::rendering::Size;
     use crate::stateful::Stateful;
 
@@ -226,11 +227,12 @@ mod action {
 use action::Action;
 
 mod effect {
+    use crate::programs::VimArgs;
     use std::path::PathBuf;
 
     pub enum Effect {
         Browse { directory: PathBuf },
-        OpenVim { file: PathBuf },
+        OpenVim(VimArgs),
         Quit,
     }
 }

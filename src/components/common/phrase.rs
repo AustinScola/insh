@@ -43,7 +43,7 @@ mod phrase {
                     CrosstermEvent::Key(KeyEvent {
                         code: KeyCode::Enter,
                         ..
-                    }) => Some(Action::Find),
+                    }) => Some(Action::Enter),
                     CrosstermEvent::Key(KeyEvent {
                         code: KeyCode::Char(character),
                         ..
@@ -126,7 +126,7 @@ mod state {
 
         fn find(&mut self) -> Option<Effect> {
             self.focus = false;
-            Some(Effect::Find {
+            Some(Effect::Enter {
                 phrase: self.value.clone(),
             })
         }
@@ -142,7 +142,7 @@ mod state {
                 Action::Focus => self.focus(),
                 Action::Push { character } => self.push(character),
                 Action::Pop => self.pop(),
-                Action::Find => self.find(),
+                Action::Enter => self.find(),
                 Action::Quit => self.quit(),
             }
         }
@@ -155,7 +155,7 @@ mod action {
         Focus,
         Push { character: char },
         Pop,
-        Find,
+        Enter,
         Quit,
     }
 }
@@ -163,7 +163,7 @@ pub use action::Action;
 
 mod effect {
     pub enum Effect {
-        Find { phrase: String },
+        Enter { phrase: String },
         Quit,
     }
 }

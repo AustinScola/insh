@@ -6,6 +6,7 @@ use crate::system_effect::SystemEffect;
 
 use super::browse::{Browse, BrowseEffect, BrowseProps};
 use super::finder::{Finder, FinderEffect, FinderProps};
+use super::searcher::{Searcher, SearcherEffect, SearcherProps};
 
 use std::env;
 use std::path::PathBuf;
@@ -43,8 +44,11 @@ impl Component<Props, Event, SystemEffect> for Insh {
                     Some(BrowseEffect::OpenFinder { directory }) => {
                         action = Some(Action::OpenFinder { directory });
                     }
-                    Some(BrowseEffect::OpenVim { file }) => {
-                        let program = Box::new(Vim::new(file));
+                    Some(BrowseEffect::OpenSearcher { directory }) => {
+                        action = Some(Action::OpenSearcher { directory });
+                    }
+                    Some(BrowseEffect::OpenVim(vim_args)) => {
+                        let program = Box::new(Vim::new(vim_args));
                         return Some(SystemEffect::RunProgram { program });
                     }
                     Some(BrowseEffect::RunBash { directory }) => {
@@ -61,12 +65,26 @@ impl Component<Props, Event, SystemEffect> for Insh {
                     Some(FinderEffect::Browse { directory }) => {
                         action = Some(Action::OpenBrowse { directory });
                     }
-                    Some(FinderEffect::OpenVim { file }) => {
-                        let program = Box::new(Vim::new(file));
+                    Some(FinderEffect::OpenVim(vim_args)) => {
+                        let program = Box::new(Vim::new(vim_args));
                         return Some(SystemEffect::RunProgram { program });
                     }
                     Some(FinderEffect::Quit) => {
                         action = Some(Action::QuitFinder);
+                    }
+                    None => {}
+                }
+            }
+            Mode::Searcher => {
+                let searcher = self.state.searcher.as_mut().unwrap();
+                let searcher_effect: Option<SearcherEffect> = searcher.handle(event);
+                match searcher_effect {
+                    Some(SearcherEffect::Quit) => {
+                        action = Some(Action::QuitSearcher);
+                    }
+                    Some(SearcherEffect::OpenVim(vim_args)) => {
+                        let program = Box::new(Vim::new(vim_args));
+                        return Some(SystemEffect::RunProgram { program });
                     }
                     None => {}
                 }
@@ -87,6 +105,7 @@ impl Component<Props, Event, SystemEffect> for Insh {
             Mode::Home => Fabric::new(size),
             Mode::Browse => self.state.browse.render(size),
             Mode::Finder => self.state.finder.as_ref().unwrap().render(size),
+            Mode::Searcher => self.state.searcher.as_ref().unwrap().render(size),
         }
     }
 }
@@ -95,9 +114,18 @@ struct State {
     mode: Mode,
     browse: Browse,
     finder: Option<Finder>,
+    searcher: Option<Searcher>,
 }
 
 impl State {
+    fn open_browser(&mut self, directory: PathBuf) -> Option<SystemEffect> {
+        self.mode = Mode::Browse;
+        let size: Size = Size::from(terminal::size().unwrap());
+        let browse_props = BrowseProps::new(directory, size);
+        self.browse = Browse::new(browse_props);
+        None
+    }
+
     fn open_finder(&mut self, directory: PathBuf) -> Option<SystemEffect> {
         self.mode = Mode::Finder;
         let size: Size = Size::from(terminal::size().unwrap());
@@ -106,16 +134,21 @@ impl State {
         None
     }
 
+    fn open_searcher(&mut self, directory: PathBuf) -> Option<SystemEffect> {
+        self.mode = Mode::Searcher;
+        let size: Size = Size::from(terminal::size().unwrap());
+        let searcher_props = SearcherProps::new(directory, size);
+        self.searcher = Some(Searcher::new(searcher_props));
+        None
+    }
+
     fn quit_finder(&mut self) -> Option<SystemEffect> {
         self.mode = Mode::Browse;
         None
     }
 
-    fn open_browser(&mut self, directory: PathBuf) -> Option<SystemEffect> {
+    fn quit_searcher(&mut self) -> Option<SystemEffect> {
         self.mode = Mode::Browse;
-        let size: Size = Size::from(terminal::size().unwrap());
-        let browse_props = BrowseProps::new(directory, size);
-        self.browse = Browse::new(browse_props);
         None
     }
 }
@@ -129,11 +162,13 @@ impl Default for State {
         let directory: PathBuf = env::current_dir().unwrap();
         let browse: Browse = Browse::new(BrowseProps::new(directory, size));
         let finder: Option<Finder> = None;
+        let searcher: Option<Searcher> = None;
 
         State {
             mode,
             browse,
             finder,
+            searcher,
         }
     }
 }
@@ -141,9 +176,11 @@ impl Default for State {
 impl Stateful<Action, SystemEffect> for State {
     fn perform(&mut self, action: Action) -> Option<SystemEffect> {
         match action {
-            Action::OpenFinder { directory } => self.open_finder(directory),
             Action::OpenBrowse { directory } => self.open_browser(directory),
+            Action::OpenFinder { directory } => self.open_finder(directory),
+            Action::OpenSearcher { directory } => self.open_searcher(directory),
             Action::QuitFinder => self.quit_finder(),
+            Action::QuitSearcher => self.quit_searcher(),
         }
     }
 }
@@ -152,6 +189,7 @@ enum Mode {
     Home,
     Browse,
     Finder,
+    Searcher,
 }
 
 impl Default for Mode {
@@ -161,7 +199,9 @@ impl Default for Mode {
 }
 
 enum Action {
-    OpenFinder { directory: PathBuf },
     OpenBrowse { directory: PathBuf },
+    OpenFinder { directory: PathBuf },
+    OpenSearcher { directory: PathBuf },
     QuitFinder,
+    QuitSearcher,
 }

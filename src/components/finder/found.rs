@@ -126,6 +126,7 @@ pub use event::Event;
 mod state {
     use super::{Action, Effect, Props};
     use crate::path_finder::PathFinder;
+    use crate::programs::{VimArgs, VimArgsBuilder};
     use crate::rendering::Size;
     use crate::stateful::Stateful;
 
@@ -295,9 +296,10 @@ mod state {
 
         fn edit(&mut self) -> Option<Effect> {
             match self.entry_path() {
-                Some(path) => Some(Effect::OpenVim {
-                    file: path.to_path_buf(),
-                }),
+                Some(path) => {
+                    let vim_args: VimArgs = VimArgsBuilder::new().path(path).build();
+                    Some(Effect::OpenVim(vim_args))
+                }
                 None => None,
             }
         }
@@ -347,12 +349,13 @@ mod action {
 use action::Action;
 
 mod effect {
+    use crate::programs::VimArgs;
     use std::path::PathBuf;
 
     pub enum Effect {
         Unfocus,
         Goto { directory: PathBuf },
-        OpenVim { file: PathBuf },
+        OpenVim(VimArgs),
     }
 }
 pub use effect::Effect;
