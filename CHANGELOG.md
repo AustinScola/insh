@@ -13,3 +13,6 @@
 - Fix resetting the finder contents scroll position on successive runs.
 - Change the finder to only display files.
 - Add back the searcher component.
+
+# 0.3.1
+- Add help information to the README.
