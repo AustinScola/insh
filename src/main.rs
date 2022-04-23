@@ -3,6 +3,7 @@ mod color;
 mod component;
 mod components;
 mod path_finder;
+mod phrase_searcher;
 mod program;
 mod programs;
 mod rendering;
@@ -12,6 +13,7 @@ mod system_effect;
 use app::App;
 use component::Component;
 use components::{Insh, InshProps};
+use stateful::Stateful;
 
 fn main() {
     let mut app: App = App::new();

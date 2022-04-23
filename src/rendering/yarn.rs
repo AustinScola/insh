@@ -12,8 +12,24 @@ pub struct Yarn {
 }
 
 impl Yarn {
+    pub fn new(len: usize) -> Self {
+        let characters = vec![' '; len];
+        Self {
+            characters,
+            ..Default::default()
+        }
+    }
+
     pub fn len(&self) -> usize {
         self.characters.len()
+    }
+
+    pub fn write_string(&mut self, position: usize, string: &str) {
+        let characters: Vec<char> = string.chars().collect();
+
+        let before = &self.characters[0..position];
+        let after = &self.characters[(position + characters.len())..];
+        self.characters = vec![before, &characters, after].concat();
     }
 
     pub fn resize(&mut self, new_len: usize) {

@@ -7,7 +7,9 @@ mod props {
 
     impl Props {
         pub fn new(directory: PathBuf) -> Self {
-            Self { directory }
+            Self {
+                directory: directory,
+            }
         }
     }
 }
@@ -19,6 +21,8 @@ mod directory {
     use crate::component::Component;
     use crate::rendering::{Fabric, Size, Yarn};
     use crate::stateful::Stateful;
+
+    pub use crossterm::event::Event as CrosstermEvent;
 
     pub struct Directory {
         state: State,
