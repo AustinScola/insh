@@ -5,8 +5,11 @@
 - Use `~` to represent the home directory.
 - Change the directory to end with a trailing path separator.
 
-# 0.2.3
+# 0.3.0
 - Fix crashing of finder from there being too many files open.
+- Remove the current directory from the finder contents.
 - Fix the displayed directory in the finder.
 - Fix the directory that the goto command (`g`) in the finder navigates to.
 - Fix resetting the finder contents scroll position on successive runs.
+- Change the finder to only display files.
+- Add back the searcher component.
