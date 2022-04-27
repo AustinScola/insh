@@ -113,7 +113,10 @@ mod contents {
                                 let mut yarn = Yarn::from(path);
                                 yarn.resize(columns);
 
-                                if !self.state.is_line_selected() && file_hit_is_focused {
+                                if self.state.focussed()
+                                    && !self.state.is_line_selected()
+                                    && file_hit_is_focused
+                                {
                                     yarn.background(Color::Highlight.into());
                                     yarn.color(Color::InvertedText.into());
                                 }
@@ -139,7 +142,8 @@ mod contents {
 
                                 let mut yarn = Yarn::from(string);
                                 yarn.resize(columns);
-                                if file_hit_is_focused
+                                if self.state.focussed()
+                                    && file_hit_is_focused
                                     && self.state.is_line_selected()
                                     && self.state.line_hit_number().unwrap() == line_hit_number
                                 {
@@ -190,6 +194,7 @@ mod state {
     pub struct State {
         size: Size,
         directory: PathBuf,
+        focussed: bool,
         searched: bool,
         hits: Vec<FileHit>,
         file_offset: usize,
@@ -203,6 +208,7 @@ mod state {
             Self {
                 size: props.size,
                 directory: props.directory,
+                focussed: false,
                 searched: false,
                 hits: Vec::new(),
                 file_offset: 0,
@@ -217,6 +223,12 @@ mod state {
         pub fn directory(&self) -> &Path {
             &self.directory
         }
+
+        /// Return if the search contents are currently foccused on.
+        pub fn focussed(&self) -> bool {
+            self.focussed
+        }
+
         pub fn searched(&self) -> bool {
             self.searched
         }
@@ -335,11 +347,18 @@ mod state {
             None
         }
 
+        fn focus(&mut self) {
+            self.focussed = true;
+        }
+
         fn unfocus(&mut self) -> Option<Effect> {
+            self.focussed = false;
             Some(Effect::Unfocus)
         }
 
         fn search(&mut self, phrase: String) -> Option<Effect> {
+            self.focus();
+
             let phrase_searcher = PhraseSearcher::new(&self.directory, &phrase);
             self.hits = phrase_searcher.collect();
             self.searched = true;
