@@ -24,6 +24,8 @@ mod found {
 
     use crossterm::event::{Event as CrosstermEvent, KeyCode, KeyEvent, KeyModifiers};
 
+    use std::path::{Path, MAIN_SEPARATOR as PATH_SEPARATOR};
+
     pub struct Found {
         state: State,
     }
@@ -78,21 +80,28 @@ mod found {
         fn render(&self, size: Size) -> Fabric {
             match self.state.hits() {
                 Some(true) => {
+                    let directory: &str = &self.state.directory().to_string_lossy();
+
                     let mut yarns: Vec<Yarn> = Vec::new();
                     for (entry, row) in self.state.visible_entries().iter().zip(0..size.rows) {
-                        let string: String = entry
-                            .path()
-                            .file_name()
-                            .unwrap()
-                            .to_str()
-                            .unwrap()
-                            .to_string();
-                        let mut yarn = Yarn::from(string);
+                        let path: &Path = entry.path();
+                        let mut string: &str = &path.to_string_lossy();
+                        string = string.strip_prefix(&directory).unwrap();
+                        string = string.strip_prefix(PATH_SEPARATOR).unwrap();
+                        let mut yarn: Yarn = Yarn::from(string);
+
+                        let file_name_start: usize = yarn.len() - entry.file_name().len();
 
                         if self.state.focussed() && Some(row) == self.state.selected() {
-                            yarn.color(Color::InvertedText.into());
+                            yarn.color_before(Color::InvertedGrayyedText.into(), file_name_start);
+                            yarn.color_after(Color::InvertedText.into(), file_name_start);
                             yarn.background(Color::Highlight.into());
+                        } else {
+                            yarn.color_before(Color::GrayyedText.into(), file_name_start);
                         }
+
+                        yarn.truncate(size.columns);
+
                         yarns.push(yarn);
                     }
                     Fabric::from(yarns)
@@ -160,6 +169,10 @@ mod state {
     }
 
     impl State {
+        pub fn directory(&self) -> &PathBuf {
+            &self.directory
+        }
+
         pub fn focussed(&self) -> bool {
             self.focussed
         }

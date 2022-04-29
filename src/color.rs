@@ -6,9 +6,17 @@ const DARK_GREY: CrosstermColor = CrosstermColor::Rgb {
     b: 96,
 };
 
+const LIGHT_GREY: CrosstermColor = CrosstermColor::Rgb {
+    r: 159,
+    g: 159,
+    b: 159,
+};
+
 pub enum Color {
     Highlight,
+    GrayyedText,
     InvertedText,
+    InvertedGrayyedText,
     InvertedBackground,
     BadRegex,
     NotCompiledRegex,
@@ -18,7 +26,9 @@ impl From<Color> for CrosstermColor {
     fn from(color: Color) -> CrosstermColor {
         match color {
             Color::Highlight => CrosstermColor::Yellow,
+            Color::GrayyedText => DARK_GREY,
             Color::InvertedText => CrosstermColor::Black,
+            Color::InvertedGrayyedText => LIGHT_GREY,
             Color::InvertedBackground => CrosstermColor::White,
             Color::BadRegex => CrosstermColor::Red,
             Color::NotCompiledRegex => DARK_GREY,

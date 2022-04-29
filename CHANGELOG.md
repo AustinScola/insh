@@ -17,3 +17,4 @@
 # 0.3.1
 - Add help information to the README.
 - Fix highlighting of searcher contents when unfocussed.
+- Change the finder to show relative paths in addition to file names.
