@@ -1,18 +1,26 @@
-use crossterm::style::Color;
+use crossterm::style::Color as CrosstermColor;
 use std::cmp::Ordering;
 
-#[derive(Default)]
+#[derive(Default, Debug, PartialEq)]
 pub struct Yarn {
     // MAYBE TODO: Store the length seperatley so we can represent blank yarn without vec manip?
     characters: Vec<char>,
 
     // NOTE: The style vectors are Allowed to be shorter than the number of characters.
-    colors: Vec<Option<Color>>,
-    backgrounds: Vec<Option<Color>>,
+    colors: Vec<Option<CrosstermColor>>,
+    backgrounds: Vec<Option<CrosstermColor>>,
 }
 
 impl Yarn {
-    pub fn new(len: usize) -> Self {
+    /// Return a new yarn of zero length.
+    pub fn new() -> Self {
+        Self {
+            ..Default::default()
+        }
+    }
+
+    /// Return a yarn consisting of unstylized spaces of the given length.
+    pub fn blank(len: usize) -> Self {
         let characters = vec![' '; len];
         Self {
             characters,
@@ -22,6 +30,27 @@ impl Yarn {
 
     pub fn len(&self) -> usize {
         self.characters.len()
+    }
+
+    /// Add the other yarn to the end of this one and return the new yarn.
+    // Should this be called `extend`? The `std::iter::Extend` trait doesn't return `Self`?
+    pub fn concat(mut self, other: Self) -> Self {
+        let len_before: usize = self.len();
+        self.characters.extend(other.characters);
+
+        if self.colors.len() < len_before {
+            if !other.colors.is_empty() {
+                self.colors.resize(len_before, None);
+                self.colors.extend(other.colors);
+            }
+
+            if !other.backgrounds.is_empty() {
+                self.backgrounds.resize(len_before, None);
+                self.backgrounds.extend(other.backgrounds);
+            }
+        }
+
+        self
     }
 
     pub fn write_string(&mut self, position: usize, string: &str) {
@@ -76,11 +105,38 @@ impl Yarn {
         }
     }
 
-    pub fn color(&mut self, color: Color) {
+    pub fn color(&mut self, color: CrosstermColor) {
         self.colors = vec![Some(color); self.len()];
     }
 
-    pub fn background(&mut self, color: Color) {
+    /// Change the color of all text before the given position.
+    pub fn color_before(&mut self, color: CrosstermColor, position: usize) {
+        if self.colors.len() < position {
+            self.colors.clear();
+            self.colors.resize(position, Some(color));
+        } else {
+            for index in 0..position {
+                self.colors[index] = Some(color);
+            }
+        }
+    }
+
+    /// Change the color of all text after (and including) the given position.
+    pub fn color_after(&mut self, color: CrosstermColor, position: usize) {
+        let num_chars: usize = self.characters.len();
+        if self.colors.len() < num_chars {
+            for index in position..self.colors.len() {
+                self.colors[index] = Some(color);
+            }
+            self.colors.resize(num_chars, Some(color));
+        } else {
+            for index in position..num_chars {
+                self.colors[index] = Some(color);
+            }
+        }
+    }
+
+    pub fn background(&mut self, color: CrosstermColor) {
         self.backgrounds = vec![Some(color); self.len()];
     }
 
@@ -88,11 +144,11 @@ impl Yarn {
         &self.characters
     }
 
-    pub fn colors(&self) -> &Vec<Option<Color>> {
+    pub fn colors(&self) -> &Vec<Option<CrosstermColor>> {
         &self.colors
     }
 
-    pub fn backgrounds(&self) -> &Vec<Option<Color>> {
+    pub fn backgrounds(&self) -> &Vec<Option<CrosstermColor>> {
         &self.backgrounds
     }
 }
@@ -114,5 +170,22 @@ impl From<&str> for Yarn {
             characters,
             ..Default::default()
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    use test_case::test_case;
+
+    #[test_case(Yarn::new(), Yarn::new(), Yarn::new(); "an empty yarn with an empty yarn is an empty yarn")]
+    #[test_case(Yarn::new(), Yarn {characters: vec![' '; 1], ..Default::default()}, Yarn {characters: vec![' '; 1], ..Default::default()}; )]
+    #[test_case(Yarn {characters: vec![' '; 1], ..Default::default()}, Yarn::new(), Yarn {characters: vec![' '; 1], ..Default::default()}; )]
+    #[test_case(Yarn {characters: vec![' '; 1], ..Default::default()}, Yarn {characters: vec![' '; 1], colors: vec![Some(CrosstermColor::Black)], ..Default::default()}, Yarn {characters: vec![' '; 2], colors: vec![None, Some(CrosstermColor::Black)], ..Default::default()}; )]
+    fn test_concat(yarn: Yarn, other: Yarn, expected_yarn: Yarn) {
+        let result: Yarn = yarn.concat(other);
+
+        assert_eq!(result, expected_yarn);
     }
 }

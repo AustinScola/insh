@@ -156,7 +156,7 @@ mod contents {
                             if yarns.len() == rows {
                                 break;
                             }
-                            let yarn = Yarn::new(columns);
+                            let yarn = Yarn::blank(columns);
                             yarns.push(yarn);
                         }
 
