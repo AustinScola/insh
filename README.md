@@ -2,6 +2,11 @@
 
 A graphical, interactive, terminal environment.
 
+# Installation
+```
+cargo install --git https://github.com/AustinScola/insh --tag latest
+```
+
 ## Help
 
 By default, Insh starts out in file browser. Insh has two other main components as well: a file

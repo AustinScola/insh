@@ -22,3 +22,6 @@
 # 0.3.2
 - Change to using the `PWD` environment variable to determine the current directory if set. This
 means that symbolic links are no longer resolved.
+
+# 0.3.3
+- Add installation instructions to the README.
