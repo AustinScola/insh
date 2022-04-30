@@ -16,7 +16,7 @@ jobs:
         run: curl https://sh.rustup.rs -sSf | sh -s -- -y
 
       - name: Check that it compiles
-        run: ./scripts/check
+        run: ./cargo-scripts/check
   lint:
     name: Lint
     runs-on: ubuntu-latest
@@ -30,7 +30,34 @@ jobs:
         run: curl https://sh.rustup.rs -sSf | sh -s -- -y
 
       - name: Lint with clippy
-        run: ./scripts/lint
+        run: ./cargo-scripts/lint
+
+  arbsego:
+    name: Arbsego
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v3
+        with:
+          submodules: true
+
+      - name: Install Rust
+        run: curl https://sh.rustup.rs -sSf | sh -s -- -y
+
+      - name: Install Brew
+        run: NONINTERACTIVE=1 /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+
+      - name: Install yq
+        run: brew install yq
+
+      - name: Install Arbsego
+        run: |-
+          ARBSEGO_VERSION="$(yq '.arbsego.version' < truth.yaml)"
+          cargo install --git https://github.com/AustinScola/arbsego.git --tag "v${ARBSEGO_VERSION}"
+
+      # TODO: Pass BOOTSTRAP=1 to lint-arbsego and have it handle all of the above installations.
+      - name: Lint using Arbsego
+        run: ./scripts/lint-arbsego
 
   format:
     name: Format
@@ -45,8 +72,7 @@ jobs:
         run: curl https://sh.rustup.rs -sSf | sh -s -- -y
 
       - name: Check formatting
-        run: ./scripts/format -- --check
-
+        run: ./cargo-scripts/format -- --check
 
   test:
     name: Test

@@ -1,4 +1,5 @@
 use crate::component::Component;
+use crate::current_dir::current_dir;
 use crate::programs::{Bash, Vim};
 use crate::rendering::{Fabric, Size};
 use crate::stateful::Stateful;
@@ -159,7 +160,7 @@ impl Default for State {
 
         let size: Size = Size::from(terminal::size().unwrap());
 
-        let directory: PathBuf = env::current_dir().unwrap();
+        let directory: PathBuf = current_dir();
         let browse: Browse = Browse::new(BrowseProps::new(directory, size));
         let finder: Option<Finder> = None;
         let searcher: Option<Searcher> = None;
