@@ -18,3 +18,7 @@
 - Add help information to the README.
 - Fix highlighting of searcher contents when unfocussed.
 - Change the finder to show relative paths in addition to file names.
+
+# 0.3.2
+- Change to using the `PWD` environment variable to determine the current directory if set. This
+means that symbolic links are no longer resolved.
