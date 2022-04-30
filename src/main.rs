@@ -2,6 +2,7 @@ mod app;
 mod color;
 mod component;
 mod components;
+mod current_dir;
 mod path_finder;
 mod phrase_searcher;
 mod program;

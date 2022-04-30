@@ -83,9 +83,9 @@ pub use event::Event;
 
 mod state {
     use super::{Action, Effect, Props};
+    use crate::current_dir;
     use crate::stateful::Stateful;
 
-    use std::env;
     use std::path::{PathBuf, MAIN_SEPARATOR as PATH_SEPARATOR};
 
     pub struct State {
@@ -129,7 +129,7 @@ mod state {
 
     impl Default for State {
         fn default() -> Self {
-            let directory: PathBuf = env::current_dir().unwrap();
+            let directory: PathBuf = current_dir::current_dir();
             let home: Option<PathBuf> = dirs::home_dir();
             State { directory, home }
         }

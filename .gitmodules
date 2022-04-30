@@ -1,3 +1,6 @@
-[submodule "scripts"]
-	path = scripts
+[submodule "cargo-scripts"]
+	path = cargo-scripts
 	url = https://github.com/AustinScola/cargo-scripts.git
+[submodule "bash-lib"]
+	path = bash-lib
+	url = https://github.com/AustinScola/bash-lib
