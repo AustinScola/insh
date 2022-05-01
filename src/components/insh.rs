@@ -9,7 +9,6 @@ use super::browse::{Browse, BrowseEffect, BrowseProps};
 use super::finder::{Finder, FinderEffect, FinderProps};
 use super::searcher::{Searcher, SearcherEffect, SearcherProps};
 
-use std::env;
 use std::path::PathBuf;
 
 use crossterm::event::{Event, KeyCode, KeyEvent, KeyModifiers};
@@ -90,7 +89,6 @@ impl Component<Props, Event, SystemEffect> for Insh {
                     None => {}
                 }
             }
-            Mode::Home => {}
         }
 
         if let Some(action) = action {
@@ -103,7 +101,6 @@ impl Component<Props, Event, SystemEffect> for Insh {
 
     fn render(&self, size: Size) -> Fabric {
         match self.state.mode {
-            Mode::Home => Fabric::new(size),
             Mode::Browse => self.state.browse.render(size),
             Mode::Finder => self.state.finder.as_ref().unwrap().render(size),
             Mode::Searcher => self.state.searcher.as_ref().unwrap().render(size),
@@ -187,7 +184,6 @@ impl Stateful<Action, SystemEffect> for State {
 }
 
 enum Mode {
-    Home,
     Browse,
     Finder,
     Searcher,

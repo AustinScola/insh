@@ -40,7 +40,7 @@ mod contents {
             let action: Option<Action> = match event {
                 Event::Search { phrase } => Some(Action::Search { phrase }),
                 Event::Resize { size } => Some(Action::Resize { size }),
-                Event::CrosstermEvent { event } => match event {
+                Event::Crossterm { event } => match event {
                     CrosstermEvent::Key(KeyEvent {
                         code: KeyCode::Char('q'),
                         modifiers: KeyModifiers::CONTROL,
@@ -79,7 +79,7 @@ mod contents {
             match self.state.searched() {
                 false => Fabric::new(size),
                 true => {
-                    let mut file_hits: &Vec<FileHit> = self.state.hits();
+                    let file_hits: &Vec<FileHit> = self.state.hits();
                     if self.state.hits().is_empty() {
                         let mut yarn = Yarn::from("No matches.");
                         yarn.pad(size.columns);
@@ -174,7 +174,7 @@ mod event {
     use crossterm::event::Event as CrosstermEvent;
 
     pub enum Event {
-        CrosstermEvent { event: CrosstermEvent },
+        Crossterm { event: CrosstermEvent },
         Search { phrase: String },
         Resize { size: Size },
     }
@@ -188,7 +188,7 @@ mod state {
     use crate::rendering::Size;
     use crate::Stateful;
 
-    use std::cmp::{self, Ordering};
+    use std::cmp::Ordering;
     use std::path::{Path, PathBuf};
 
     pub struct State {
@@ -251,14 +251,6 @@ mod state {
             self.line_offset
         }
 
-        pub fn file_selected(&self) -> usize {
-            self.file_selected
-        }
-
-        pub fn line_selected(&self) -> Option<usize> {
-            self.line_selected
-        }
-
         pub fn line_hit_number(&self) -> Option<usize> {
             match self.line_selected {
                 Some(line_selected) => match self.file_selected {
@@ -296,7 +288,7 @@ mod state {
                     None => 0,
                     Some(line_selected) => match self.line_offset {
                         None => line_selected + 1,
-                        Some(line_offset) => line_selected,
+                        Some(_) => line_selected,
                     },
                 },
                 _ => {
@@ -383,11 +375,9 @@ mod state {
                 Some(line_selected) => {
                     if self.line_hit_number().unwrap() < self.hit().unwrap().line_hits().len() - 1 {
                         self.line_selected = Some(line_selected + 1);
-                    } else {
-                        if self.hit_number().unwrap() < self.hits().len() - 1 {
-                            self.line_selected = None;
-                            self.file_selected += 1;
-                        }
+                    } else if self.hit_number().unwrap() < self.hits().len() - 1 {
+                        self.line_selected = None;
+                        self.file_selected += 1;
                     }
                 }
             }
@@ -414,12 +404,10 @@ mod state {
                                     self.line_selected = Some(line_selected.saturating_sub(1));
                                 }
                             }
-                        } else {
-                            if self.file_offset < self.hits.len() - 1 {
-                                self.file_offset += 1;
-                                self.file_selected = self.file_selected.saturating_sub(1);
-                                self.line_offset = None;
-                            }
+                        } else if self.file_offset < self.hits.len() - 1 {
+                            self.file_offset += 1;
+                            self.file_selected = self.file_selected.saturating_sub(1);
+                            self.line_offset = None;
                         }
                     }
                 }
@@ -455,13 +443,13 @@ mod state {
                             }
                         }
                     }
-                    file_selected => {
+                    _ => {
                         self.file_selected -= 1;
                         self.line_selected = Some(self.hit().unwrap().line_hits().len() - 1);
                     }
                 },
-                Some(0) => {
-                    if self.file_selected == 0 {
+                Some(0) => match self.file_selected.cmp(&0) {
+                    Ordering::Equal => {
                         match self.line_offset {
                             None => {
                                 self.line_offset = None;
@@ -475,10 +463,12 @@ mod state {
                                 self.line_offset = Some(line_offset - 1);
                             }
                         };
-                    } else if self.file_selected > 0 {
+                    }
+                    Ordering::Greater => {
                         self.line_selected = None;
                     }
-                }
+                    _ => {}
+                },
                 Some(line_selected) => {
                     self.line_selected = Some(line_selected - 1);
                 }

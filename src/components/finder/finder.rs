@@ -45,7 +45,6 @@ mod finder {
                     None
                 }
                 _ => match self.state.focus() {
-                    Focus::Directory => None,
                     Focus::Phrase => {
                         let mut action: Option<Action> = None;
 
@@ -77,7 +76,7 @@ mod finder {
                         }
                     }
                     Focus::Found => {
-                        let found_event = FoundEvent::CrosstermEvent { event };
+                        let found_event = FoundEvent::Crossterm { event };
                         let found_effect = self.state.found.handle(found_event);
                         match found_effect {
                             Some(FoundEffect::Unfocus) => {
@@ -204,7 +203,6 @@ use state::State;
 
 mod focus {
     pub enum Focus {
-        Directory,
         Phrase,
         Found,
     }

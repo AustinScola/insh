@@ -6,7 +6,7 @@ use crate::stateful::Stateful;
 
 use std::cmp::{self, Ordering};
 use std::fs::{self, DirEntry};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use crossterm::event::{Event as CrosstermEvent, KeyCode, KeyEvent};
 
@@ -65,8 +65,7 @@ impl Contents {
     fn map(&self, event: Event) -> Option<Action> {
         match event {
             Event::Resize { size } => Some(Action::Resize { size }),
-            Event::Pop => Some(Action::Pop),
-            Event::CrosstermEvent { event } => {
+            Event::Crossterm { event } => {
                 if let CrosstermEvent::Key(key_event) = event {
                     match key_event {
                         KeyEvent {
@@ -121,8 +120,7 @@ impl Contents {
 
 pub enum Event {
     Resize { size: Size },
-    Pop,
-    CrosstermEvent { event: CrosstermEvent },
+    Crossterm { event: CrosstermEvent },
 }
 
 struct State {
@@ -149,8 +147,8 @@ impl State {
         }
     }
 
-    fn get_entries(directory: &PathBuf) -> Vec<DirEntry> {
-        let entries_iter = fs::read_dir(directory.as_path()).unwrap();
+    fn get_entries(directory: &Path) -> Vec<DirEntry> {
+        let entries_iter = fs::read_dir(directory).unwrap();
         let mut entries = Vec::from_iter(entries_iter.map(|entry| entry.unwrap()));
         entries.sort_unstable_by_key(|a| a.file_name());
         entries
@@ -176,7 +174,7 @@ impl State {
         }
     }
 
-    fn set_directory(&mut self, directory: &PathBuf) {
+    fn set_directory(&mut self, directory: &Path) {
         self.directory = directory.to_path_buf();
         self.reset_entries();
     }
@@ -192,37 +190,34 @@ impl State {
     }
 
     fn resize(&mut self, new_size: Size) {
-        match self.selected {
-            Some(selected) => {
-                let rows_before = self.size.rows;
-                let entry_count = self.entries.len();
-                let mut visible_entries_count = cmp::min(rows_before, entry_count - self.offset);
-                let selected_percent: f64 = selected as f64 / visible_entries_count as f64;
+        if let Some(selected) = self.selected {
+            let rows_before = self.size.rows;
+            let entry_count = self.entries.len();
+            let mut visible_entries_count = cmp::min(rows_before, entry_count - self.offset);
+            let selected_percent: f64 = selected as f64 / visible_entries_count as f64;
 
-                let mut new_selected: usize = (new_size.rows as f64 * selected_percent) as usize;
-                let mut new_offset: usize;
-                let entry_number = self.offset + selected;
-                match entry_number.cmp(&new_selected) {
-                    Ordering::Less | Ordering::Equal => {
-                        new_offset = 0;
-                        new_selected = entry_number;
-                    }
-                    Ordering::Greater => {
-                        new_offset = entry_number - new_selected;
-                        visible_entries_count = entry_count - new_offset;
-                        if visible_entries_count < new_size.rows {
-                            let bottom_pinned_offset = entry_count.saturating_sub(new_size.rows);
-                            let difference = new_offset - bottom_pinned_offset;
-                            new_selected += difference;
-                            new_offset = bottom_pinned_offset;
-                        }
+            let mut new_selected: usize = (new_size.rows as f64 * selected_percent) as usize;
+            let mut new_offset: usize;
+            let entry_number = self.offset + selected;
+            match entry_number.cmp(&new_selected) {
+                Ordering::Less | Ordering::Equal => {
+                    new_offset = 0;
+                    new_selected = entry_number;
+                }
+                Ordering::Greater => {
+                    new_offset = entry_number - new_selected;
+                    visible_entries_count = entry_count - new_offset;
+                    if visible_entries_count < new_size.rows {
+                        let bottom_pinned_offset = entry_count.saturating_sub(new_size.rows);
+                        let difference = new_offset - bottom_pinned_offset;
+                        new_selected += difference;
+                        new_offset = bottom_pinned_offset;
                     }
                 }
-
-                self.offset = new_offset;
-                self.selected = Some(new_selected);
             }
-            None => {}
+
+            self.offset = new_offset;
+            self.selected = Some(new_selected);
         }
 
         self.size = new_size;
@@ -282,9 +277,7 @@ impl State {
         let popped: bool = self.directory.pop();
         if popped {
             self.reset_entries();
-            return Some(Effect::SetDirectory {
-                directory: self.directory.clone(),
-            });
+            return Some(Effect::PopDirectory);
         }
         None
     }
@@ -358,6 +351,7 @@ enum Action {
 
 pub enum Effect {
     SetDirectory { directory: PathBuf },
+    PopDirectory,
     OpenFinder { directory: PathBuf },
     OpenSearcher { directory: PathBuf },
     OpenVim(VimArgs),

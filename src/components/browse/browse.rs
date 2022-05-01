@@ -1,6 +1,6 @@
 use super::{Contents, ContentsEffect, ContentsEvent, ContentsProps};
 use crate::component::Component;
-use crate::components::common::{Directory, DirectoryEffect, DirectoryEvent, DirectoryProps};
+use crate::components::common::{Directory, DirectoryEvent, DirectoryProps};
 use crate::programs::VimArgs;
 use crate::rendering::{Fabric, Size};
 use crate::stateful::Stateful;
@@ -41,15 +41,8 @@ impl Component<Props, Event, Effect> for Browse {
             }
             _ => {
                 match self.state.focus {
-                    Focus::Directory => {
-                        let directory_event: DirectoryEvent =
-                            DirectoryEvent::CrosstermEvent { event };
-                        let _directory_effect: Option<DirectoryEffect> =
-                            self.state.directory.handle(directory_event);
-                        // TODO: handle the dir effect!
-                    }
                     Focus::Contents => {
-                        let contents_event: ContentsEvent = ContentsEvent::CrosstermEvent { event };
+                        let contents_event: ContentsEvent = ContentsEvent::Crossterm { event };
                         let contents_effect: Option<ContentsEffect> =
                             self.state.contents.handle(contents_event);
 
@@ -58,6 +51,10 @@ impl Component<Props, Event, Effect> for Browse {
                                 let directory_event = DirectoryEvent::SetDirectory { directory };
                                 self.state.directory.handle(directory_event);
                                 // TODO: What if the directory returns an effect here? Do we need to loop?
+                            }
+                            Some(ContentsEffect::PopDirectory) => {
+                                let directory_event = DirectoryEvent::PopDirectory;
+                                self.state.directory.handle(directory_event);
                             }
                             Some(ContentsEffect::OpenFinder { directory }) => {
                                 effect = Some(Effect::OpenFinder { directory });
@@ -127,7 +124,6 @@ impl Stateful<Action, Effect> for State {
 }
 
 enum Focus {
-    Directory,
     Contents,
 }
 

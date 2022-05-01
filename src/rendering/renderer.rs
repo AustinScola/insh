@@ -80,7 +80,8 @@ impl Renderer {
         self.stdout.queue(Print(character)).unwrap();
     }
 
-    fn lazy_print_string(&mut self, string: &String) {
+    #[allow(dead_code)]
+    fn lazy_print_string(&mut self, string: &str) {
         self.stdout.queue(Print(string)).unwrap();
     }
 
