@@ -73,7 +73,7 @@ impl App {
         let mut command: Command = (*program).run();
         let mut child: Child = command.spawn().unwrap();
 
-        child.wait();
+        let _ = child.wait();
 
         let cleanup: ProgramCleanup = program.cleanup();
         if cleanup.hide_cursor {

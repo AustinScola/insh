@@ -28,6 +28,7 @@ impl Fabric {
         }
     }
 
+    #[allow(dead_code)]
     pub fn write(&mut self, string: String, location: Location) {
         let row = location.row;
         let mut column = location.column;

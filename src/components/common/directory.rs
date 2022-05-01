@@ -7,9 +7,7 @@ mod props {
 
     impl Props {
         pub fn new(directory: PathBuf) -> Self {
-            Self {
-                directory: directory,
-            }
+            Self { directory }
         }
     }
 }
@@ -21,8 +19,6 @@ mod directory {
     use crate::component::Component;
     use crate::rendering::{Fabric, Size, Yarn};
     use crate::stateful::Stateful;
-
-    pub use crossterm::event::Event as CrosstermEvent;
 
     pub struct Directory {
         state: State,
@@ -56,7 +52,7 @@ mod directory {
         fn map(&self, event: Event) -> Option<Action> {
             match event {
                 Event::SetDirectory { directory } => Some(Action::SetDirectory { directory }),
-                Event::CrosstermEvent { event: _ } => None,
+                Event::PopDirectory => Some(Action::PopDirectory),
             }
         }
     }
@@ -71,12 +67,11 @@ mod directory {
 pub use directory::Directory;
 
 mod event {
-    use crossterm::event::Event as CrosstermEvent;
     use std::path::PathBuf;
 
     pub enum Event {
         SetDirectory { directory: PathBuf },
-        CrosstermEvent { event: CrosstermEvent },
+        PopDirectory,
     }
 }
 pub use event::Event;
@@ -95,14 +90,13 @@ mod state {
 
     impl State {
         pub fn directory_string(&self) -> String {
-            let mut string: String;
             if let Some(home) = &self.home {
                 if let Ok(path) = self.directory.strip_prefix(home) {
                     let mut string = String::from("~");
                     string.push(PATH_SEPARATOR);
 
                     let path_string = path.to_str().unwrap();
-                    if path_string.len() > 0 {
+                    if !path_string.is_empty() {
                         string.push_str(path.to_str().unwrap());
                         string.push(PATH_SEPARATOR);
                     }

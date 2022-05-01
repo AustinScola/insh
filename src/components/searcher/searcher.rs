@@ -51,9 +51,7 @@ mod searcher {
                         let phrase_effect = self.state.phrase.handle(phrase_event);
                         let action: Option<Action> = match phrase_effect {
                             Some(PhraseEffect::Enter { phrase }) => {
-                                let contents_event = ContentsEvent::Search {
-                                    phrase: phrase.clone(),
-                                };
+                                let contents_event = ContentsEvent::Search { phrase };
                                 let contents_effect = self.state.contents.handle(contents_event);
                                 if let Some(ContentsEffect::Unfocus) = contents_effect {
                                     self.state.phrase.handle(PhraseEvent::Focus);
@@ -73,7 +71,7 @@ mod searcher {
                         }
                     }
                     Focus::Contents => {
-                        let contents_event = ContentsEvent::CrosstermEvent { event };
+                        let contents_event = ContentsEvent::Crossterm { event };
                         let contents_effect = self.state.contents.handle(contents_event);
                         let action: Option<Action> = match contents_effect {
                             Some(ContentsEffect::Unfocus) => {
@@ -108,10 +106,9 @@ mod searcher {
                 }
                 rows => {
                     let columns = size.columns;
-                    let mut fabric: Fabric;
 
                     let directory_fabric = self.state.directory().render(Size::new(1, columns));
-                    fabric = directory_fabric;
+                    let mut fabric: Fabric = directory_fabric;
 
                     let phrase_fabric = self.state.phrase().render(Size::new(1, columns));
                     fabric = fabric.quilt_bottom(phrase_fabric);
@@ -207,7 +204,7 @@ mod state {
             let phrase = Phrase::default();
 
             let contents_size = Size::new(props.size.rows.saturating_sub(2), props.size.columns);
-            let contents_props = ContentsProps::new(props.directory.clone(), contents_size);
+            let contents_props = ContentsProps::new(props.directory, contents_size);
             let contents = Contents::new(contents_props);
 
             Self {

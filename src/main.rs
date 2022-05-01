@@ -1,3 +1,6 @@
+#![deny(warnings)]
+#![allow(clippy::module_inception)]
+
 mod app;
 mod color;
 mod component;

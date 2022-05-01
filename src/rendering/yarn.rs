@@ -13,6 +13,7 @@ pub struct Yarn {
 
 impl Yarn {
     /// Return a new yarn of zero length.
+    #[allow(dead_code)]
     pub fn new() -> Self {
         Self {
             ..Default::default()
@@ -34,6 +35,7 @@ impl Yarn {
 
     /// Add the other yarn to the end of this one and return the new yarn.
     // Should this be called `extend`? The `std::iter::Extend` trait doesn't return `Self`?
+    #[allow(dead_code)]
     pub fn concat(mut self, other: Self) -> Self {
         let len_before: usize = self.len();
         self.characters.extend(other.characters);
@@ -53,6 +55,7 @@ impl Yarn {
         self
     }
 
+    #[allow(dead_code)]
     pub fn write_string(&mut self, position: usize, string: &str) {
         let characters: Vec<char> = string.chars().collect();
 

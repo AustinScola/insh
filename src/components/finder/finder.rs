@@ -45,7 +45,6 @@ mod finder {
                     None
                 }
                 _ => match self.state.focus() {
-                    Focus::Directory => None,
                     Focus::Phrase => {
                         let mut action: Option<Action> = None;
 
@@ -77,7 +76,7 @@ mod finder {
                         }
                     }
                     Focus::Found => {
-                        let found_event = FoundEvent::CrosstermEvent { event };
+                        let found_event = FoundEvent::Crossterm { event };
                         let found_effect = self.state.found.handle(found_event);
                         match found_effect {
                             Some(FoundEffect::Unfocus) => {
@@ -108,10 +107,8 @@ mod finder {
                 }
                 rows => {
                     let columns = size.columns;
-                    let mut fabric: Fabric;
-
                     let directory_fabric = self.state.directory().render(Size::new(1, columns));
-                    fabric = directory_fabric;
+                    let mut fabric: Fabric = directory_fabric;
 
                     let phrase_fabric = self.state.phrase.render(Size::new(1, columns));
                     fabric = fabric.quilt_bottom(phrase_fabric);
@@ -204,7 +201,6 @@ use state::State;
 
 mod focus {
     pub enum Focus {
-        Directory,
         Phrase,
         Found,
     }

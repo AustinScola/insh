@@ -40,7 +40,7 @@ mod found {
             let action: Option<Action> = match event {
                 Event::Find { phrase } => Some(Action::Find { phrase }),
                 Event::Resize { size } => Some(Action::Resize { size }),
-                Event::CrosstermEvent { event } => match event {
+                Event::Crossterm { event } => match event {
                     CrosstermEvent::Key(KeyEvent {
                         code: KeyCode::Char('q'),
                         modifiers: KeyModifiers::CONTROL,
@@ -127,7 +127,7 @@ mod event {
     pub enum Event {
         Find { phrase: String },
         Resize { size: Size },
-        CrosstermEvent { event: CrosstermEvent },
+        Crossterm { event: CrosstermEvent },
     }
 }
 pub use event::Event;
@@ -181,10 +181,6 @@ mod state {
             self.hits
         }
 
-        pub fn entries(&self) -> &Vec<Entry> {
-            &self.entries
-        }
-
         pub fn visible_entries(&self) -> &[Entry] {
             if self.entries.is_empty() {
                 return &[];
@@ -210,40 +206,34 @@ mod state {
         }
 
         fn resize(&mut self, new_size: Size) -> Option<Effect> {
-            match self.selected {
-                Some(selected) => {
-                    let rows_before = self.size.rows;
-                    let entry_count = self.entries.len();
-                    let mut visible_entries_count =
-                        cmp::min(rows_before, entry_count - self.offset);
-                    let selected_percent: f64 = selected as f64 / visible_entries_count as f64;
+            if let Some(selected) = self.selected {
+                let rows_before = self.size.rows;
+                let entry_count = self.entries.len();
+                let mut visible_entries_count = cmp::min(rows_before, entry_count - self.offset);
+                let selected_percent: f64 = selected as f64 / visible_entries_count as f64;
 
-                    let mut new_selected: usize =
-                        (new_size.rows as f64 * selected_percent) as usize;
-                    let mut new_offset: usize;
-                    let entry_number = self.offset + selected;
-                    match entry_number.cmp(&new_selected) {
-                        Ordering::Less | Ordering::Equal => {
-                            new_offset = 0;
-                            new_selected = entry_number;
-                        }
-                        Ordering::Greater => {
-                            new_offset = entry_number - new_selected;
-                            visible_entries_count = entry_count - new_offset;
-                            if visible_entries_count < new_size.rows {
-                                let bottom_pinned_offset =
-                                    entry_count.saturating_sub(new_size.rows);
-                                let difference = new_offset - bottom_pinned_offset;
-                                new_selected += difference;
-                                new_offset = bottom_pinned_offset;
-                            }
+                let mut new_selected: usize = (new_size.rows as f64 * selected_percent) as usize;
+                let mut new_offset: usize;
+                let entry_number = self.offset + selected;
+                match entry_number.cmp(&new_selected) {
+                    Ordering::Less | Ordering::Equal => {
+                        new_offset = 0;
+                        new_selected = entry_number;
+                    }
+                    Ordering::Greater => {
+                        new_offset = entry_number - new_selected;
+                        visible_entries_count = entry_count - new_offset;
+                        if visible_entries_count < new_size.rows {
+                            let bottom_pinned_offset = entry_count.saturating_sub(new_size.rows);
+                            let difference = new_offset - bottom_pinned_offset;
+                            new_selected += difference;
+                            new_offset = bottom_pinned_offset;
                         }
                     }
-
-                    self.offset = new_offset;
-                    self.selected = Some(new_selected);
                 }
-                None => {}
+
+                self.offset = new_offset;
+                self.selected = Some(new_selected);
             }
 
             self.size = new_size;
