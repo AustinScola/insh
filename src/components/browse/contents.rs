@@ -49,11 +49,16 @@ impl Component<Props, Event, Effect> for Contents {
                     string.push('/');
                 }
             }
+
+            let hidden = string.starts_with('.');
+
             let mut yarn = Yarn::from(string);
 
             if Some(row) == self.state.selected {
                 yarn.color(Color::InvertedText.into());
                 yarn.background(Color::Highlight.into());
+            } else if hidden {
+                yarn.color(Color::LightGrayyedText.into());
             }
             yarns.push(yarn);
         }

@@ -25,3 +25,4 @@ means that symbolic links are no longer resolved.
 
 # 0.3.3
 - Add installation instructions to the README.
+- Change the color of dot files (and directories) to light gray in the browser.
