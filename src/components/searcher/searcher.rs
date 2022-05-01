@@ -106,10 +106,9 @@ mod searcher {
                 }
                 rows => {
                     let columns = size.columns;
-                    let mut fabric: Fabric;
 
                     let directory_fabric = self.state.directory().render(Size::new(1, columns));
-                    fabric = directory_fabric;
+                    let mut fabric: Fabric = directory_fabric;
 
                     let phrase_fabric = self.state.phrase().render(Size::new(1, columns));
                     fabric = fabric.quilt_bottom(phrase_fabric);
