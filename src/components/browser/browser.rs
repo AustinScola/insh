@@ -20,11 +20,11 @@ impl Props {
     }
 }
 
-pub struct Browse {
+pub struct Browser {
     state: State,
 }
 
-impl Component<Props, Event, Effect> for Browse {
+impl Component<Props, Event, Effect> for Browser {
     fn new(props: Props) -> Self {
         let state = State::from(props);
         Self { state }

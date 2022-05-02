@@ -5,18 +5,23 @@ mod props {
     pub struct Props {
         pub directory: PathBuf,
         pub size: Size,
+        pub phrase: Option<String>,
     }
 
     impl Props {
-        pub fn new(directory: PathBuf, size: Size) -> Self {
-            Props { directory, size }
+        pub fn new(directory: PathBuf, size: Size, phrase: Option<String>) -> Self {
+            Props {
+                directory,
+                size,
+                phrase,
+            }
         }
     }
 }
 pub use props::Props;
 
 mod finder {
-    use super::super::{FoundEffect, FoundEvent};
+    use super::super::{ContentsEffect, ContentsEvent};
     use super::{Action, Effect, Focus, Props, State};
     use crate::components::common::{PhraseEffect, PhraseEvent};
     use crate::rendering::{Fabric, Size};
@@ -41,7 +46,7 @@ mod finder {
                     let rows: usize = rows.into();
                     let columns: usize = columns.into();
                     let size = Size::new(rows.saturating_sub(2), columns);
-                    self.state.found.handle(FoundEvent::Resize { size });
+                    self.state.contents.handle(ContentsEvent::Resize { size });
                     None
                 }
                 _ => match self.state.focus() {
@@ -52,15 +57,13 @@ mod finder {
                         let phrase_effect = self.state.phrase.handle(phrase_event);
                         match phrase_effect {
                             Some(PhraseEffect::Enter { phrase }) => {
-                                let found_event = FoundEvent::Find {
-                                    phrase: phrase.clone(),
-                                };
-                                let found_effect = self.state.found.handle(found_event);
-                                if let Some(FoundEffect::Unfocus) = found_effect {
+                                let contents_event = ContentsEvent::Find { phrase };
+                                let contents_effect = self.state.contents.handle(contents_event);
+                                if let Some(ContentsEffect::Unfocus) = contents_effect {
                                     self.state.perform(Action::FocusPhrase);
                                     self.state.phrase.handle(PhraseEvent::Focus);
                                 } else {
-                                    action = Some(Action::Find { phrase });
+                                    action = Some(Action::FocusContents);
                                 }
                             }
                             Some(PhraseEffect::Quit) => {
@@ -75,19 +78,21 @@ mod finder {
                             None
                         }
                     }
-                    Focus::Found => {
-                        let found_event = FoundEvent::Crossterm { event };
-                        let found_effect = self.state.found.handle(found_event);
-                        match found_effect {
-                            Some(FoundEffect::Unfocus) => {
+                    Focus::Contents => {
+                        let contents_event = ContentsEvent::Crossterm { event };
+                        let contents_effect = self.state.contents.handle(contents_event);
+                        match contents_effect {
+                            Some(ContentsEffect::Unfocus) => {
                                 self.state.perform(Action::FocusPhrase);
                                 self.state.phrase.handle(PhraseEvent::Focus);
                                 None
                             }
-                            Some(FoundEffect::Goto { directory }) => {
+                            Some(ContentsEffect::Goto { directory }) => {
                                 Some(Effect::Browse { directory })
                             }
-                            Some(FoundEffect::OpenVim(vim_args)) => Some(Effect::OpenVim(vim_args)),
+                            Some(ContentsEffect::OpenVim(vim_args)) => {
+                                Some(Effect::OpenVim(vim_args))
+                            }
                             None => None,
                         }
                     }
@@ -113,8 +118,9 @@ mod finder {
                     let phrase_fabric = self.state.phrase.render(Size::new(1, columns));
                     fabric = fabric.quilt_bottom(phrase_fabric);
 
-                    let found_fabric = self.state.found().render(Size::new(rows - 2, columns));
-                    fabric.quilt_bottom(found_fabric)
+                    let contents_fabric =
+                        self.state.contents().render(Size::new(rows - 2, columns));
+                    fabric.quilt_bottom(contents_fabric)
                 }
             }
         }
@@ -123,17 +129,17 @@ mod finder {
 pub use finder::Finder;
 
 mod state {
-    use super::super::{Found, FoundProps};
+    use super::super::{Contents, ContentsEffect, ContentsEvent, ContentsProps};
     use super::{Action, Effect, Focus, Props};
     use crate::component::Component;
-    use crate::components::common::{Directory, DirectoryProps, Phrase};
+    use crate::components::common::{Directory, DirectoryProps, Phrase, PhraseEvent};
     use crate::rendering::Size;
     use crate::stateful::Stateful;
 
     pub struct State {
         directory: Directory,
         pub phrase: Phrase,
-        pub found: Found,
+        pub contents: Contents,
         focus: Focus,
     }
 
@@ -144,18 +150,36 @@ mod state {
 
             let phrase = Phrase::default();
 
-            let found_size = Size::new(props.size.rows.saturating_sub(2), props.size.columns);
-            let found_props = FoundProps::new(props.directory, found_size);
-            let found = Found::new(found_props);
+            let contents_size = Size::new(props.size.rows.saturating_sub(2), props.size.columns);
+            let contents_props = ContentsProps::new(props.directory, contents_size);
+            let contents = Contents::new(contents_props);
 
             let focus = Focus::default();
 
-            Self {
+            let mut state = Self {
                 directory,
                 phrase,
-                found,
+                contents,
                 focus,
+            };
+
+            if let Some(phrase) = props.phrase {
+                state.phrase.handle(PhraseEvent::Set {
+                    phrase: phrase.clone(),
+                });
+
+                let contents_event = ContentsEvent::Find { phrase };
+                let contents_effect = state.contents.handle(contents_event);
+                if let Some(ContentsEffect::Unfocus) = contents_effect {
+                    state.phrase.handle(PhraseEvent::Focus);
+                    state.focus = Focus::Phrase;
+                } else {
+                    state.phrase.handle(PhraseEvent::Unfocus);
+                    state.focus = Focus::Contents;
+                }
             }
+
+            state
         }
     }
 
@@ -164,16 +188,16 @@ mod state {
             &self.directory
         }
 
-        pub fn found(&self) -> &Found {
-            &self.found
+        pub fn contents(&self) -> &Contents {
+            &self.contents
         }
 
         pub fn focus(&self) -> &Focus {
             &self.focus
         }
 
-        fn find(&mut self, _phrase: String) -> Option<Effect> {
-            self.focus = Focus::Found;
+        fn focus_contents(&mut self) -> Option<Effect> {
+            self.focus = Focus::Contents;
             None
         }
 
@@ -190,7 +214,7 @@ mod state {
     impl Stateful<Action, Effect> for State {
         fn perform(&mut self, action: Action) -> Option<Effect> {
             match action {
-                Action::Find { phrase } => self.find(phrase),
+                Action::FocusContents => self.focus_contents(),
                 Action::FocusPhrase => self.focus_phrase(),
                 Action::Quit => self.quit(),
             }
@@ -202,7 +226,7 @@ use state::State;
 mod focus {
     pub enum Focus {
         Phrase,
-        Found,
+        Contents,
     }
 
     impl Default for Focus {
@@ -215,7 +239,7 @@ use focus::Focus;
 
 mod action {
     pub enum Action {
-        Find { phrase: String },
+        FocusContents,
         FocusPhrase,
         Quit,
     }
