@@ -1,5 +1,7 @@
+mod contents;
 mod finder;
-mod found;
 
+use contents::{
+    Contents, Effect as ContentsEffect, Event as ContentsEvent, Props as ContentsProps,
+};
 pub use finder::{Effect as FinderEffect, Finder, Props as FinderProps};
-use found::{Effect as FoundEffect, Event as FoundEvent, Found, Props as FoundProps};

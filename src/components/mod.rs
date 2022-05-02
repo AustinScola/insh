@@ -1,4 +1,4 @@
-mod browse;
+mod browser;
 mod common;
 mod finder;
 mod insh;

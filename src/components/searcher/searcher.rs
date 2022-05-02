@@ -6,11 +6,16 @@ mod props {
     pub struct Props {
         pub directory: PathBuf,
         pub size: Size,
+        pub phrase: Option<String>,
     }
 
     impl Props {
-        pub fn new(directory: PathBuf, size: Size) -> Self {
-            Self { directory, size }
+        pub fn new(directory: PathBuf, size: Size, phrase: Option<String>) -> Self {
+            Self {
+                directory,
+                size,
+                phrase,
+            }
         }
     }
 }
@@ -134,9 +139,9 @@ mod effect {
 pub use effect::Effect;
 
 mod state {
-    use super::super::{Contents, ContentsProps};
+    use super::super::{Contents, ContentsEffect, ContentsEvent, ContentsProps};
     use super::{Action, Effect, Props};
-    use crate::components::common::{Directory, DirectoryProps, Phrase};
+    use crate::components::common::{Directory, DirectoryProps, Phrase, PhraseEvent};
     use crate::programs::VimArgs;
     use crate::rendering::Size;
     use crate::{Component, Stateful};
@@ -207,12 +212,30 @@ mod state {
             let contents_props = ContentsProps::new(props.directory, contents_size);
             let contents = Contents::new(contents_props);
 
-            Self {
+            let mut state = Self {
                 focus,
                 directory,
                 phrase,
                 contents,
+            };
+
+            if let Some(phrase) = props.phrase {
+                state.phrase.handle(PhraseEvent::Set {
+                    phrase: phrase.clone(),
+                });
+
+                let contents_event = ContentsEvent::Search { phrase };
+                let contents_effect = state.contents.handle(contents_event);
+                if let Some(ContentsEffect::Unfocus) = contents_effect {
+                    state.phrase.handle(PhraseEvent::Focus);
+                    state.focus = Focus::Phrase;
+                } else {
+                    state.phrase.handle(PhraseEvent::Unfocus);
+                    state.focus = Focus::Contents;
+                }
             }
+
+            state
         }
     }
 

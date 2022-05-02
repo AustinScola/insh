@@ -15,7 +15,7 @@ mod props {
 }
 pub use props::Props;
 
-mod found {
+mod contents {
     use super::{Action, Effect, Event, Props, State};
     use crate::color::Color;
     use crate::component::Component;
@@ -26,11 +26,11 @@ mod found {
 
     use std::path::{Path, MAIN_SEPARATOR as PATH_SEPARATOR};
 
-    pub struct Found {
+    pub struct Contents {
         state: State,
     }
 
-    impl Component<Props, Event, Effect> for Found {
+    impl Component<Props, Event, Effect> for Contents {
         fn new(props: Props) -> Self {
             let state = State::from(props);
             Self { state }
@@ -118,7 +118,7 @@ mod found {
         }
     }
 }
-pub use found::Found;
+pub use contents::Contents;
 
 mod event {
     use crate::rendering::Size;

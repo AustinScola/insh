@@ -30,6 +30,8 @@ mod phrase {
         fn handle(&mut self, event: Event) -> Option<Effect> {
             let action: Option<Action> = match event {
                 Event::Focus => Some(Action::Focus),
+                Event::Unfocus => Some(Action::Unfocus),
+                Event::Set { phrase } => Some(Action::Set { phrase }),
                 Event::CrosstermEvent { event } => match { event } {
                     CrosstermEvent::Key(KeyEvent {
                         code: KeyCode::Char('q'),
@@ -78,6 +80,8 @@ mod event {
 
     pub enum Event {
         Focus,
+        Unfocus,
+        Set { phrase: String },
         CrosstermEvent { event: CrosstermEvent },
     }
 }
@@ -114,6 +118,16 @@ mod state {
             None
         }
 
+        pub fn unfocus(&mut self) -> Option<Effect> {
+            self.focus = false;
+            None
+        }
+
+        pub fn set(&mut self, value: String) -> Option<Effect> {
+            self.value = value;
+            None
+        }
+
         fn push(&mut self, character: char) -> Option<Effect> {
             self.value.push(character);
             None
@@ -140,6 +154,8 @@ mod state {
         fn perform(&mut self, action: Action) -> Option<Effect> {
             match action {
                 Action::Focus => self.focus(),
+                Action::Unfocus => self.unfocus(),
+                Action::Set { phrase } => self.set(phrase),
                 Action::Push { character } => self.push(character),
                 Action::Pop => self.pop(),
                 Action::Enter => self.find(),
@@ -153,6 +169,8 @@ pub use state::State;
 mod action {
     pub enum Action {
         Focus,
+        Unfocus,
+        Set { phrase: String },
         Push { character: char },
         Pop,
         Enter,
