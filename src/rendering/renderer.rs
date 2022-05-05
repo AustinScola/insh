@@ -18,8 +18,6 @@ impl Renderer {
     }
 
     pub fn render(&mut self, fabric: Fabric) {
-        self.lazy_clear_screen();
-
         let attributes = itertools::izip!(
             0..,
             fabric.characters(),
@@ -70,6 +68,7 @@ impl Renderer {
             .unwrap();
     }
 
+    #[allow(dead_code)]
     fn lazy_clear_screen(&mut self) {
         self.stdout
             .queue(ClearTerminal(TerminalClearType::All))

@@ -160,7 +160,13 @@ mod contents {
                             yarns.push(yarn);
                         }
 
-                        Fabric::from(yarns)
+                        let mut fabric = Fabric::from(yarns);
+
+                        if fabric.size().rows < size.rows {
+                            fabric.pad_bottom(size.rows);
+                        }
+
+                        fabric
                     }
                 }
             }

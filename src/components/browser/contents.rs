@@ -40,7 +40,8 @@ impl Component<Props, Event, Effect> for Contents {
 
     fn render(&self, size: Size) -> Fabric {
         let mut yarns: Vec<Yarn> = Vec::new();
-        for (entry, row) in self.state.visible_entries().iter().zip(0..size.rows) {
+        let visible_entries = self.state.visible_entries();
+        for (entry, row) in visible_entries.iter().zip(0..size.rows) {
             let mut string: String;
             {
                 let path = entry.path();
@@ -60,9 +61,17 @@ impl Component<Props, Event, Effect> for Contents {
             } else if hidden {
                 yarn.color(Color::LightGrayyedText.into());
             }
+            yarn.resize(size.columns);
             yarns.push(yarn);
         }
-        Fabric::from(yarns)
+
+        let mut fabric = Fabric::from(yarns);
+
+        if fabric.size().rows < size.rows {
+            fabric.pad_bottom(size.rows);
+        }
+
+        fabric
     }
 }
 
