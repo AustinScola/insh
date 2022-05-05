@@ -27,3 +27,4 @@ means that symbolic links are no longer resolved.
 - Add installation instructions to the README.
 - Change the color of dot files (and directories) to light gray in the browser.
 - Add command line interface.
+- Fix the flickering of text.
