@@ -5,7 +5,7 @@ use std::cmp::Ordering;
 use crossterm::style::Color;
 use itertools::izip;
 
-#[derive(PartialEq, Debug)]
+#[derive(PartialEq, Debug, Clone)]
 pub struct Fabric {
     size: Size,
     characters: Vec<Vec<char>>,
@@ -26,6 +26,12 @@ impl Fabric {
             colors,
             backgrounds,
         }
+    }
+
+    /// Return the size of the fabric.
+    #[allow(dead_code)]
+    pub fn size(&self) -> Size {
+        self.size
     }
 
     #[allow(dead_code)]
@@ -50,7 +56,7 @@ impl Fabric {
         &self.backgrounds
     }
 
-    /// Vertically pad the fabric to `new_rows`.
+    /// Vertically pad the fabric to `new_rows` by adding rows above and below.
     ///
     /// If the new number of rows is less than the current rows, then panic (for now).
     pub fn pad(&mut self, new_rows: usize) {
@@ -79,6 +85,26 @@ impl Fabric {
                     vec![vec![None; self.size.columns]; bottom_pad_rows],
                 ]
                 .concat();
+            }
+            Ordering::Less => {
+                panic!("Cannot pad a yarn to smaller than the current rows.")
+            }
+            Ordering::Equal => {}
+        }
+    }
+
+    /// Verically pad the fabric to the new number of rows by adding rows below.
+    ///
+    /// Panic if the new number of rows is less than the current number of rows.
+    pub fn pad_bottom(&mut self, new_rows: usize) {
+        match new_rows.cmp(&self.size.rows) {
+            Ordering::Greater => {
+                let difference: usize = new_rows - self.size.rows;
+                let columns: usize = self.size.columns;
+
+                self.characters.extend(vec![vec![' '; columns]; difference]);
+                self.colors.extend(vec![vec![]; difference]);
+                self.backgrounds.extend(vec![vec![]; difference]);
             }
             Ordering::Less => {
                 panic!("Cannot pad a yarn to smaller than the current rows.")

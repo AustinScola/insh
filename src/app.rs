@@ -91,6 +91,7 @@ impl App {
         self.lazy_enable_alternate_terminal();
         self.enable_raw_terminal();
         self.lazy_hide_cursor();
+        self.lazy_clear_screen();
 
         self.change_panic_hook();
     }

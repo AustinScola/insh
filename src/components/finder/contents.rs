@@ -100,11 +100,18 @@ mod contents {
                             yarn.color_before(Color::GrayyedText.into(), file_name_start);
                         }
 
-                        yarn.truncate(size.columns);
+                        yarn.resize(size.columns);
 
                         yarns.push(yarn);
                     }
-                    Fabric::from(yarns)
+
+                    let mut fabric = Fabric::from(yarns);
+
+                    if fabric.size().rows < size.rows {
+                        fabric.pad_bottom(size.rows);
+                    }
+
+                    fabric
                 }
                 Some(false) => {
                     let mut yarn = Yarn::from("No matching files.");
