@@ -1,6 +1,6 @@
 [package]
 name = "insh"
-version = "0.3.4"
+version = "0.3.5"
 edition = "2021"
 
 [dependencies]
@@ -11,6 +11,7 @@ dirs = "4.0.0"
 unicode-segmentation = "1.9.0"
 itertools = "0.10.3"
 walkdir = "2.3.2"
+copypasta = "0.8.1"  # Used to manage the clipboard.
 
 [dev-dependencies]
 test-case = "2.0.0"

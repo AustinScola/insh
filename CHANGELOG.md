@@ -31,3 +31,6 @@ means that symbolic links are no longer resolved.
 
 # 0.3.4
 - Fix the displaying of empty directories in the file browser.
+
+# 0.3.5
+- Add the yank and really yank commands (`y` and `Y`) to the searcher.

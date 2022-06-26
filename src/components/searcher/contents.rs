@@ -64,6 +64,16 @@ mod contents {
                         code: KeyCode::Enter,
                         ..
                     }) => Some(Action::Edit),
+                    CrosstermEvent::Key(KeyEvent {
+                        code: KeyCode::Char('y'),
+                        modifiers: KeyModifiers::NONE,
+                        ..
+                    }) => Some(Action::Yank),
+                    CrosstermEvent::Key(KeyEvent {
+                        code: KeyCode::Char('Y'),
+                        modifiers: KeyModifiers::SHIFT,
+                        ..
+                    }) => Some(Action::ReallyYank),
                     _ => None,
                 },
             };
@@ -195,7 +205,10 @@ mod state {
     use crate::Stateful;
 
     use std::cmp::Ordering;
+    use std::path::MAIN_SEPARATOR as PATH_SEPARATOR;
     use std::path::{Path, PathBuf};
+
+    use copypasta::{ClipboardContext as Clipboard, ClipboardProvider};
 
     pub struct State {
         size: Size,
@@ -270,7 +283,7 @@ mod state {
             }
         }
 
-        /// The currently selected file hit.
+        /// Return the currently selected file hit.
         pub fn hit(&self) -> Option<&FileHit> {
             match self.hit_number() {
                 Some(hit_number) => Some(&self.hits[hit_number]),
@@ -543,6 +556,41 @@ mod state {
 
             Some(Effect::OpenVim(vim_args))
         }
+
+        /// If a file path is selected, copy it to the system clipboard. Else if the line of a file is selected, then copy it.
+        fn yank(&mut self) -> Option<Effect> {
+            self._yank(false)
+        }
+
+        /// If a file path is selected, copy the absolute file path to the system clipboard. Else if the line of a file is selected, then copy it.
+        fn really_yank(&mut self) -> Option<Effect> {
+            self._yank(true)
+        }
+
+        fn _yank(&mut self, really: bool) -> Option<Effect> {
+            if let Some(file_hit) = self.hit() {
+                let contents: String = match self.line_hit_number() {
+                    Some(line_hit_number) => {
+                        let line_hit: &LineHit = &file_hit.line_hits()[line_hit_number];
+                        line_hit.line().to_string()
+                    }
+                    None => {
+                        let mut path: String =
+                            file_hit.path().to_path_buf().to_string_lossy().to_string();
+                        if !really {
+                            let directory_string: String =
+                                self.directory().to_string_lossy().to_string();
+                            path = path.strip_prefix(&directory_string).unwrap().to_string();
+                            path = path.strip_prefix(PATH_SEPARATOR).unwrap().to_string();
+                        }
+                        path
+                    }
+                };
+                let mut clipboard = Clipboard::new().unwrap();
+                clipboard.set_contents(contents).unwrap();
+            }
+            None
+        }
     }
 
     impl Stateful<Action, Effect> for State {
@@ -554,6 +602,8 @@ mod state {
                 Action::Down => self.down(),
                 Action::Up => self.up(),
                 Action::Edit => self.edit(),
+                Action::Yank => self.yank(),
+                Action::ReallyYank => self.really_yank(),
             }
         }
     }
@@ -570,6 +620,8 @@ mod action {
         Down,
         Up,
         Edit,
+        Yank,
+        ReallyYank,
     }
 }
 use action::Action;
