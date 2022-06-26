@@ -28,3 +28,6 @@ means that symbolic links are no longer resolved.
 - Change the color of dot files (and directories) to light gray in the browser.
 - Add command line interface.
 - Fix the flickering of text.
+
+# 0.3.4
+- Fix the displaying of empty directories in the file browser.
