@@ -83,10 +83,10 @@ impl Component<Props, Event, Effect> for Browser {
             1 => self.state.directory.render(size),
             rows => {
                 let columns = size.columns;
-                let directory_fabric: Fabric = self.state.directory.render(Size::new(1, columns));
+                let fabric: Fabric = self.state.directory.render(Size::new(1, columns));
                 let contents_fabric: Fabric =
                     self.state.contents.render(Size::new(rows - 1, columns));
-                directory_fabric.quilt_bottom(contents_fabric)
+                fabric.quilt_bottom(contents_fabric)
             }
         }
     }

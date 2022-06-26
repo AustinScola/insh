@@ -18,8 +18,8 @@ pub struct Fabric {
 impl Fabric {
     pub fn new(size: Size) -> Self {
         let characters = vec![vec![' '; size.columns]; size.rows];
-        let colors = vec![vec![None; size.columns]; size.rows];
-        let backgrounds = vec![vec![None; size.columns]; size.rows];
+        let colors = vec![vec![]; size.rows];
+        let backgrounds = vec![vec![]; size.rows];
         Fabric {
             size,
             characters,
@@ -102,6 +102,7 @@ impl Fabric {
                 let difference: usize = new_rows - self.size.rows;
                 let columns: usize = self.size.columns;
 
+                self.size = Size::new(new_rows, columns);
                 self.characters.extend(vec![vec![' '; columns]; difference]);
                 self.colors.extend(vec![vec![]; difference]);
                 self.backgrounds.extend(vec![vec![]; difference]);
@@ -188,6 +189,13 @@ mod tests {
     use super::*;
 
     use test_case::test_case;
+
+    #[test_case(Fabric::new(Size::new(1, 1)), 2, Fabric::new(Size::new(2, 1)))]
+    fn test_pad_bottom(mut fabric: Fabric, new_rows: usize, expected: Fabric) {
+        fabric.pad_bottom(new_rows);
+
+        assert_eq!(fabric, expected);
+    }
 
     #[test_case(
         Fabric::new(Size::new(2, 3)),
