@@ -34,3 +34,6 @@ means that symbolic links are no longer resolved.
 
 # 0.3.5
 - Add the yank and really yank commands (`y` and `Y`) to the searcher.
+
+# 0.3.6
+- Add going to files in the browser and selecting them from the finder with `G`.

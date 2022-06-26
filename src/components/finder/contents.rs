@@ -64,8 +64,12 @@ mod contents {
                     }) => Some(Action::Edit),
                     CrosstermEvent::Key(KeyEvent {
                         code: KeyCode::Char('g'),
-                        ..
+                        modifiers: KeyModifiers::NONE,
                     }) => Some(Action::Goto),
+                    CrosstermEvent::Key(KeyEvent {
+                        code: KeyCode::Char('G'),
+                        modifiers: KeyModifiers::SHIFT,
+                    }) => Some(Action::ReallyGoto),
                     _ => None,
                 },
             };
@@ -315,12 +319,24 @@ mod state {
         }
 
         fn goto(&mut self) -> Option<Effect> {
+            self._goto(false)
+        }
+
+        fn really_goto(&mut self) -> Option<Effect> {
+            self._goto(true)
+        }
+
+        fn _goto(&mut self, really: bool) -> Option<Effect> {
             match self.entry_path() {
                 Some(entry) => {
-                    let destination = entry.parent().unwrap().to_path_buf();
-                    Some(Effect::Goto {
-                        directory: destination,
-                    })
+                    let directory = entry.parent().unwrap().to_path_buf();
+                    let file: Option<PathBuf> = if really {
+                        Some(entry.to_path_buf())
+                    } else {
+                        None
+                    };
+
+                    Some(Effect::Goto { directory, file })
                 }
                 None => None,
             }
@@ -337,6 +353,7 @@ mod state {
                 Action::Up => self.up(),
                 Action::Edit => self.edit(),
                 Action::Goto => self.goto(),
+                Action::ReallyGoto => self.really_goto(),
             }
         }
     }
@@ -354,6 +371,7 @@ mod action {
         Up,
         Edit,
         Goto,
+        ReallyGoto,
     }
 }
 use action::Action;
@@ -364,7 +382,10 @@ mod effect {
 
     pub enum Effect {
         Unfocus,
-        Goto { directory: PathBuf },
+        Goto {
+            directory: PathBuf,
+            file: Option<PathBuf>,
+        },
         OpenVim(VimArgs),
     }
 }
