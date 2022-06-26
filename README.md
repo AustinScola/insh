@@ -75,3 +75,5 @@ The commands for the input bar are the same as those for the Finder.
 | `j`              | Move the selection down.                                                                                                                                                                           |
 | `k`              | Move the selection up.                                                                                                                                                                             |
 | `l` \| `<Enter>` | Open the hit in vim. If the file path of a hit is selected, then open vim at the start of the file. Else, if an occurrence of the string is selected, then open vim at the line of the occurrence. |
+| `y`              | Yank the hit. If the file path of a hit is selected, yank the file path. Else, if an occurence of the string is selected, yank that line.                                                          |
+| `Y`              | Really yank the hit. If the file path of a hit is selected, yank the **absolute** file path. Else, if an occurence of the string is selected, yank that line.                                      |
