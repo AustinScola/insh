@@ -12,11 +12,16 @@ pub use crossterm::event::Event;
 pub struct Props {
     directory: PathBuf,
     size: Size,
+    file: Option<PathBuf>,
 }
 
 impl Props {
-    pub fn new(directory: PathBuf, size: Size) -> Self {
-        Self { directory, size }
+    pub fn new(directory: PathBuf, size: Size, file: Option<PathBuf>) -> Self {
+        Self {
+            directory,
+            size,
+            file,
+        }
     }
 }
 
@@ -104,7 +109,7 @@ impl From<Props> for State {
         let directory = Directory::new(directory_props);
 
         let contents_size = Size::new(props.size.rows - 1, props.size.columns);
-        let contents_props = ContentsProps::new(props.directory, contents_size);
+        let contents_props = ContentsProps::new(props.directory, contents_size, props.file);
         let contents = Contents::new(contents_props);
 
         let focus = Focus::default();

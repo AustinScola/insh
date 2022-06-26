@@ -50,13 +50,14 @@ the file name.
 | `<Backspace>` | Remove the last character from the input.  |
 
 #### Found Files Commands:
-| Command          | Description                         |
-|------------------|-------------------------------------|
-| `<Ctrl>-q`       | Return focus to the input bar.      |
-| `j`              | Move the selection down by one hit. |
-| `k`              | Move the selection up by one hit.   |
-| `l` \| `<Enter>` | Open the hit in vim.                |
-| `g`              | Go to the hit in the file browser.  |
+| Command          | Description                                       |
+|------------------|---------------------------------------------------|
+| `<Ctrl>-q`       | Return focus to the input bar.                    |
+| `j`              | Move the selection down by one hit.               |
+| `k`              | Move the selection up by one hit.                 |
+| `l` \| `<Enter>` | Open the hit in vim.                              |
+| `g`              | Go to the hit in the file browser.                |
+| `G`              | Go to the hit in the file browser and select it.  |
 
 ### Searcher Help
 

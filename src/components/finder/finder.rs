@@ -87,8 +87,8 @@ mod finder {
                                 self.state.phrase.handle(PhraseEvent::Focus);
                                 None
                             }
-                            Some(ContentsEffect::Goto { directory }) => {
-                                Some(Effect::Browse { directory })
+                            Some(ContentsEffect::Goto { directory, file }) => {
+                                Some(Effect::Browse { directory, file })
                             }
                             Some(ContentsEffect::OpenVim(vim_args)) => {
                                 Some(Effect::OpenVim(vim_args))
@@ -251,7 +251,10 @@ mod effect {
     use std::path::PathBuf;
 
     pub enum Effect {
-        Browse { directory: PathBuf },
+        Browse {
+            directory: PathBuf,
+            file: Option<PathBuf>,
+        },
         OpenVim(VimArgs),
         Quit,
     }

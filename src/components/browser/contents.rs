@@ -13,11 +13,16 @@ use crossterm::event::{Event as CrosstermEvent, KeyCode, KeyEvent};
 pub struct Props {
     directory: PathBuf,
     size: Size,
+    file: Option<PathBuf>,
 }
 
 impl Props {
-    pub fn new(directory: PathBuf, size: Size) -> Self {
-        Self { directory, size }
+    pub fn new(directory: PathBuf, size: Size, file: Option<PathBuf>) -> Self {
+        Self {
+            directory,
+            size,
+            file,
+        }
     }
 }
 
@@ -147,13 +152,38 @@ struct State {
     offset: usize,
 }
 
-impl State {
-    pub fn from(props: Props) -> Self {
+impl From<Props> for State {
+    fn from(props: Props) -> Self {
         let size = props.size;
         let directory: PathBuf = props.directory;
         let entries = State::get_entries(&directory);
-        let selected = if !entries.is_empty() { Some(0) } else { None };
-        let offset = 0;
+
+        let selected;
+        let offset;
+        if entries.is_empty() {
+            selected = None;
+            offset = 0;
+        } else if let Some(file) = props.file {
+            let index = entries.iter().position(|entry| entry.path() == file);
+            match index {
+                Some(index) => {
+                    if index < size.rows {
+                        selected = Some(index);
+                        offset = 0;
+                    } else {
+                        selected = Some(0);
+                        offset = index;
+                    }
+                }
+                None => {
+                    selected = Some(0);
+                    offset = 0;
+                }
+            }
+        } else {
+            selected = if !entries.is_empty() { Some(0) } else { None };
+            offset = 0;
+        }
         State {
             size,
             directory,
@@ -162,7 +192,9 @@ impl State {
             offset,
         }
     }
+}
 
+impl State {
     fn get_entries(directory: &Path) -> Vec<DirEntry> {
         let entries_iter = fs::read_dir(directory).unwrap();
         let mut entries = Vec::from_iter(entries_iter.map(|entry| entry.unwrap()));

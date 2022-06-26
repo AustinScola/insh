@@ -123,8 +123,8 @@ impl Component<Props, Event, SystemEffect> for Insh {
                 let finder = self.state.finder.as_mut().unwrap();
                 let finder_effect: Option<FinderEffect> = finder.handle(event);
                 match finder_effect {
-                    Some(FinderEffect::Browse { directory }) => {
-                        action = Some(Action::Browse { directory });
+                    Some(FinderEffect::Browse { directory, file }) => {
+                        action = Some(Action::Browse { directory, file });
                     }
                     Some(FinderEffect::OpenVim(vim_args)) => {
                         let program = Box::new(Vim::new(vim_args));
@@ -184,7 +184,7 @@ impl From<Props> for State {
             .unwrap_or_else(current_dir::current_dir);
         let size: Size = Size::from(terminal::size().unwrap());
 
-        let browser_props = BrowserProps::new(directory.clone(), size);
+        let browser_props = BrowserProps::new(directory.clone(), size, None);
         let browser = Some(Browser::new(browser_props));
         match props.start() {
             Start::Browser => Self {
@@ -217,10 +217,10 @@ impl From<Props> for State {
 }
 
 impl State {
-    fn browse(&mut self, directory: PathBuf) -> Option<SystemEffect> {
+    fn browse(&mut self, directory: PathBuf, file: Option<PathBuf>) -> Option<SystemEffect> {
         self.mode = Mode::Browse;
         let size: Size = Size::from(terminal::size().unwrap());
-        let browser_props = BrowserProps::new(directory, size);
+        let browser_props = BrowserProps::new(directory, size, file);
         self.browser = Some(Browser::new(browser_props));
         None
     }
@@ -261,7 +261,7 @@ impl Default for State {
         let size: Size = Size::from(terminal::size().unwrap());
 
         let directory: PathBuf = current_dir::current_dir();
-        let browser: Option<Browser> = Some(Browser::new(BrowserProps::new(directory, size)));
+        let browser: Option<Browser> = Some(Browser::new(BrowserProps::new(directory, size, None)));
         let finder: Option<Finder> = None;
         let searcher: Option<Searcher> = None;
 
@@ -277,7 +277,7 @@ impl Default for State {
 impl Stateful<Action, SystemEffect> for State {
     fn perform(&mut self, action: Action) -> Option<SystemEffect> {
         match action {
-            Action::Browse { directory } => self.browse(directory),
+            Action::Browse { directory, file } => self.browse(directory, file),
             Action::Find { directory } => self.find(directory),
             Action::Search { directory } => self.search(directory),
             Action::QuitFinder => self.quit_finder(),
@@ -299,9 +299,16 @@ impl Default for Mode {
 }
 
 enum Action {
-    Browse { directory: PathBuf },
-    Find { directory: PathBuf },
-    Search { directory: PathBuf },
+    Browse {
+        directory: PathBuf,
+        file: Option<PathBuf>,
+    },
+    Find {
+        directory: PathBuf,
+    },
+    Search {
+        directory: PathBuf,
+    },
     QuitFinder,
     QuitSearcher,
 }
