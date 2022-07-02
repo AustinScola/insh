@@ -140,6 +140,9 @@ impl Component<Props, Event, SystemEffect> for Insh {
                 let searcher = self.state.searcher.as_mut().unwrap();
                 let searcher_effect: Option<SearcherEffect> = searcher.handle(event);
                 match searcher_effect {
+                    Some(SearcherEffect::Goto { directory, file }) => {
+                        action = Some(Action::Browse { directory, file });
+                    }
                     Some(SearcherEffect::Quit) => {
                         action = Some(Action::QuitSearcher);
                     }

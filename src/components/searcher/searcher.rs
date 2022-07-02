@@ -83,6 +83,9 @@ mod searcher {
                                 self.state.phrase.handle(PhraseEvent::Focus);
                                 Some(Action::FocusPhrase)
                             }
+                            Some(ContentsEffect::Goto { directory, file }) => {
+                                Some(Action::Goto { directory, file })
+                            }
                             Some(ContentsEffect::OpenVim(vim_args)) => {
                                 Some(Action::OpenVim(vim_args))
                             }
@@ -131,7 +134,13 @@ pub use searcher::Searcher;
 mod effect {
     use crate::programs::VimArgs;
 
+    use std::path::PathBuf;
+
     pub enum Effect {
+        Goto {
+            directory: PathBuf,
+            file: Option<PathBuf>,
+        },
         Quit,
         OpenVim(VimArgs),
     }
@@ -145,6 +154,8 @@ mod state {
     use crate::programs::VimArgs;
     use crate::rendering::Size;
     use crate::{Component, Stateful};
+
+    use std::path::PathBuf;
 
     pub struct State {
         focus: Focus,
@@ -179,6 +190,10 @@ mod state {
             None
         }
 
+        fn goto(&mut self, directory: PathBuf, file: Option<PathBuf>) -> Option<Effect> {
+            Some(Effect::Goto { directory, file })
+        }
+
         fn open_vim(&mut self, vim_args: VimArgs) -> Option<Effect> {
             Some(Effect::OpenVim(vim_args))
         }
@@ -193,6 +208,7 @@ mod state {
             match action {
                 Action::FocusPhrase => self.focus_phrase(),
                 Action::FocusContents => self.focus_contents(),
+                Action::Goto { directory, file } => self.goto(directory, file),
                 Action::OpenVim(vim_args) => self.open_vim(vim_args),
                 Action::Quit => self.quit(),
             }
@@ -255,9 +271,15 @@ use state::{Focus, State};
 mod action {
     use crate::programs::VimArgs;
 
+    use std::path::PathBuf;
+
     pub enum Action {
         FocusPhrase,
         FocusContents,
+        Goto {
+            directory: PathBuf,
+            file: Option<PathBuf>,
+        },
         OpenVim(VimArgs),
         Quit,
     }

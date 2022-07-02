@@ -65,6 +65,14 @@ mod contents {
                         ..
                     }) => Some(Action::Edit),
                     CrosstermEvent::Key(KeyEvent {
+                        code: KeyCode::Char('g'),
+                        modifiers: KeyModifiers::NONE,
+                    }) => Some(Action::Goto),
+                    CrosstermEvent::Key(KeyEvent {
+                        code: KeyCode::Char('G'),
+                        modifiers: KeyModifiers::SHIFT,
+                    }) => Some(Action::ReallyGoto),
+                    CrosstermEvent::Key(KeyEvent {
                         code: KeyCode::Char('y'),
                         modifiers: KeyModifiers::NONE,
                         ..
@@ -205,8 +213,7 @@ mod state {
     use crate::Stateful;
 
     use std::cmp::Ordering;
-    use std::path::MAIN_SEPARATOR as PATH_SEPARATOR;
-    use std::path::{Path, PathBuf};
+    use std::path::{Path, PathBuf, MAIN_SEPARATOR as PATH_SEPARATOR};
 
     use copypasta::{ClipboardContext as Clipboard, ClipboardProvider};
 
@@ -557,6 +564,29 @@ mod state {
             Some(Effect::OpenVim(vim_args))
         }
 
+        fn goto(&mut self) -> Option<Effect> {
+            self._goto(false)
+        }
+
+        fn really_goto(&mut self) -> Option<Effect> {
+            self._goto(true)
+        }
+
+        fn _goto(&mut self, really: bool) -> Option<Effect> {
+            if let Some(file_hit) = self.hit() {
+                let path: &Path = file_hit.path();
+                let directory = path.parent().unwrap().to_path_buf();
+                let file: Option<PathBuf> = if really {
+                    Some(path.to_path_buf())
+                } else {
+                    None
+                };
+
+                return Some(Effect::Goto { directory, file });
+            }
+            None
+        }
+
         /// If a file path is selected, copy it to the system clipboard. Else if the line of a file is selected, then copy it.
         fn yank(&mut self) -> Option<Effect> {
             self._yank(false)
@@ -602,6 +632,8 @@ mod state {
                 Action::Down => self.down(),
                 Action::Up => self.up(),
                 Action::Edit => self.edit(),
+                Action::Goto => self.goto(),
+                Action::ReallyGoto => self.really_goto(),
                 Action::Yank => self.yank(),
                 Action::ReallyYank => self.really_yank(),
             }
@@ -620,6 +652,8 @@ mod action {
         Down,
         Up,
         Edit,
+        Goto,
+        ReallyGoto,
         Yank,
         ReallyYank,
     }
@@ -629,8 +663,14 @@ use action::Action;
 mod effect {
     use crate::programs::VimArgs;
 
+    use std::path::PathBuf;
+
     pub enum Effect {
         Unfocus,
+        Goto {
+            directory: PathBuf,
+            file: Option<PathBuf>,
+        },
         OpenVim(VimArgs),
     }
 }
