@@ -207,6 +207,7 @@ pub use event::Event;
 
 mod state {
     use super::{Action, Effect, Props};
+    use crate::clipboard::Clipboard;
     use crate::phrase_searcher::{FileHit, LineHit, PhraseSearcher};
     use crate::programs::{VimArgs, VimArgsBuilder};
     use crate::rendering::Size;
@@ -214,8 +215,6 @@ mod state {
 
     use std::cmp::Ordering;
     use std::path::{Path, PathBuf, MAIN_SEPARATOR as PATH_SEPARATOR};
-
-    use copypasta::{ClipboardContext as Clipboard, ClipboardProvider};
 
     pub struct State {
         size: Size,
@@ -616,8 +615,8 @@ mod state {
                         path
                     }
                 };
-                let mut clipboard = Clipboard::new().unwrap();
-                clipboard.set_contents(contents).unwrap();
+                let mut clipboard = Clipboard::new();
+                clipboard.copy(contents);
             }
             None
         }
