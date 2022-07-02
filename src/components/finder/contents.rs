@@ -70,6 +70,16 @@ mod contents {
                         code: KeyCode::Char('G'),
                         modifiers: KeyModifiers::SHIFT,
                     }) => Some(Action::ReallyGoto),
+                    CrosstermEvent::Key(KeyEvent {
+                        code: KeyCode::Char('y'),
+                        modifiers: KeyModifiers::NONE,
+                        ..
+                    }) => Some(Action::Yank),
+                    CrosstermEvent::Key(KeyEvent {
+                        code: KeyCode::Char('Y'),
+                        modifiers: KeyModifiers::SHIFT,
+                        ..
+                    }) => Some(Action::ReallyYank),
                     _ => None,
                 },
             };
@@ -145,13 +155,14 @@ pub use event::Event;
 
 mod state {
     use super::{Action, Effect, Props};
+    use crate::clipboard::Clipboard;
     use crate::path_finder::PathFinder;
     use crate::programs::{VimArgs, VimArgsBuilder};
     use crate::rendering::Size;
     use crate::stateful::Stateful;
 
     use std::cmp::{self, Ordering};
-    use std::path::{Path, PathBuf};
+    use std::path::{Path, PathBuf, MAIN_SEPARATOR as PATH_SEPARATOR};
 
     use walkdir::DirEntry as Entry;
 
@@ -341,6 +352,30 @@ mod state {
                 None => None,
             }
         }
+
+        /// Copy the file path to the system clipboard.
+        fn yank(&mut self) -> Option<Effect> {
+            self._yank(false)
+        }
+
+        /// Copy the absolute file path to the system clipboard.
+        fn really_yank(&mut self) -> Option<Effect> {
+            self._yank(true)
+        }
+
+        fn _yank(&mut self, really: bool) -> Option<Effect> {
+            if let Some(entry) = self.entry_path() {
+                let mut path: String = entry.to_path_buf().to_string_lossy().to_string();
+                if !really {
+                    let directory_string: String = self.directory().to_string_lossy().to_string();
+                    path = path.strip_prefix(&directory_string).unwrap().to_string();
+                    path = path.strip_prefix(PATH_SEPARATOR).unwrap().to_string();
+                }
+                let mut clipboard = Clipboard::new();
+                clipboard.copy(path);
+            }
+            None
+        }
     }
 
     impl Stateful<Action, Effect> for State {
@@ -354,6 +389,8 @@ mod state {
                 Action::Edit => self.edit(),
                 Action::Goto => self.goto(),
                 Action::ReallyGoto => self.really_goto(),
+                Action::Yank => self.yank(),
+                Action::ReallyYank => self.really_yank(),
             }
         }
     }
@@ -372,6 +409,8 @@ mod action {
         Edit,
         Goto,
         ReallyGoto,
+        Yank,
+        ReallyYank,
     }
 }
 use action::Action;

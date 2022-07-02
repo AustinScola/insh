@@ -40,3 +40,4 @@ means that symbolic links are no longer resolved.
 
 # 0.3.7
 - Add the goto and really goto (`g` and `G`) commands to the searcher.
+- Add the yank and really yank (`y` and `Y`) commands to the finder.
