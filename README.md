@@ -16,6 +16,7 @@ Some commands work from all components:
 | Command    | Description |
 |------------|-------------|
 | `<Ctrl>-x` | Exit Insh.  |
+| r          | Refresh.    |
 
 ### Browser Help
 
@@ -26,7 +27,6 @@ below. The currently selected entry is highlighed in yellow.
 |----------------------|------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
 | `j`                  | Move the selection down by one entry.                                                                                                                                              |
 | `k`                  | Move the selection up by one entry.                                                                                                                                                |
-| `r`                  | Reload the entries.                                                                                                                                                                |
 | `l` \| `<Enter>`     | If the currently selected entry is a file, then open it in vim. Else, if the currently selected entry is a directory, then change the current directory to the selected directory. |
 | `h` \| `<Backspace>` | Change directories to the parent of the current directory (if the current directory is not the root directory).                                                                    |
 | `b`                  | Run bash with the working directory set to the current directory.                                                                                                                  |
