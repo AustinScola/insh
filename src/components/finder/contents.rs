@@ -55,6 +55,10 @@ mod contents {
                         ..
                     }) => Some(Action::Up),
                     CrosstermEvent::Key(KeyEvent {
+                        code: KeyCode::Char('r'),
+                        modifiers: KeyModifiers::NONE,
+                    }) => Some(Action::Refresh),
+                    CrosstermEvent::Key(KeyEvent {
                         code: KeyCode::Char('l'),
                         ..
                     })
@@ -169,6 +173,7 @@ mod state {
     pub struct State {
         size: Size,
         directory: PathBuf,
+        phrase: Option<String>,
         focussed: bool,
         hits: Option<bool>,
         entries: Vec<Entry>,
@@ -181,6 +186,7 @@ mod state {
             Self {
                 size: props.size,
                 directory: props.directory,
+                phrase: None,
                 focussed: false,
                 hits: None,
                 entries: Vec::new(),
@@ -271,11 +277,12 @@ mod state {
             Some(Effect::Unfocus)
         }
 
-        fn find(&mut self, phrase: String) -> Option<Effect> {
+        fn find(&mut self, phrase: &str) -> Option<Effect> {
             self.focus();
+            self.phrase = Some(phrase.to_string());
 
             // TODO: handle regex errors!
-            let path_finder = PathFinder::new(&self.directory, &phrase).unwrap();
+            let path_finder = PathFinder::new(&self.directory, phrase).unwrap();
             self.entries = path_finder.collect();
             self.offset = 0;
 
@@ -315,6 +322,14 @@ mod state {
                 } else {
                     self.offset = self.offset.saturating_sub(1);
                 }
+            }
+            None
+        }
+
+        /// Refresh the hits by finding the phrase again.
+        fn refresh(&mut self) -> Option<Effect> {
+            if let Some(phrase) = self.phrase.clone() {
+                return self.find(&phrase);
             }
             None
         }
@@ -382,10 +397,11 @@ mod state {
         fn perform(&mut self, action: Action) -> Option<Effect> {
             match action {
                 Action::Unfocus => self.unfocus(),
-                Action::Find { phrase } => self.find(phrase),
+                Action::Find { phrase } => self.find(&phrase),
                 Action::Resize { size } => self.resize(size),
                 Action::Down => self.down(),
                 Action::Up => self.up(),
+                Action::Refresh => self.refresh(),
                 Action::Edit => self.edit(),
                 Action::Goto => self.goto(),
                 Action::ReallyGoto => self.really_goto(),
@@ -406,6 +422,7 @@ mod action {
         Resize { size: Size },
         Down,
         Up,
+        Refresh,
         Edit,
         Goto,
         ReallyGoto,
