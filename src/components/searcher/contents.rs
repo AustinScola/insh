@@ -57,6 +57,10 @@ mod contents {
                         ..
                     }) => Some(Action::Up),
                     CrosstermEvent::Key(KeyEvent {
+                        code: KeyCode::Char('r'),
+                        modifiers: KeyModifiers::NONE,
+                    }) => Some(Action::Refresh),
+                    CrosstermEvent::Key(KeyEvent {
                         code: KeyCode::Char('l'),
                         ..
                     })
@@ -219,6 +223,7 @@ mod state {
     pub struct State {
         size: Size,
         directory: PathBuf,
+        phrase: Option<String>,
         focussed: bool,
         searched: bool,
         hits: Vec<FileHit>,
@@ -233,6 +238,7 @@ mod state {
             Self {
                 size: props.size,
                 directory: props.directory,
+                phrase: None,
                 focussed: false,
                 searched: false,
                 hits: Vec::new(),
@@ -373,10 +379,11 @@ mod state {
             Some(Effect::Unfocus)
         }
 
-        fn search(&mut self, phrase: String) -> Option<Effect> {
+        fn search(&mut self, phrase: &str) -> Option<Effect> {
             self.focus();
+            self.phrase = Some(phrase.to_string());
 
-            let phrase_searcher = PhraseSearcher::new(&self.directory, &phrase);
+            let phrase_searcher = PhraseSearcher::new(&self.directory, phrase);
             self.hits = phrase_searcher.collect();
             self.searched = true;
 
@@ -547,6 +554,14 @@ mod state {
             }
         }
 
+        /// Refresh the hits by searching for the phrase again.
+        fn refresh(&mut self) -> Option<Effect> {
+            if let Some(phrase) = self.phrase.clone() {
+                return self.search(&phrase);
+            }
+            None
+        }
+
         fn edit(&mut self) -> Option<Effect> {
             let file_hit: &FileHit = self.hit().unwrap();
             let path: &Path = file_hit.path();
@@ -627,9 +642,10 @@ mod state {
             match action {
                 Action::Resize { size } => self.resize(size),
                 Action::Unfocus => self.unfocus(),
-                Action::Search { phrase } => self.search(phrase),
+                Action::Search { phrase } => self.search(&phrase),
                 Action::Down => self.down(),
                 Action::Up => self.up(),
+                Action::Refresh => self.refresh(),
                 Action::Edit => self.edit(),
                 Action::Goto => self.goto(),
                 Action::ReallyGoto => self.really_goto(),
@@ -650,6 +666,7 @@ mod action {
         Search { phrase: String },
         Down,
         Up,
+        Refresh,
         Edit,
         Goto,
         ReallyGoto,
