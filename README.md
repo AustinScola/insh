@@ -57,6 +57,8 @@ the file name.
 | `<Ctrl>-q`       | Return focus to the input bar.                                             |
 | `j`              | Move the selection down by one hit.                                        |
 | `k`              | Move the selection up by one hit.                                          |
+| `J`              | Move the selection to the last hit.                                        |
+| `K`              | Move the selection to the first hit.                                       |
 | `l` \| `<Enter>` | Open the hit in vim.                                                       |
 | `g`              | Go to the hit in the file browser.                                         |
 | `G`              | Go to the hit in the file browser and select it.                           |

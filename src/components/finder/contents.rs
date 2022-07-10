@@ -48,12 +48,20 @@ mod contents {
                     }) => Some(Action::Unfocus),
                     CrosstermEvent::Key(KeyEvent {
                         code: KeyCode::Char('j'),
-                        ..
+                        modifiers: KeyModifiers::NONE,
                     }) => Some(Action::Down),
                     CrosstermEvent::Key(KeyEvent {
+                        code: KeyCode::Char('J'),
+                        modifiers: KeyModifiers::SHIFT,
+                    }) => Some(Action::ReallyDown),
+                    CrosstermEvent::Key(KeyEvent {
                         code: KeyCode::Char('k'),
-                        ..
+                        modifiers: KeyModifiers::NONE,
                     }) => Some(Action::Up),
+                    CrosstermEvent::Key(KeyEvent {
+                        code: KeyCode::Char('K'),
+                        modifiers: KeyModifiers::SHIFT,
+                    }) => Some(Action::ReallyUp),
                     CrosstermEvent::Key(KeyEvent {
                         code: KeyCode::Char('r'),
                         modifiers: KeyModifiers::NONE,
@@ -315,6 +323,22 @@ mod state {
             None
         }
 
+        /// Select the last hit and adjust the scroll position if necessary.
+        fn really_down(&mut self) -> Option<Effect> {
+            if self.entries.is_empty() {
+                return None;
+            }
+
+            if self.entries.len() > self.size.rows {
+                self.offset = self.entries.len() - self.size.rows;
+                self.selected = Some(self.size.rows - 1);
+            } else {
+                self.selected = Some(self.entries.len() - 1);
+            }
+
+            None
+        }
+
         fn up(&mut self) -> Option<Effect> {
             if let Some(selected) = self.selected {
                 if selected > 0 {
@@ -323,6 +347,13 @@ mod state {
                     self.offset = self.offset.saturating_sub(1);
                 }
             }
+            None
+        }
+
+        /// Select the first hit and adjust the scroll position if necessary.
+        fn really_up(&mut self) -> Option<Effect> {
+            self.offset = 0;
+            self.selected = Some(0);
             None
         }
 
@@ -400,7 +431,9 @@ mod state {
                 Action::Find { phrase } => self.find(&phrase),
                 Action::Resize { size } => self.resize(size),
                 Action::Down => self.down(),
+                Action::ReallyDown => self.really_down(),
                 Action::Up => self.up(),
+                Action::ReallyUp => self.really_up(),
                 Action::Refresh => self.refresh(),
                 Action::Edit => self.edit(),
                 Action::Goto => self.goto(),
@@ -421,7 +454,9 @@ mod action {
         Find { phrase: String },
         Resize { size: Size },
         Down,
+        ReallyDown,
         Up,
+        ReallyUp,
         Refresh,
         Edit,
         Goto,
