@@ -5,7 +5,7 @@ use std::cmp::Ordering;
 use crossterm::style::Color;
 use itertools::izip;
 
-#[derive(PartialEq, Debug, Clone)]
+#[derive(PartialEq, Eq, Debug, Clone)]
 pub struct Fabric {
     size: Size,
     characters: Vec<Vec<char>>,

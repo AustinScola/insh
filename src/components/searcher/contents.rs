@@ -234,7 +234,7 @@ mod state {
     use std::cmp::Ordering;
     use std::path::{Path, PathBuf, MAIN_SEPARATOR as PATH_SEPARATOR};
 
-    #[derive(Debug, PartialEq, Default)]
+    #[derive(Debug, PartialEq, Eq, Default)]
     pub struct State {
         size: Size,
         directory: PathBuf,
