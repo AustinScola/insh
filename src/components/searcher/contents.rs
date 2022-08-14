@@ -49,13 +49,27 @@ mod contents {
                     CrosstermEvent::Key(KeyEvent {
                         code: KeyCode::Char('j'),
                         modifiers: KeyModifiers::NONE,
-                        ..
                     }) => Some(Action::Down),
+                    CrosstermEvent::Key(KeyEvent {
+                        code: KeyCode::Char('J'),
+                        modifiers: KeyModifiers::SHIFT,
+                    }) => Some(Action::ReallyDown),
+                    CrosstermEvent::Key(KeyEvent {
+                        code: KeyCode::Char('j'),
+                        modifiers: KeyModifiers::CONTROL,
+                    }) => Some(Action::ScrollDown),
                     CrosstermEvent::Key(KeyEvent {
                         code: KeyCode::Char('k'),
                         modifiers: KeyModifiers::NONE,
-                        ..
                     }) => Some(Action::Up),
+                    CrosstermEvent::Key(KeyEvent {
+                        code: KeyCode::Char('K'),
+                        modifiers: KeyModifiers::SHIFT,
+                    }) => Some(Action::ReallyUp),
+                    CrosstermEvent::Key(KeyEvent {
+                        code: KeyCode::Char('k'),
+                        modifiers: KeyModifiers::CONTROL,
+                    }) => Some(Action::ScrollUp),
                     CrosstermEvent::Key(KeyEvent {
                         code: KeyCode::Char('r'),
                         modifiers: KeyModifiers::NONE,
@@ -220,6 +234,7 @@ mod state {
     use std::cmp::Ordering;
     use std::path::{Path, PathBuf, MAIN_SEPARATOR as PATH_SEPARATOR};
 
+    #[derive(Debug, PartialEq, Default)]
     pub struct State {
         size: Size,
         directory: PathBuf,
@@ -421,7 +436,33 @@ mod state {
             None
         }
 
-        fn scroll_down(&mut self, rows: usize) {
+        /// Select the last file hit and adjust the scroll if necessary.
+        fn really_down(&mut self) -> Option<Effect> {
+            if self.hits.is_empty() {
+                return None;
+            }
+
+            self.file_offset = self.hits.len() - 1;
+            self.line_offset = None;
+            self.file_selected = 0;
+            self.line_selected = None;
+
+            let up_adjustment: usize;
+            {
+                let last_file_hit: &FileHit = self.hits.last().unwrap();
+                let number_of_line_hits: usize = last_file_hit.line_hits().len();
+                up_adjustment = self.size.rows - (number_of_line_hits + 1);
+            }
+            // For now, scroll up one line at a time b/c there seems to be a bug w/ scrolling too
+            // many lines at a time
+            for _ in 0..up_adjustment {
+                self.scroll_up(1);
+            }
+
+            None
+        }
+
+        fn scroll_down(&mut self, rows: usize) -> Option<Effect> {
             for _ in 0..rows {
                 match self.line_offset {
                     None => {
@@ -444,6 +485,7 @@ mod state {
                     }
                 }
             }
+            None
         }
 
         fn up(&mut self) -> Option<Effect> {
@@ -509,7 +551,21 @@ mod state {
             None
         }
 
-        fn scroll_up(&mut self, mut rows: usize) {
+        /// Select the first file hit and adjust the scroll position if necessary.
+        fn really_up(&mut self) -> Option<Effect> {
+            if self.hits.is_empty() {
+                return None;
+            }
+
+            self.file_offset = 0;
+            self.line_offset = None;
+            self.file_selected = 0;
+            self.line_selected = None;
+
+            None
+        }
+
+        fn scroll_up(&mut self, mut rows: usize) -> Option<Effect> {
             while rows > 0 {
                 match self.line_offset {
                     Some(line_offset) => {
@@ -525,6 +581,11 @@ mod state {
 
                         if rows == line_offset + 1 {
                             self.line_offset = None;
+                            if self.file_selected == 0 {
+                                if let Some(line_selected) = self.line_selected {
+                                    self.line_selected = Some(line_selected + rows + 1);
+                                }
+                            }
                             break;
                         }
 
@@ -539,7 +600,7 @@ mod state {
                         }
                         rows -= line_offset + 1;
                         self.file_offset -= 1;
-                        self.line_offset = Some(self.hit().unwrap().line_hits().len());
+                        self.line_offset = Some(self.hits[self.file_offset].line_hits().len());
                     }
                     None => {
                         if self.file_offset == 0 {
@@ -548,10 +609,12 @@ mod state {
 
                         rows -= 1;
                         self.file_offset -= 1;
-                        self.line_offset = Some(self.hit().unwrap().line_hits().len());
+                        self.file_selected += 1;
+                        self.line_offset = Some(self.hits[self.file_offset].line_hits().len());
                     }
                 }
             }
+            None
         }
 
         /// Refresh the hits by searching for the phrase again.
@@ -644,7 +707,11 @@ mod state {
                 Action::Unfocus => self.unfocus(),
                 Action::Search { phrase } => self.search(&phrase),
                 Action::Down => self.down(),
+                Action::ReallyDown => self.really_down(),
+                Action::ScrollDown => self.scroll_down(1),
                 Action::Up => self.up(),
+                Action::ReallyUp => self.really_up(),
+                Action::ScrollUp => self.scroll_up(1),
                 Action::Refresh => self.refresh(),
                 Action::Edit => self.edit(),
                 Action::Goto => self.goto(),
@@ -652,6 +719,60 @@ mod state {
                 Action::Yank => self.yank(),
                 Action::ReallyYank => self.really_yank(),
             }
+        }
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use super::*;
+
+        use test_case::test_case;
+
+        #[test_case(&mut State::default(), 0, State::default();)]
+        #[test_case(
+            &mut State{
+                size: Size{rows: 1, columns: 2},
+                hits: vec![FileHit::new(Path::new(""), vec![LineHit::new(0, "")])],
+                ..Default::default()
+            },
+            1,
+            State{
+                size: Size{rows: 1, columns: 2},
+                hits: vec![FileHit::new(Path::new(""), vec![LineHit::new(0, "")])],
+                ..Default::default()
+            };
+        )]
+        #[test_case(
+            &mut State{
+                size: Size{rows: 2, columns: 5},
+                hits: vec![
+                    FileHit::new(Path::new(""), vec![LineHit::new(0, ""), LineHit::new(1, "")]),
+                    FileHit::new(Path::new(""), vec![LineHit::new(0, "")]),
+                ],
+                file_offset: 1,
+                line_offset: None,
+                file_selected: 0,
+                line_selected: None,
+                ..Default::default()
+            },
+            1,
+            State{
+                size: Size{rows: 2, columns: 5},
+                hits: vec![
+                    FileHit::new(Path::new(""), vec![LineHit::new(0, ""), LineHit::new(1, "")]),
+                    FileHit::new(Path::new(""), vec![LineHit::new(0, "")]),
+                ],
+                file_offset: 0,
+                line_offset: Some(2),
+                file_selected: 1,
+                line_selected: None,
+                ..Default::default()
+            };
+        )]
+        fn test_scroll_up(state: &mut State, rows: usize, expected_state: State) {
+            state.scroll_up(rows);
+
+            assert_eq!(*state, expected_state);
         }
     }
 }
@@ -665,7 +786,11 @@ mod action {
         Unfocus,
         Search { phrase: String },
         Down,
+        ReallyDown,
+        ScrollDown,
         Up,
+        ReallyUp,
+        ScrollUp,
         Refresh,
         Edit,
         Goto,

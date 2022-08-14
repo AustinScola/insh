@@ -43,3 +43,4 @@ means that symbolic links are no longer resolved.
 - Add the yank and really yank (`y` and `Y`) commands to the finder.
 - Add refresh (`r`) command to the searcher and finder.
 - Add scroll to bottom (`J`) and scroll to top (`K`) commands to the browser, finder, and searcher.
+- Add scroll view down (`<Ctrl>-j`) and scroll view up (`<Ctrl>-k`) to searcher.
