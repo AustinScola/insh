@@ -8,7 +8,7 @@ use std::cmp::{self, Ordering};
 use std::fs::{self, DirEntry};
 use std::path::{Path, PathBuf};
 
-use crossterm::event::{Event as CrosstermEvent, KeyCode, KeyEvent};
+use crossterm::event::{Event as CrosstermEvent, KeyCode, KeyEvent, KeyModifiers};
 
 pub struct Props {
     directory: PathBuf,
@@ -91,12 +91,20 @@ impl Contents {
                     match key_event {
                         KeyEvent {
                             code: KeyCode::Char('j'),
-                            ..
+                            modifiers: KeyModifiers::NONE,
                         } => Some(Action::Down),
                         KeyEvent {
+                            code: KeyCode::Char('J'),
+                            modifiers: KeyModifiers::SHIFT,
+                        } => Some(Action::ReallyDown),
+                        KeyEvent {
                             code: KeyCode::Char('k'),
-                            ..
+                            modifiers: KeyModifiers::NONE,
                         } => Some(Action::Up),
+                        KeyEvent {
+                            code: KeyCode::Char('K'),
+                            modifiers: KeyModifiers::SHIFT,
+                        } => Some(Action::ReallyUp),
                         KeyEvent {
                             code: KeyCode::Char('r'),
                             ..
@@ -288,6 +296,20 @@ impl State {
         }
     }
 
+    /// Select the last entry and adjust the scroll position if necessary.
+    fn really_down(&mut self) {
+        if self.entries.is_empty() {
+            return;
+        }
+
+        if self.entries.len() > self.size.rows {
+            self.offset = self.entries.len() - self.size.rows;
+            self.selected = Some(self.size.rows - 1);
+        } else {
+            self.selected = Some(self.entries.len() - 1);
+        }
+    }
+
     fn up(&mut self) {
         if let Some(selected) = self.selected {
             if selected > 0 {
@@ -296,6 +318,12 @@ impl State {
                 self.offset = self.offset.saturating_sub(1);
             }
         }
+    }
+
+    /// Select the first entry and adjust the scroll position if necessary.
+    fn really_up(&mut self) {
+        self.offset = 0;
+        self.selected = Some(0);
     }
 
     /// Refresh the contents of the browser to reflect the current state of the file system.
@@ -359,8 +387,14 @@ impl Stateful<Action, Effect> for State {
             Action::Down => {
                 self.down();
             }
+            Action::ReallyDown => {
+                self.really_down();
+            }
             Action::Up => {
                 self.up();
+            }
+            Action::ReallyUp => {
+                self.really_up();
             }
             Action::Refresh => {
                 self.refresh();
@@ -388,7 +422,9 @@ impl Stateful<Action, Effect> for State {
 enum Action {
     Resize { size: Size },
     Down,
+    ReallyDown,
     Up,
+    ReallyUp,
     Refresh,
     Push,
     Pop,

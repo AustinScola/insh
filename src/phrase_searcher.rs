@@ -73,6 +73,7 @@ impl Iterator for PhraseSearcher {
     }
 }
 
+#[derive(Debug, PartialEq, Eq)]
 pub struct FileHit {
     path: PathBuf,
     line_hits: Vec<LineHit>,
@@ -93,6 +94,7 @@ impl FileHit {
     }
 }
 
+#[derive(Debug, PartialEq, Eq)]
 pub struct LineHit {
     line_number: usize,
     line: String,

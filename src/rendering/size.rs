@@ -1,4 +1,4 @@
-#[derive(PartialEq, Debug, Clone, Copy)]
+#[derive(PartialEq, Eq, Debug, Clone, Copy, Default)]
 pub struct Size {
     pub rows: usize,
     pub columns: usize,

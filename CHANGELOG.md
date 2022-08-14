@@ -37,3 +37,10 @@ means that symbolic links are no longer resolved.
 
 # 0.3.6
 - Add going to files in the browser and selecting them from the finder with `G`.
+
+# 0.3.7
+- Add the goto and really goto (`g` and `G`) commands to the searcher.
+- Add the yank and really yank (`y` and `Y`) commands to the finder.
+- Add refresh (`r`) command to the searcher and finder.
+- Add scroll to bottom (`J`) and scroll to top (`K`) commands to the browser, finder, and searcher.
+- Add scroll view down (`<Ctrl>-j`) and scroll view up (`<Ctrl>-k`) to searcher.

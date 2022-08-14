@@ -48,12 +48,24 @@ mod contents {
                     }) => Some(Action::Unfocus),
                     CrosstermEvent::Key(KeyEvent {
                         code: KeyCode::Char('j'),
-                        ..
+                        modifiers: KeyModifiers::NONE,
                     }) => Some(Action::Down),
                     CrosstermEvent::Key(KeyEvent {
+                        code: KeyCode::Char('J'),
+                        modifiers: KeyModifiers::SHIFT,
+                    }) => Some(Action::ReallyDown),
+                    CrosstermEvent::Key(KeyEvent {
                         code: KeyCode::Char('k'),
-                        ..
+                        modifiers: KeyModifiers::NONE,
                     }) => Some(Action::Up),
+                    CrosstermEvent::Key(KeyEvent {
+                        code: KeyCode::Char('K'),
+                        modifiers: KeyModifiers::SHIFT,
+                    }) => Some(Action::ReallyUp),
+                    CrosstermEvent::Key(KeyEvent {
+                        code: KeyCode::Char('r'),
+                        modifiers: KeyModifiers::NONE,
+                    }) => Some(Action::Refresh),
                     CrosstermEvent::Key(KeyEvent {
                         code: KeyCode::Char('l'),
                         ..
@@ -70,6 +82,16 @@ mod contents {
                         code: KeyCode::Char('G'),
                         modifiers: KeyModifiers::SHIFT,
                     }) => Some(Action::ReallyGoto),
+                    CrosstermEvent::Key(KeyEvent {
+                        code: KeyCode::Char('y'),
+                        modifiers: KeyModifiers::NONE,
+                        ..
+                    }) => Some(Action::Yank),
+                    CrosstermEvent::Key(KeyEvent {
+                        code: KeyCode::Char('Y'),
+                        modifiers: KeyModifiers::SHIFT,
+                        ..
+                    }) => Some(Action::ReallyYank),
                     _ => None,
                 },
             };
@@ -145,19 +167,21 @@ pub use event::Event;
 
 mod state {
     use super::{Action, Effect, Props};
+    use crate::clipboard::Clipboard;
     use crate::path_finder::PathFinder;
     use crate::programs::{VimArgs, VimArgsBuilder};
     use crate::rendering::Size;
     use crate::stateful::Stateful;
 
     use std::cmp::{self, Ordering};
-    use std::path::{Path, PathBuf};
+    use std::path::{Path, PathBuf, MAIN_SEPARATOR as PATH_SEPARATOR};
 
     use walkdir::DirEntry as Entry;
 
     pub struct State {
         size: Size,
         directory: PathBuf,
+        phrase: Option<String>,
         focussed: bool,
         hits: Option<bool>,
         entries: Vec<Entry>,
@@ -170,6 +194,7 @@ mod state {
             Self {
                 size: props.size,
                 directory: props.directory,
+                phrase: None,
                 focussed: false,
                 hits: None,
                 entries: Vec::new(),
@@ -260,11 +285,12 @@ mod state {
             Some(Effect::Unfocus)
         }
 
-        fn find(&mut self, phrase: String) -> Option<Effect> {
+        fn find(&mut self, phrase: &str) -> Option<Effect> {
             self.focus();
+            self.phrase = Some(phrase.to_string());
 
             // TODO: handle regex errors!
-            let path_finder = PathFinder::new(&self.directory, &phrase).unwrap();
+            let path_finder = PathFinder::new(&self.directory, phrase).unwrap();
             self.entries = path_finder.collect();
             self.offset = 0;
 
@@ -297,6 +323,22 @@ mod state {
             None
         }
 
+        /// Select the last hit and adjust the scroll position if necessary.
+        fn really_down(&mut self) -> Option<Effect> {
+            if self.entries.is_empty() {
+                return None;
+            }
+
+            if self.entries.len() > self.size.rows {
+                self.offset = self.entries.len() - self.size.rows;
+                self.selected = Some(self.size.rows - 1);
+            } else {
+                self.selected = Some(self.entries.len() - 1);
+            }
+
+            None
+        }
+
         fn up(&mut self) -> Option<Effect> {
             if let Some(selected) = self.selected {
                 if selected > 0 {
@@ -304,6 +346,21 @@ mod state {
                 } else {
                     self.offset = self.offset.saturating_sub(1);
                 }
+            }
+            None
+        }
+
+        /// Select the first hit and adjust the scroll position if necessary.
+        fn really_up(&mut self) -> Option<Effect> {
+            self.offset = 0;
+            self.selected = Some(0);
+            None
+        }
+
+        /// Refresh the hits by finding the phrase again.
+        fn refresh(&mut self) -> Option<Effect> {
+            if let Some(phrase) = self.phrase.clone() {
+                return self.find(&phrase);
             }
             None
         }
@@ -341,19 +398,48 @@ mod state {
                 None => None,
             }
         }
+
+        /// Copy the file path to the system clipboard.
+        fn yank(&mut self) -> Option<Effect> {
+            self._yank(false)
+        }
+
+        /// Copy the absolute file path to the system clipboard.
+        fn really_yank(&mut self) -> Option<Effect> {
+            self._yank(true)
+        }
+
+        fn _yank(&mut self, really: bool) -> Option<Effect> {
+            if let Some(entry) = self.entry_path() {
+                let mut path: String = entry.to_path_buf().to_string_lossy().to_string();
+                if !really {
+                    let directory_string: String = self.directory().to_string_lossy().to_string();
+                    path = path.strip_prefix(&directory_string).unwrap().to_string();
+                    path = path.strip_prefix(PATH_SEPARATOR).unwrap().to_string();
+                }
+                let mut clipboard = Clipboard::new();
+                clipboard.copy(path);
+            }
+            None
+        }
     }
 
     impl Stateful<Action, Effect> for State {
         fn perform(&mut self, action: Action) -> Option<Effect> {
             match action {
                 Action::Unfocus => self.unfocus(),
-                Action::Find { phrase } => self.find(phrase),
+                Action::Find { phrase } => self.find(&phrase),
                 Action::Resize { size } => self.resize(size),
                 Action::Down => self.down(),
+                Action::ReallyDown => self.really_down(),
                 Action::Up => self.up(),
+                Action::ReallyUp => self.really_up(),
+                Action::Refresh => self.refresh(),
                 Action::Edit => self.edit(),
                 Action::Goto => self.goto(),
                 Action::ReallyGoto => self.really_goto(),
+                Action::Yank => self.yank(),
+                Action::ReallyYank => self.really_yank(),
             }
         }
     }
@@ -368,10 +454,15 @@ mod action {
         Find { phrase: String },
         Resize { size: Size },
         Down,
+        ReallyDown,
         Up,
+        ReallyUp,
+        Refresh,
         Edit,
         Goto,
         ReallyGoto,
+        Yank,
+        ReallyYank,
     }
 }
 use action::Action;

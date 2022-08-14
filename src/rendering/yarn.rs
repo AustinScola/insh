@@ -1,7 +1,7 @@
 use crossterm::style::Color as CrosstermColor;
 use std::cmp::Ordering;
 
-#[derive(Default, Debug, PartialEq)]
+#[derive(Default, Debug, PartialEq, Eq)]
 pub struct Yarn {
     // MAYBE TODO: Store the length seperatley so we can represent blank yarn without vec manip?
     characters: Vec<char>,
