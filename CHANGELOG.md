@@ -44,3 +44,6 @@ means that symbolic links are no longer resolved.
 - Add refresh (`r`) command to the searcher and finder.
 - Add scroll to bottom (`J`) and scroll to top (`K`) commands to the browser, finder, and searcher.
 - Add scroll view down (`<Ctrl>-j`) and scroll view up (`<Ctrl>-k`) to searcher.
+
+# 0.3.8
+- Fix bugs related to running with `-d` and a trailing slash in the directory argument.

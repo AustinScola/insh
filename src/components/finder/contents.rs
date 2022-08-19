@@ -113,7 +113,9 @@ mod contents {
                         let path: &Path = entry.path();
                         let mut string: &str = &path.to_string_lossy();
                         string = string.strip_prefix(&directory).unwrap();
-                        string = string.strip_prefix(PATH_SEPARATOR).unwrap();
+                        if string.starts_with(PATH_SEPARATOR) {
+                            string = string.strip_prefix(PATH_SEPARATOR).unwrap();
+                        }
                         let mut yarn: Yarn = Yarn::from(string);
 
                         let file_name_start: usize = yarn.len() - entry.file_name().len();
@@ -415,7 +417,9 @@ mod state {
                 if !really {
                     let directory_string: String = self.directory().to_string_lossy().to_string();
                     path = path.strip_prefix(&directory_string).unwrap().to_string();
-                    path = path.strip_prefix(PATH_SEPARATOR).unwrap().to_string();
+                    if path.starts_with(PATH_SEPARATOR) {
+                        path = path.strip_prefix(PATH_SEPARATOR).unwrap().to_string();
+                    }
                 }
                 let mut clipboard = Clipboard::new();
                 clipboard.copy(path);
