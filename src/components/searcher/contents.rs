@@ -144,7 +144,9 @@ mod contents {
                                 let directory_string: String =
                                     self.state.directory().to_string_lossy().to_string();
                                 path = path.strip_prefix(&directory_string).unwrap().to_string();
-                                path = path.strip_prefix(PATH_SEPARATOR).unwrap().to_string();
+                                if path.starts_with(PATH_SEPARATOR) {
+                                    path = path.strip_prefix(PATH_SEPARATOR).unwrap().to_string();
+                                }
 
                                 let mut yarn = Yarn::from(path);
                                 yarn.resize(columns);
@@ -688,7 +690,9 @@ mod state {
                             let directory_string: String =
                                 self.directory().to_string_lossy().to_string();
                             path = path.strip_prefix(&directory_string).unwrap().to_string();
-                            path = path.strip_prefix(PATH_SEPARATOR).unwrap().to_string();
+                            if path.starts_with(PATH_SEPARATOR) {
+                                path = path.strip_prefix(PATH_SEPARATOR).unwrap().to_string();
+                            }
                         }
                         path
                     }
