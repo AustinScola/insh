@@ -26,8 +26,26 @@ impl App {
         App { stdout, renderer }
     }
 
-    pub fn run<Props>(&mut self, root: &mut impl Component<Props, CrosstermEvent, SystemEffect>) {
+    pub fn run<Props>(
+        &mut self,
+        root: &mut impl Component<Props, CrosstermEvent, SystemEffect>,
+        starting_effects: Option<Vec<SystemEffect>>,
+    ) {
         self.set_up();
+
+        if let Some(effects) = starting_effects {
+            for effect in effects {
+                match effect {
+                    SystemEffect::Exit => {
+                        self.teardown();
+                        return;
+                    }
+                    SystemEffect::RunProgram { program } => {
+                        self.run_program(program);
+                    }
+                }
+            }
+        }
 
         loop {
             let size: Size = Size::from(terminal::size().unwrap());

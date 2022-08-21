@@ -1,3 +1,7 @@
+# 0.3.9
+- Bump the `clap` dependency from version `3.1.14` to version `3.2.17`.
+- Add an `edit` subcommand.
+
 # 0.3.8
 - Fix bugs related to running with `-d` and a trailing slash in the directory argument.
 
