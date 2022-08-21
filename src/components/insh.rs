@@ -27,18 +27,39 @@ mod props {
 
     impl From<Args> for Props {
         fn from(args: Args) -> Self {
-            let directory: Option<PathBuf> = match args.directory() {
-                Some(path) => {
-                    if path.is_relative() {
-                        let mut new_path = current_dir::current_dir();
-                        new_path.push(path);
-                        Some(new_path)
-                    } else {
-                        Some(path.to_path_buf())
+            let mut directory: Option<PathBuf> =
+                args.directory().as_ref().map(|path| path.to_path_buf());
+
+            // If the directory was not passed as an argument, and we are editing a file and then
+            // browsing, then the directory should be the directory of the file (if a file was
+            // passed).
+            if directory.is_none() {
+                if let Some(Command::Edit {
+                    browse,
+                    file_line_column,
+                }) = args.command()
+                {
+                    if *browse {
+                        if let Some(file_line_column) = file_line_column {
+                            if let Some(file) = file_line_column.file() {
+                                directory = match file.parent() {
+                                    Some(parent) => Some(parent.to_path_buf()),
+                                    None => Some(PathBuf::from("/")),
+                                }
+                            }
+                        }
                     }
                 }
-                None => None,
-            };
+            }
+
+            // If the directory is relative, make it absolute.
+            if let Some(directory_) = &directory {
+                if directory_.is_relative() {
+                    let mut absolute_directory = current_dir::current_dir();
+                    absolute_directory.push(directory_);
+                    directory = Some(absolute_directory);
+                }
+            }
 
             Self {
                 directory,
@@ -61,6 +82,7 @@ mod props {
         Browser,
         Finder { phrase: Option<String> },
         Searcher { phrase: Option<String> },
+        Nothing,
     }
 
     impl From<Option<Command>> for Start {
@@ -69,6 +91,10 @@ mod props {
                 Some(Command::Browse) | None => Start::Browser,
                 Some(Command::Search { phrase }) => Start::Searcher { phrase },
                 Some(Command::Find { phrase }) => Start::Finder { phrase },
+                Some(Command::Edit { browse, .. }) => match browse {
+                    true => Start::Browser,
+                    false => Start::Nothing,
+                },
             }
         }
     }
@@ -153,6 +179,9 @@ impl Component<Props, Event, SystemEffect> for Insh {
                     None => {}
                 }
             }
+            Mode::Nothing => {
+                return Some(SystemEffect::Exit);
+            }
         }
 
         if let Some(action) = action {
@@ -168,6 +197,7 @@ impl Component<Props, Event, SystemEffect> for Insh {
             Mode::Browse => self.state.browser.as_ref().unwrap().render(size),
             Mode::Finder => self.state.finder.as_ref().unwrap().render(size),
             Mode::Searcher => self.state.searcher.as_ref().unwrap().render(size),
+            Mode::Nothing => Fabric::new(size),
         }
     }
 }
@@ -215,6 +245,10 @@ impl From<Props> for State {
                     ..Default::default()
                 }
             }
+            Start::Nothing => Self {
+                mode: Mode::Nothing,
+                ..Default::default()
+            },
         }
     }
 }
@@ -293,6 +327,7 @@ enum Mode {
     Browse,
     Finder,
     Searcher,
+    Nothing,
 }
 
 impl Default for Mode {

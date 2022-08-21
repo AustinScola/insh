@@ -636,7 +636,7 @@ mod state {
             if let Some(line_hit_number) = self.line_hit_number() {
                 let line_hit: &LineHit = &file_hit.line_hits()[line_hit_number];
                 let line_number = line_hit.line_number();
-                vim_args_builder = vim_args_builder.line_number(line_number);
+                vim_args_builder = vim_args_builder.line(line_number);
             }
             let vim_args: VimArgs = vim_args_builder.build();
 

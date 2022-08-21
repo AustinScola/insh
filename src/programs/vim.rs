@@ -28,8 +28,15 @@ impl Program for Vim {
             command.arg(path.clone());
         }
 
-        if let Some(line_number) = self.args.line_number() {
-            command.arg(format!("+{}", line_number));
+        if let Some(line) = self.args.line() {
+            command.arg(format!("+{}", line));
+        }
+
+        if let Some(column) = self.args.column() {
+            if column > 1 {
+                command.arg("-c");
+                command.arg(format!("norm {}l", column - 1));
+            }
         }
 
         command.stdin(Stdio::inherit()).stdout(Stdio::inherit());
@@ -40,7 +47,8 @@ impl Program for Vim {
 
 pub struct Args {
     path: Option<PathBuf>,
-    line_number: Option<usize>,
+    line: Option<usize>,
+    column: Option<usize>,
 }
 
 impl Args {
@@ -48,15 +56,20 @@ impl Args {
         &self.path
     }
 
-    pub fn line_number(&self) -> Option<usize> {
-        self.line_number
+    pub fn line(&self) -> Option<usize> {
+        self.line
+    }
+
+    pub fn column(&self) -> Option<usize> {
+        self.column
     }
 }
 
 #[derive(Default)]
 pub struct ArgsBuilder {
     path: Option<PathBuf>,
-    line_number: Option<usize>,
+    line: Option<usize>,
+    column: Option<usize>,
 }
 
 impl ArgsBuilder {
@@ -71,15 +84,21 @@ impl ArgsBuilder {
         self
     }
 
-    pub fn line_number(mut self, line_number: usize) -> Self {
-        self.line_number = Some(line_number);
+    pub fn line(mut self, line: usize) -> Self {
+        self.line = Some(line);
+        self
+    }
+
+    pub fn column(mut self, column: usize) -> Self {
+        self.column = Some(column);
         self
     }
 
     pub fn build(&self) -> Args {
         Args {
             path: self.path.clone(),
-            line_number: self.line_number,
+            line: self.line,
+            column: self.column,
         }
     }
 }
