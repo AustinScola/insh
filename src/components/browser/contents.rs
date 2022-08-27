@@ -44,13 +44,12 @@ impl Component<Props, Event, Effect> for Contents {
     }
 
     fn render(&self, size: Size) -> Fabric {
-        let mut yarns: Vec<Yarn> = Vec::new();
-
         let visible_entries = self.state.visible_entries();
         if visible_entries.is_empty() {
-            return Fabric::new(size);
+            return Fabric::center("The directory is empty.", size);
         }
 
+        let mut yarns: Vec<Yarn> = Vec::new();
         for (entry, row) in visible_entries.iter().zip(0..size.rows) {
             let mut string: String;
             {

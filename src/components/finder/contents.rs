@@ -141,13 +141,7 @@ mod contents {
 
                     fabric
                 }
-                Some(false) => {
-                    let mut yarn = Yarn::from("No matching files.");
-                    yarn.pad(size.columns);
-                    let mut fabric = Fabric::from(vec![yarn]);
-                    fabric.pad(size.rows);
-                    fabric
-                }
+                Some(false) => Fabric::center("No matching files.", size),
                 None => Fabric::new(size),
             }
         }

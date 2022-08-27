@@ -1,7 +1,7 @@
 use crossterm::style::Color as CrosstermColor;
 use std::cmp::Ordering;
 
-#[derive(Default, Debug, PartialEq, Eq)]
+#[derive(Default, Debug, PartialEq, Eq, Clone)]
 pub struct Yarn {
     // MAYBE TODO: Store the length seperatley so we can represent blank yarn without vec manip?
     characters: Vec<char>,
@@ -27,6 +27,42 @@ impl Yarn {
             characters,
             ..Default::default()
         }
+    }
+
+    /// Return a yarn with string centered and truncated with dots if the string is longer than the
+    /// the length.
+    pub fn center(string: &str, len: usize) -> Self {
+        if len == 0 {
+            return Yarn::default();
+        }
+
+        match string.len().cmp(&len) {
+            Ordering::Greater => {
+                if len <= 3 {
+                    return Yarn::from(vec!['.'; len]);
+                }
+                let mut characters: Vec<char> = Vec::with_capacity(len);
+                characters.extend(string.chars().take(len - 3));
+                characters.append(&mut vec!['.'; 3]);
+                return Yarn::from(characters);
+            }
+            Ordering::Less => {
+                let mut characters: Vec<char> = Vec::with_capacity(len);
+
+                let before_len: usize = (len - string.len()) / 2;
+                characters.append(&mut vec![' '; before_len]);
+
+                characters.extend(string.chars());
+
+                let after_len: usize = len - string.len() - before_len;
+                characters.append(&mut vec![' '; after_len]);
+
+                return Yarn::from(characters);
+            }
+            Ordering::Equal => {
+                return Yarn::from(string);
+            }
+        };
     }
 
     pub fn len(&self) -> usize {
@@ -85,6 +121,7 @@ impl Yarn {
     /// Pad on both sides so that the contents are centered and the length is equal `new_len`.
     ///
     /// If the `new_len` is less than the current length, then panic (for now).
+    #[allow(dead_code)]
     pub fn pad(&mut self, new_len: usize) {
         let len = self.len();
         match new_len.cmp(&len) {
@@ -176,11 +213,33 @@ impl From<&str> for Yarn {
     }
 }
 
+impl From<Vec<char>> for Yarn {
+    fn from(characters: Vec<char>) -> Self {
+        Yarn {
+            characters,
+            ..Default::default()
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
     use test_case::test_case;
+
+    #[test_case("", 0, Yarn::new(); "an empty string and no length")]
+    #[test_case("", 3, Yarn::from("   "); "an empty string and some length")]
+    #[test_case("foo", 3, Yarn::from("foo"); "a string that just fits")]
+    #[test_case("foo", 5, Yarn::from(" foo "); "a string is centered")]
+    #[test_case("foo", 6, Yarn::from(" foo  "); "a string is centered and breaks ties leftwards")]
+    #[test_case("foobar", 5, Yarn::from("fo..."); "a string is truncated with dots")]
+    #[test_case("foobar", 2, Yarn::from(".."); "dot truncation can handle lengths less than 3")]
+    fn test_center(string: &str, len: usize, expected_result: Yarn) {
+        let result: Yarn = Yarn::center(string, len);
+
+        assert_eq!(result, expected_result);
+    }
 
     #[test_case(Yarn::new(), Yarn::new(), Yarn::new(); "an empty yarn with an empty yarn is an empty yarn")]
     #[test_case(Yarn::new(), Yarn {characters: vec![' '; 1], ..Default::default()}, Yarn {characters: vec![' '; 1], ..Default::default()}; )]
