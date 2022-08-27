@@ -5,7 +5,7 @@ use std::cmp::Ordering;
 use crossterm::style::Color;
 use itertools::izip;
 
-#[derive(PartialEq, Eq, Debug, Clone)]
+#[derive(PartialEq, Eq, Debug, Clone, Default)]
 pub struct Fabric {
     size: Size,
     characters: Vec<Vec<char>>,
@@ -26,6 +26,27 @@ impl Fabric {
             colors,
             backgrounds,
         }
+    }
+
+    /// Return a fabric with the string centered both vertically and horizontally.
+    ///
+    /// If the string is wider than the size, then it is truncated and dots are added.
+    pub fn center(string: &str, size: Size) -> Self {
+        if size.rows == 0 || size.columns == 0 {
+            return Fabric::new(size);
+        }
+        let mut yarns: Vec<Yarn> = Vec::with_capacity(size.rows);
+
+        let rows_before: usize = (size.rows - 1) / 2;
+        yarns.append(&mut vec![Yarn::blank(size.columns); rows_before]);
+
+        let center_row: Yarn = Yarn::center(string, size.columns);
+        yarns.push(center_row);
+
+        let rows_after: usize = size.rows - 1 - rows_before;
+        yarns.append(&mut vec![Yarn::blank(size.columns); rows_after]);
+
+        Fabric::from(yarns)
     }
 
     /// Return the size of the fabric.
@@ -59,6 +80,7 @@ impl Fabric {
     /// Vertically pad the fabric to `new_rows` by adding rows above and below.
     ///
     /// If the new number of rows is less than the current rows, then panic (for now).
+    #[allow(dead_code)]
     pub fn pad(&mut self, new_rows: usize) {
         match new_rows.cmp(&self.size.rows) {
             Ordering::Greater => {
@@ -129,6 +151,13 @@ impl Fabric {
     }
 }
 
+impl From<Vec<&str>> for Fabric {
+    fn from(strings: Vec<&str>) -> Self {
+        let yarns: Vec<Yarn> = strings.into_iter().map(Yarn::from).collect();
+        Fabric::from(yarns)
+    }
+}
+
 impl From<Vec<Yarn>> for Fabric {
     fn from(rows: Vec<Yarn>) -> Self {
         let row_count: usize;
@@ -189,6 +218,19 @@ mod tests {
     use super::*;
 
     use test_case::test_case;
+
+    #[test_case("foo", Size::default(), Fabric::default(); "zero size")]
+    #[test_case("foo", Size::new(1, 3), Fabric::from(vec!["foo"]); "text just fits")]
+    #[test_case("foo", Size::new(3, 3), Fabric::from(vec!["   ", "foo", "   "]); "text is in the center vertically")]
+    #[test_case("foo", Size::new(4, 3), Fabric::from(vec!["   ", "foo", "   ", "   "]); "text is in the center vertically and breaks ties vertially upwards")]
+    #[test_case("foo", Size::new(1, 5), Fabric::from(vec![" foo "]); "text is in the centered horizontally")]
+    #[test_case("foo", Size::new(1, 6), Fabric::from(vec![" foo  "]); "text is in the centered horizontally and breaks ties leftwards")]
+    #[test_case("foobar", Size::new(1, 5), Fabric::from(vec!["fo..."]); "text that doesn't fit is truncated with dots")]
+    fn test_center(string: &str, size: Size, expected_result: Fabric) {
+        let result: Fabric = Fabric::center(string, size);
+
+        assert_eq!(result, expected_result);
+    }
 
     #[test_case(Fabric::new(Size::new(1, 1)), 2, Fabric::new(Size::new(2, 1)))]
     fn test_pad_bottom(mut fabric: Fabric, new_rows: usize, expected: Fabric) {

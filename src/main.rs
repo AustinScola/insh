@@ -1,5 +1,6 @@
 #![deny(warnings)]
 #![allow(clippy::module_inception)]
+#![allow(clippy::needless_return)]
 
 mod app;
 mod args;

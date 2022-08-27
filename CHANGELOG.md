@@ -1,3 +1,8 @@
+# 0.3.10
+- Add a message for an empty directory in the browser.
+- Fix crash when the width of the terminal is less than the length of the messages for no hits in the
+searcher and finder.
+
 # 0.3.9
 - Bump the `clap` dependency from version `3.1.14` to version `3.2.17`.
 - Add an `edit` subcommand.

@@ -117,11 +117,7 @@ mod contents {
                 true => {
                     let file_hits: &Vec<FileHit> = self.state.hits();
                     if self.state.hits().is_empty() {
-                        let mut yarn = Yarn::from("No matches.");
-                        yarn.pad(size.columns);
-                        let mut fabric = Fabric::from(vec![yarn]);
-                        fabric.pad(size.rows);
-                        fabric
+                        Fabric::center("No matches.", size)
                     } else {
                         let rows = size.rows;
                         let columns = size.columns;
