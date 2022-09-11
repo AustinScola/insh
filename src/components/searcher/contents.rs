@@ -1,15 +1,22 @@
 mod props {
+    use crate::config::Config;
     use crate::rendering::Size;
+
     use std::path::PathBuf;
 
     pub struct Props {
+        pub config: Config,
         pub directory: PathBuf,
         pub size: Size,
     }
 
     impl Props {
-        pub fn new(directory: PathBuf, size: Size) -> Self {
-            Self { directory, size }
+        pub fn new(config: Config, directory: PathBuf, size: Size) -> Self {
+            Self {
+                config,
+                directory,
+                size,
+            }
         }
     }
 }
@@ -224,6 +231,8 @@ pub use event::Event;
 mod state {
     use super::{Action, Effect, Props};
     use crate::clipboard::Clipboard;
+    use crate::config::Config;
+    use crate::data::Data;
     use crate::phrase_searcher::{FileHit, LineHit, PhraseSearcher};
     use crate::programs::{VimArgs, VimArgsBuilder};
     use crate::rendering::Size;
@@ -234,6 +243,7 @@ mod state {
 
     #[derive(Debug, PartialEq, Eq, Default)]
     pub struct State {
+        config: Config,
         size: Size,
         directory: PathBuf,
         phrase: Option<String>,
@@ -249,6 +259,7 @@ mod state {
     impl From<Props> for State {
         fn from(props: Props) -> Self {
             Self {
+                config: props.config,
                 size: props.size,
                 directory: props.directory,
                 phrase: None,
@@ -400,6 +411,8 @@ mod state {
             self.hits = phrase_searcher.collect();
             self.searched = true;
 
+            self.add_to_history(phrase);
+
             self.file_offset = 0;
             self.line_offset = None;
             self.file_selected = 0;
@@ -410,6 +423,14 @@ mod state {
             } else {
                 None
             }
+        }
+
+        fn add_to_history(&self, phrase: &str) {
+            let mut data: Data = Data::read();
+            let max_length: usize = self.config.searcher.history.length;
+            data.searcher.add_to_history(phrase, max_length);
+            data.write();
+            data.release();
         }
 
         fn down(&mut self) -> Option<Effect> {

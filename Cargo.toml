@@ -1,6 +1,6 @@
 [package]
 name = "insh"
-version = "0.3.10"
+version = "0.3.11"
 edition = "2021"
 
 [dependencies]
@@ -11,7 +11,19 @@ dirs = "4.0.0"
 unicode-segmentation = "1.9.0"
 itertools = "0.10.3"
 walkdir = "2.3.2"
-copypasta = "0.8.1"  # Used to manage the clipboard.
+
+# Used to manage the clipboard.
+copypasta = "0.8.1"
+
+# Used to control access to persistent data stored in the file system.
+fslock = "0.2.1"
+
+# Used for serialization and deserialization of data structures.
+serde = { version = "1.0.144", features = ["derive"] }
+serde_yaml = "0.9.10"
+
+# Used for declaring lazily evaluated static values.
+lazy_static = "1.4.0"
 
 [dev-dependencies]
 test-case = "2.0.0"

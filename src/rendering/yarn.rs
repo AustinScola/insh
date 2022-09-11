@@ -76,16 +76,14 @@ impl Yarn {
         let len_before: usize = self.len();
         self.characters.extend(other.characters);
 
-        if self.colors.len() < len_before {
-            if !other.colors.is_empty() {
-                self.colors.resize(len_before, None);
-                self.colors.extend(other.colors);
-            }
+        if !other.colors.is_empty() {
+            self.colors.resize(len_before, None);
+            self.colors.extend(other.colors);
+        }
 
-            if !other.backgrounds.is_empty() {
-                self.backgrounds.resize(len_before, None);
-                self.backgrounds.extend(other.backgrounds);
-            }
+        if !other.backgrounds.is_empty() {
+            self.backgrounds.resize(len_before, None);
+            self.backgrounds.extend(other.backgrounds);
         }
 
         self

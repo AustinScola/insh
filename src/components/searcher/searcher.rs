@@ -1,17 +1,20 @@
 mod props {
+    use crate::config::Config;
     use crate::rendering::Size;
 
     use std::path::PathBuf;
 
     pub struct Props {
+        pub config: Config,
         pub directory: PathBuf,
         pub size: Size,
         pub phrase: Option<String>,
     }
 
     impl Props {
-        pub fn new(directory: PathBuf, size: Size, phrase: Option<String>) -> Self {
+        pub fn new(config: Config, directory: PathBuf, size: Size, phrase: Option<String>) -> Self {
             Self {
+                config,
                 directory,
                 size,
                 phrase,
@@ -150,7 +153,9 @@ pub use effect::Effect;
 mod state {
     use super::super::{Contents, ContentsEffect, ContentsEvent, ContentsProps};
     use super::{Action, Effect, Props};
-    use crate::components::common::{Directory, DirectoryProps, Phrase, PhraseEvent};
+    use crate::auto_completer::AutoCompleter;
+    use crate::auto_completers::SearchCompleter;
+    use crate::components::common::{Directory, DirectoryProps, Phrase, PhraseEvent, PhraseProps};
     use crate::programs::VimArgs;
     use crate::rendering::Size;
     use crate::{Component, Stateful};
@@ -222,10 +227,13 @@ mod state {
             let directory_props = DirectoryProps::new(props.directory.clone());
             let directory = Directory::new(directory_props);
 
-            let phrase = Phrase::default();
+            let search_completer: Option<Box<dyn AutoCompleter<String, String>>> =
+                Some(Box::new(SearchCompleter::new()));
+            let phrase_props = PhraseProps::new(search_completer);
+            let phrase = Phrase::new(phrase_props);
 
             let contents_size = Size::new(props.size.rows.saturating_sub(2), props.size.columns);
-            let contents_props = ContentsProps::new(props.directory, contents_size);
+            let contents_props = ContentsProps::new(props.config, props.directory, contents_size);
             let contents = Contents::new(contents_props);
 
             let mut state = Self {

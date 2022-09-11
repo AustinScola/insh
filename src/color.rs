@@ -14,10 +14,11 @@ const LIGHT_GREY: CrosstermColor = CrosstermColor::Rgb {
 
 pub enum Color {
     Highlight,
-    GrayyedText,
-    LightGrayyedText,
+    GrayedText,
+    LightGrayedText,
     InvertedText,
-    InvertedGrayyedText,
+    InvertedGrayedText,
+    InvertedLightGrayedText,
     InvertedBackground,
     BadRegex,
     NotCompiledRegex,
@@ -27,10 +28,11 @@ impl From<Color> for CrosstermColor {
     fn from(color: Color) -> CrosstermColor {
         match color {
             Color::Highlight => CrosstermColor::Yellow,
-            Color::GrayyedText => DARK_GREY,
-            Color::LightGrayyedText => LIGHT_GREY,
+            Color::GrayedText => DARK_GREY,
+            Color::LightGrayedText => LIGHT_GREY,
             Color::InvertedText => CrosstermColor::Black,
-            Color::InvertedGrayyedText => LIGHT_GREY,
+            Color::InvertedGrayedText => LIGHT_GREY,
+            Color::InvertedLightGrayedText => DARK_GREY,
             Color::InvertedBackground => CrosstermColor::White,
             Color::BadRegex => CrosstermColor::Red,
             Color::NotCompiledRegex => DARK_GREY,

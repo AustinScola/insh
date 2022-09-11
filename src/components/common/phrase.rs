@@ -1,30 +1,40 @@
 mod props {
-    pub struct Props {}
+    use crate::auto_completer::AutoCompleter;
+
+    pub struct Props {
+        pub auto_completer: Option<Box<dyn AutoCompleter<String, String>>>,
+    }
+
+    impl Props {
+        pub fn new(auto_completer: Option<Box<dyn AutoCompleter<String, String>>>) -> Self {
+            Self { auto_completer }
+        }
+    }
 }
 pub use props::Props;
 
 mod phrase {
     use super::{Action, Effect, Event, Props, State};
+    use crate::auto_completer::AutoCompleter;
     use crate::color::Color;
     use crate::component::Component;
     use crate::rendering::{Fabric, Size, Yarn};
     use crate::stateful::Stateful;
+
     use crossterm::event::{Event as CrosstermEvent, KeyCode, KeyEvent, KeyModifiers};
 
+    #[derive(Default)]
     pub struct Phrase {
         state: State,
-    }
-
-    impl Default for Phrase {
-        fn default() -> Self {
-            let state = State::default();
-            Self { state }
-        }
+        auto_completer: Option<Box<dyn AutoCompleter<String, String>>>,
     }
 
     impl Component<Props, Event, Effect> for Phrase {
-        fn new(_props: Props) -> Self {
-            Phrase::default()
+        fn new(props: Props) -> Self {
+            Self {
+                auto_completer: props.auto_completer,
+                ..Default::default()
+            }
         }
 
         fn handle(&mut self, event: Event) -> Option<Effect> {
@@ -41,7 +51,13 @@ mod phrase {
                     CrosstermEvent::Key(KeyEvent {
                         code: KeyCode::Backspace,
                         ..
-                    }) => Some(Action::Pop),
+                    }) => Some(Action::Pop {
+                        auto_completer: &mut self.auto_completer,
+                    }),
+                    CrosstermEvent::Key(KeyEvent {
+                        code: KeyCode::Tab,
+                        modifiers: KeyModifiers::NONE,
+                    }) => Some(Action::Complete),
                     CrosstermEvent::Key(KeyEvent {
                         code: KeyCode::Enter,
                         ..
@@ -49,7 +65,10 @@ mod phrase {
                     CrosstermEvent::Key(KeyEvent {
                         code: KeyCode::Char(character),
                         ..
-                    }) => Some(Action::Push { character }),
+                    }) => Some(Action::Push {
+                        character,
+                        auto_completer: &mut self.auto_completer,
+                    }),
                     _ => None,
                 },
             };
@@ -64,11 +83,21 @@ mod phrase {
         fn render(&self, size: Size) -> Fabric {
             let string = self.state.value();
             let mut yarn = Yarn::from(string);
-            yarn.resize(size.columns);
             yarn.color(Color::InvertedText.into());
+
+            if self.state.is_focused() {
+                if let Some(completion) = self.state.completion() {
+                    if let Some(rest) = completion.strip_prefix(self.state.value()) {
+                        let mut rest_yarn: Yarn = Yarn::from(rest);
+                        rest_yarn.color(Color::InvertedGrayedText.into());
+                        yarn = yarn.concat(rest_yarn);
+                    }
+                }
+            }
+
+            yarn.resize(size.columns);
             let background_color = Color::focus_or_important(self.state.is_focused());
             yarn.background(background_color.into());
-
             Fabric::from(yarn)
         }
     }
@@ -89,24 +118,32 @@ pub use event::Event;
 
 mod state {
     use super::{Action, Effect};
+    use crate::auto_completer::AutoCompleter;
     use crate::stateful::Stateful;
 
     pub struct State {
         value: String,
+        completion: Option<String>,
         focus: bool,
     }
 
     impl Default for State {
         fn default() -> Self {
-            let value = String::new();
-            let focus = true;
-            Self { value, focus }
+            Self {
+                value: String::new(),
+                completion: None,
+                focus: true,
+            }
         }
     }
 
     impl State {
         pub fn value(&self) -> &str {
             &self.value
+        }
+
+        pub fn completion(&self) -> &Option<String> {
+            &self.completion
         }
 
         pub fn is_focused(&self) -> bool {
@@ -128,13 +165,43 @@ mod state {
             None
         }
 
-        fn push(&mut self, character: char) -> Option<Effect> {
+        fn push(
+            &mut self,
+            character: char,
+            auto_completer: &mut Option<Box<dyn AutoCompleter<String, String>>>,
+        ) -> Option<Effect> {
             self.value.push(character);
+
+            if let Some(auto_completer) = auto_completer {
+                // TODO: Make auto completion non-blocking.
+                self.completion = auto_completer.complete(self.value.clone());
+            }
+
             None
         }
 
-        fn pop(&mut self) -> Option<Effect> {
+        fn pop(
+            &mut self,
+            auto_completer: &mut Option<Box<dyn AutoCompleter<String, String>>>,
+        ) -> Option<Effect> {
             self.value.pop();
+
+            if let Some(auto_completer) = auto_completer {
+                self.completion = match self.value.is_empty() {
+                    // TODO: Make auto completion non-blocking.
+                    false => auto_completer.complete(self.value.clone()),
+                    true => None,
+                };
+            }
+
+            None
+        }
+
+        fn complete(&mut self) -> Option<Effect> {
+            if let Some(completion) = &self.completion {
+                self.value = completion.to_string();
+                self.completion = None;
+            }
             None
         }
 
@@ -150,14 +217,18 @@ mod state {
         }
     }
 
-    impl Stateful<Action, Effect> for State {
+    impl Stateful<Action<'_>, Effect> for State {
         fn perform(&mut self, action: Action) -> Option<Effect> {
             match action {
                 Action::Focus => self.focus(),
                 Action::Unfocus => self.unfocus(),
                 Action::Set { phrase } => self.set(phrase),
-                Action::Push { character } => self.push(character),
-                Action::Pop => self.pop(),
+                Action::Push {
+                    character,
+                    auto_completer,
+                } => self.push(character, auto_completer),
+                Action::Pop { auto_completer } => self.pop(auto_completer),
+                Action::Complete => self.complete(),
                 Action::Enter => self.find(),
                 Action::Quit => self.quit(),
             }
@@ -167,12 +238,22 @@ mod state {
 pub use state::State;
 
 mod action {
-    pub enum Action {
+    use crate::auto_completer::AutoCompleter;
+
+    pub enum Action<'a> {
         Focus,
         Unfocus,
-        Set { phrase: String },
-        Push { character: char },
-        Pop,
+        Set {
+            phrase: String,
+        },
+        Push {
+            character: char,
+            auto_completer: &'a mut Option<Box<dyn AutoCompleter<String, String>>>,
+        },
+        Pop {
+            auto_completer: &'a mut Option<Box<dyn AutoCompleter<String, String>>>,
+        },
+        Complete,
         Enter,
         Quit,
     }

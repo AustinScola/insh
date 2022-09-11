@@ -3,6 +3,7 @@ use super::finder::{Finder, FinderEffect, FinderProps};
 use super::searcher::{Searcher, SearcherEffect, SearcherProps};
 
 use crate::component::Component;
+use crate::config::Config;
 use crate::current_dir;
 use crate::programs::{Bash, Vim};
 use crate::rendering::{Fabric, Size};
@@ -16,6 +17,7 @@ use crossterm::terminal;
 
 mod props {
     use crate::args::{Args, Command};
+    use crate::config::Config;
     use crate::current_dir;
 
     use std::path::PathBuf;
@@ -23,10 +25,13 @@ mod props {
     pub struct Props {
         directory: Option<PathBuf>,
         start: Start,
+        config: Config,
     }
 
-    impl From<Args> for Props {
-        fn from(args: Args) -> Self {
+    impl From<(Args, Config)> for Props {
+        fn from(args_and_config: (Args, Config)) -> Self {
+            let (args, config) = args_and_config;
+
             let mut directory: Option<PathBuf> =
                 args.directory().as_ref().map(|path| path.to_path_buf());
 
@@ -64,6 +69,7 @@ mod props {
             Self {
                 directory,
                 start: Start::from(args.command().clone()),
+                config,
             }
         }
     }
@@ -75,6 +81,10 @@ mod props {
 
         pub fn start(&self) -> &Start {
             &self.start
+        }
+
+        pub fn config(&self) -> &Config {
+            &self.config
         }
     }
 
@@ -207,6 +217,7 @@ struct State {
     browser: Option<Browser>,
     finder: Option<Finder>,
     searcher: Option<Searcher>,
+    config: Config,
 }
 
 impl From<Props> for State {
@@ -223,6 +234,7 @@ impl From<Props> for State {
             Start::Browser => Self {
                 mode: Mode::Browse,
                 browser,
+                config: props.config().clone(),
                 ..Default::default()
             },
             Start::Finder { phrase } => {
@@ -232,21 +244,25 @@ impl From<Props> for State {
                     mode: Mode::Finder,
                     browser,
                     finder,
+                    config: props.config().clone(),
                     ..Default::default()
                 }
             }
             Start::Searcher { phrase } => {
-                let searcher_props = SearcherProps::new(directory, size, phrase.clone());
+                let searcher_props =
+                    SearcherProps::new(props.config().clone(), directory, size, phrase.clone());
                 let searcher = Some(Searcher::new(searcher_props));
                 Self {
                     mode: Mode::Searcher,
                     browser,
                     searcher,
+                    config: props.config().clone(),
                     ..Default::default()
                 }
             }
             Start::Nothing => Self {
                 mode: Mode::Nothing,
+                config: props.config().clone(),
                 ..Default::default()
             },
         }
@@ -275,7 +291,7 @@ impl State {
         self.mode = Mode::Searcher;
         let size: Size = Size::from(terminal::size().unwrap());
         let phrase = None;
-        let searcher_props = SearcherProps::new(directory, size, phrase);
+        let searcher_props = SearcherProps::new(self.config.clone(), directory, size, phrase);
         self.searcher = Some(Searcher::new(searcher_props));
         None
     }
@@ -307,6 +323,7 @@ impl Default for State {
             browser,
             finder,
             searcher,
+            config: Config::default(),
         }
     }
 }
