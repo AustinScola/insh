@@ -1,3 +1,8 @@
+# 0.3.11
+- Add searcher history.
+- Add searcher auto complete and `<Tab>` completion.
+- Add a configuration file.
+
 # 0.3.10
 - Add a message for an empty directory in the browser.
 - Fix crash when the width of the terminal is less than the length of the messages for no hits in the

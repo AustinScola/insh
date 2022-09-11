@@ -50,6 +50,7 @@ the file name.
 | Any character | Append the character to the current input. |
 | `<Enter>`     | Search for files matching the input.       |
 | `<Backspace>` | Remove the last character from the input.  |
+| `<Tab>`       | Fill in the input with the suggestion.     |
 
 #### Found Files Commands:
 | Command          | Description                                                                |

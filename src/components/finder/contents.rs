@@ -121,11 +121,11 @@ mod contents {
                         let file_name_start: usize = yarn.len() - entry.file_name().len();
 
                         if self.state.focussed() && Some(row) == self.state.selected() {
-                            yarn.color_before(Color::InvertedGrayyedText.into(), file_name_start);
+                            yarn.color_before(Color::InvertedGrayedText.into(), file_name_start);
                             yarn.color_after(Color::InvertedText.into(), file_name_start);
                             yarn.background(Color::Highlight.into());
                         } else {
-                            yarn.color_before(Color::GrayyedText.into(), file_name_start);
+                            yarn.color_before(Color::GrayedText.into(), file_name_start);
                         }
 
                         yarn.resize(size.columns);

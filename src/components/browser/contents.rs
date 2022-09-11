@@ -68,7 +68,7 @@ impl Component<Props, Event, Effect> for Contents {
                 yarn.color(Color::InvertedText.into());
                 yarn.background(Color::Highlight.into());
             } else if hidden {
-                yarn.color(Color::LightGrayyedText.into());
+                yarn.color(Color::LightGrayedText.into());
             }
             yarn.resize(size.columns);
             yarns.push(yarn);
