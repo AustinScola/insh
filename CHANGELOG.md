@@ -1,3 +1,6 @@
+# 0.3.12
+- Add documentation of the configuration options.
+
 # 0.3.11
 - Add searcher history.
 - Add searcher auto complete and `<Tab>` completion.
