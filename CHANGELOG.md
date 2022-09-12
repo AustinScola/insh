@@ -1,5 +1,6 @@
 # 0.3.12
 - Add documentation of the configuration options.
+- Fix the file used for configuration.
 
 # 0.3.11
 - Add searcher history.
