@@ -20,7 +20,7 @@ impl Config {
                 return Err(ConfigDefaultPathError::CannotDetermineHomeDirectory);
             }
         };
-        path.push("insh-config.yaml");
+        path.push(".insh-config.yaml");
         Ok(path)
     }
 

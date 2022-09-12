@@ -2,7 +2,7 @@
 
 A graphical, interactive, terminal environment.
 
-# Installation
+## Installation
 ```
 cargo install --git https://github.com/AustinScola/insh --tag latest
 ```
@@ -91,3 +91,11 @@ The commands for the input bar are the same as those for the Finder.
 | `G`              | Go to the hit in the file browser and select it.                                                                                                                                                   |
 | `y`              | Yank the hit. If the file path of a hit is selected, yank the file path. Else, if an occurence of the string is selected, yank that line.                                                          |
 | `Y`              | Really yank the hit. If the file path of a hit is selected, yank the **absolute** file path. Else, if an occurence of the string is selected, yank that line.                                      |
+
+
+## Configuration
+
+Insh can be configured by the file `~/.insh-config.yaml`.
+
+### Options
+`searcher.history.length` (int): The number of searches to store.
