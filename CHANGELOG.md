@@ -1,3 +1,7 @@
+# 0.3.13
+- Fix the crash in the browser when permission is denied or the directory cannot be read for some other
+reason.
+
 # 0.3.12
 - Add documentation of the configuration options.
 - Fix the file used for configuration.

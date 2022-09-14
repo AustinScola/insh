@@ -6,6 +6,7 @@ use crate::stateful::Stateful;
 
 use std::cmp::{self, Ordering};
 use std::fs::{self, DirEntry};
+use std::io::ErrorKind as IOErrorKind;
 use std::path::{Path, PathBuf};
 
 use crossterm::event::{Event as CrosstermEvent, KeyCode, KeyEvent, KeyModifiers};
@@ -44,40 +45,45 @@ impl Component<Props, Event, Effect> for Contents {
     }
 
     fn render(&self, size: Size) -> Fabric {
-        let visible_entries = self.state.visible_entries();
-        if visible_entries.is_empty() {
-            return Fabric::center("The directory is empty.", size);
-        }
-
-        let mut yarns: Vec<Yarn> = Vec::new();
-        for (entry, row) in visible_entries.iter().zip(0..size.rows) {
-            let mut string: String;
-            {
-                let path = entry.path();
-                string = path.file_name().unwrap().to_str().unwrap().to_string();
-                if path.is_dir() {
-                    string.push('/');
+        match self.state.entries() {
+            Ok(_) => {
+                let visible_entries = self.state.visible_entries().unwrap();
+                if visible_entries.is_empty() {
+                    return Fabric::center("The directory is empty.", size);
                 }
+
+                let mut yarns: Vec<Yarn> = Vec::new();
+                for (entry, row) in visible_entries.iter().zip(0..size.rows) {
+                    let mut string: String;
+                    {
+                        let path = entry.path();
+                        string = path.file_name().unwrap().to_str().unwrap().to_string();
+                        if path.is_dir() {
+                            string.push('/');
+                        }
+                    }
+
+                    let hidden = string.starts_with('.');
+
+                    let mut yarn = Yarn::from(string);
+
+                    if Some(row) == self.state.selected {
+                        yarn.color(Color::InvertedText.into());
+                        yarn.background(Color::Highlight.into());
+                    } else if hidden {
+                        yarn.color(Color::LightGrayedText.into());
+                    }
+                    yarn.resize(size.columns);
+                    yarns.push(yarn);
+                }
+
+                let mut fabric = Fabric::from(yarns);
+                fabric.pad_bottom(size.rows);
+
+                fabric
             }
-
-            let hidden = string.starts_with('.');
-
-            let mut yarn = Yarn::from(string);
-
-            if Some(row) == self.state.selected {
-                yarn.color(Color::InvertedText.into());
-                yarn.background(Color::Highlight.into());
-            } else if hidden {
-                yarn.color(Color::LightGrayedText.into());
-            }
-            yarn.resize(size.columns);
-            yarns.push(yarn);
+            Err(error) => Fabric::center(&error.to_string(), size),
         }
-
-        let mut fabric = Fabric::from(yarns);
-        fabric.pad_bottom(size.rows);
-
-        fabric
     }
 }
 
@@ -154,7 +160,10 @@ pub enum Event {
 struct State {
     size: Size,
     directory: PathBuf,
-    entries: Vec<DirEntry>,
+
+    /// The directory entries (if they can be read).
+    entries: EntriesResult,
+
     selected: Option<usize>,
     offset: usize,
 }
@@ -167,30 +176,36 @@ impl From<Props> for State {
 
         let selected;
         let offset;
-        if entries.is_empty() {
-            selected = None;
-            offset = 0;
-        } else if let Some(file) = props.file {
-            let index = entries.iter().position(|entry| entry.path() == file);
-            match index {
-                Some(index) => {
-                    if index < size.rows {
-                        selected = Some(index);
-                        offset = 0;
-                    } else {
+        if let Ok(entries) = &entries {
+            if entries.is_empty() {
+                selected = None;
+                offset = 0;
+            } else if let Some(file) = props.file {
+                let index = entries.iter().position(|entry| entry.path() == file);
+                match index {
+                    Some(index) => {
+                        if index < size.rows {
+                            selected = Some(index);
+                            offset = 0;
+                        } else {
+                            selected = Some(0);
+                            offset = index;
+                        }
+                    }
+                    None => {
                         selected = Some(0);
-                        offset = index;
+                        offset = 0;
                     }
                 }
-                None => {
-                    selected = Some(0);
-                    offset = 0;
-                }
+            } else {
+                selected = if !entries.is_empty() { Some(0) } else { None };
+                offset = 0;
             }
         } else {
-            selected = if !entries.is_empty() { Some(0) } else { None };
+            selected = Some(0);
             offset = 0;
         }
+
         State {
             size,
             directory,
@@ -202,20 +217,40 @@ impl From<Props> for State {
 }
 
 impl State {
-    fn get_entries(directory: &Path) -> Vec<DirEntry> {
-        let entries_iter = fs::read_dir(directory).unwrap();
-        let mut entries = Vec::from_iter(entries_iter.map(|entry| entry.unwrap()));
-        entries.sort_unstable_by_key(|a| a.file_name());
-        entries
+    fn get_entries(directory: &Path) -> EntriesResult {
+        match fs::read_dir(directory) {
+            Ok(entries_iter) => {
+                let mut entries = Vec::from_iter(entries_iter.map(|entry| entry.unwrap()));
+                entries.sort_unstable_by_key(|a| a.file_name());
+                Ok(entries)
+            }
+            Err(error) => match error.kind() {
+                IOErrorKind::PermissionDenied => Err(GetEntriesError::PermissionDenied),
+                _ => Err(GetEntriesError::OtherErrorReading),
+            },
+        }
     }
 
-    fn visible_entries(&self) -> &[DirEntry] {
-        if self.entries.is_empty() {
-            return &[];
+    /// Return the entries of the directory.
+    pub fn entries(&self) -> &EntriesResult {
+        &self.entries
+    }
+
+    fn visible_entries(&self) -> Option<&[DirEntry]> {
+        let entries: &Vec<DirEntry> = match &self.entries {
+            Ok(entries) => entries,
+            Err(_) => {
+                return None;
+            }
+        };
+
+        if entries.is_empty() {
+            return Some(&[]);
         }
+
         let start = self.offset;
-        let end = cmp::min(self.offset + self.size.rows, self.entries.len());
-        &self.entries[start..end]
+        let end = cmp::min(self.offset + self.size.rows, entries.len());
+        Some(&entries[start..end])
     }
 
     fn entry_number(&self) -> Option<usize> {
@@ -224,7 +259,10 @@ impl State {
 
     fn entry(&self) -> Option<&DirEntry> {
         match self.entry_number() {
-            Some(entry_number) => Some(&self.entries[entry_number]),
+            Some(entry_number) => match &self.entries {
+                Ok(entries) => Some(&entries[entry_number]),
+                Err(_) => None,
+            },
             None => None,
         }
     }
@@ -236,55 +274,70 @@ impl State {
 
     fn reset_entries(&mut self) {
         self.entries = State::get_entries(&self.directory);
-        self.selected = if !self.entries.is_empty() {
-            Some(0)
+
+        self.selected = if let Ok(entries) = &self.entries {
+            if !entries.is_empty() {
+                Some(0)
+            } else {
+                None
+            }
         } else {
             None
         };
+
         self.offset = 0;
     }
 
     fn resize(&mut self, new_size: Size) {
         if let Some(selected) = self.selected {
-            let rows_before = self.size.rows;
-            let entry_count = self.entries.len();
-            let mut visible_entries_count = cmp::min(rows_before, entry_count - self.offset);
-            let selected_percent: f64 = selected as f64 / visible_entries_count as f64;
+            if let Ok(entries) = &self.entries {
+                let rows_before = self.size.rows;
+                let entry_count = entries.len();
+                let mut visible_entries_count = cmp::min(rows_before, entry_count - self.offset);
+                let selected_percent: f64 = selected as f64 / visible_entries_count as f64;
 
-            let mut new_selected: usize = (new_size.rows as f64 * selected_percent) as usize;
-            let mut new_offset: usize;
-            let entry_number = self.offset + selected;
-            match entry_number.cmp(&new_selected) {
-                Ordering::Less | Ordering::Equal => {
-                    new_offset = 0;
-                    new_selected = entry_number;
-                }
-                Ordering::Greater => {
-                    new_offset = entry_number - new_selected;
-                    visible_entries_count = entry_count - new_offset;
-                    if visible_entries_count < new_size.rows {
-                        let bottom_pinned_offset = entry_count.saturating_sub(new_size.rows);
-                        let difference = new_offset - bottom_pinned_offset;
-                        new_selected += difference;
-                        new_offset = bottom_pinned_offset;
+                let mut new_selected: usize = (new_size.rows as f64 * selected_percent) as usize;
+                let mut new_offset: usize;
+                let entry_number = self.offset + selected;
+                match entry_number.cmp(&new_selected) {
+                    Ordering::Less | Ordering::Equal => {
+                        new_offset = 0;
+                        new_selected = entry_number;
+                    }
+                    Ordering::Greater => {
+                        new_offset = entry_number - new_selected;
+                        visible_entries_count = entry_count - new_offset;
+                        if visible_entries_count < new_size.rows {
+                            let bottom_pinned_offset = entry_count.saturating_sub(new_size.rows);
+                            let difference = new_offset - bottom_pinned_offset;
+                            new_selected += difference;
+                            new_offset = bottom_pinned_offset;
+                        }
                     }
                 }
-            }
 
-            self.offset = new_offset;
-            self.selected = Some(new_selected);
+                self.offset = new_offset;
+                self.selected = Some(new_selected);
+            }
         }
 
         self.size = new_size;
     }
 
     fn down(&mut self) {
-        if self.entries.is_empty() {
+        let entries: &Vec<DirEntry> = match &self.entries {
+            Ok(entries) => entries,
+            Err(_) => {
+                return;
+            }
+        };
+
+        if entries.is_empty() {
             return;
         }
 
         let entry_number = self.entry_number().unwrap();
-        if entry_number >= self.entries.len() - 1 {
+        if entry_number >= entries.len() - 1 {
             return;
         }
         let selected = self.selected.unwrap();
@@ -297,15 +350,22 @@ impl State {
 
     /// Select the last entry and adjust the scroll position if necessary.
     fn really_down(&mut self) {
-        if self.entries.is_empty() {
+        let entries: &Vec<DirEntry> = match &self.entries {
+            Ok(entries) => entries,
+            Err(_) => {
+                return;
+            }
+        };
+
+        if entries.is_empty() {
             return;
         }
 
-        if self.entries.len() > self.size.rows {
-            self.offset = self.entries.len() - self.size.rows;
+        if entries.len() > self.size.rows {
+            self.offset = entries.len() - self.size.rows;
             self.selected = Some(self.size.rows - 1);
         } else {
-            self.selected = Some(self.entries.len() - 1);
+            self.selected = Some(entries.len() - 1);
         }
     }
 
@@ -415,6 +475,22 @@ impl Stateful<Action, Effect> for State {
             }
         }
         effect
+    }
+}
+
+type EntriesResult = Result<Vec<DirEntry>, GetEntriesError>;
+
+enum GetEntriesError {
+    PermissionDenied,
+    OtherErrorReading,
+}
+
+impl ToString for GetEntriesError {
+    fn to_string(&self) -> String {
+        match self {
+            Self::PermissionDenied => String::from("Permission denied."),
+            Self::OtherErrorReading => String::from("Failed to read the directory entries."),
+        }
     }
 }
 
