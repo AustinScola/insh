@@ -9,8 +9,13 @@ use clap::{Parser, Subcommand};
 #[clap(author, version, about)]
 pub struct Args {
     /// Starting directory to run in
-    #[clap(short, long)]
+    #[clap(short, long, display_order = 0)]
     directory: Option<PathBuf>,
+
+    /// Unix socket to write logs to
+    #[cfg(feature = "logging")]
+    #[clap(long = "log-file", display_order = 1)]
+    pub log_file_path: Option<PathBuf>,
 
     #[clap(subcommand)]
     command: Option<Command>,
@@ -19,6 +24,11 @@ pub struct Args {
 impl Args {
     pub fn directory(&self) -> &Option<PathBuf> {
         &self.directory
+    }
+
+    #[cfg(feature = "logging")]
+    pub fn log_file_path(&self) -> &Option<PathBuf> {
+        &self.log_file_path
     }
 
     pub fn command(&self) -> &Option<Command> {
