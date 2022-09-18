@@ -1,7 +1,14 @@
 [package]
 name = "insh"
-version = "0.3.13"
+version = "0.3.14"
 edition = "2021"
+
+[features]
+# Explicitly, the default features are none.
+default = []
+
+# The logging feature enables logging which is helpful for development.
+logging = ["dep:log", "dep:flexi_logger"]
 
 [dependencies]
 crossterm = "0.23.0"
@@ -24,6 +31,10 @@ serde_yaml = "0.9.10"
 
 # Used for declaring lazily evaluated static values.
 lazy_static = "1.4.0"
+
+# Used for logging. (These dependencies are only included if the logging features is enabled.)
+log = { version = "0.4.17", optional = true }
+flexi_logger = { version = "0.23.3", optional = true }
 
 [dev-dependencies]
 test-case = "2.0.0"

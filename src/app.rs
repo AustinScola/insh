@@ -33,6 +33,9 @@ impl App {
     ) {
         self.set_up();
 
+        #[cfg(feature = "logging")]
+        log::info!("Running.");
+
         if let Some(effects) = starting_effects {
             for effect in effects {
                 match effect {

@@ -1,3 +1,6 @@
+# 0.3.14
+- Add logging as a complile feature.
+
 # 0.3.13
 - Fix the crash in the browser when permission is denied or the directory cannot be read for some other
 reason.
