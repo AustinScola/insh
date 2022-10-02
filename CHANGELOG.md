@@ -1,3 +1,7 @@
+# 0.3.15
+- Fix the displaying of tabs in the Searcher contents and add a configuration option
+`general.tab_width` to enable changing the width that is used for tabs.
+
 # 0.3.14
 - Add logging as a complile feature.
 

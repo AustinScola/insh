@@ -27,6 +27,8 @@ mod contents {
     use crate::color::Color;
     use crate::phrase_searcher::{FileHit, LineHit};
     use crate::rendering::{Fabric, Size, Yarn};
+    use crate::string::DetabExt;
+    use crate::Config;
     use crate::{Component, Stateful};
 
     use std::path::MAIN_SEPARATOR as PATH_SEPARATOR;
@@ -34,18 +36,25 @@ mod contents {
     use crossterm::event::{Event as CrosstermEvent, KeyCode, KeyEvent, KeyModifiers};
 
     pub struct Contents {
+        config: Config,
         state: State,
     }
 
     impl Component<Props, Event, Effect> for Contents {
         fn new(props: Props) -> Self {
-            let state: State = State::from(props);
-            Self { state }
+            let state: State = State::from(&props);
+            Self {
+                config: props.config,
+                state,
+            }
         }
 
         fn handle(&mut self, event: Event) -> Option<Effect> {
             let action: Option<Action> = match event {
-                Event::Search { phrase } => Some(Action::Search { phrase }),
+                Event::Search { phrase } => Some(Action::Search {
+                    phrase,
+                    max_history_length: self.config.searcher().history().length(),
+                }),
                 Event::Resize { size } => Some(Action::Resize { size }),
                 Event::Crossterm { event } => match event {
                     CrosstermEvent::Key(KeyEvent {
@@ -80,7 +89,9 @@ mod contents {
                     CrosstermEvent::Key(KeyEvent {
                         code: KeyCode::Char('r'),
                         modifiers: KeyModifiers::NONE,
-                    }) => Some(Action::Refresh),
+                    }) => Some(Action::Refresh {
+                        max_history_length: self.config.searcher().history().length(),
+                    }),
                     CrosstermEvent::Key(KeyEvent {
                         code: KeyCode::Char('l'),
                         ..
@@ -179,7 +190,9 @@ mod contents {
 
                                 let mut string: String = line_hit.line_number().to_string();
                                 string.push_str(": ");
-                                string.push_str(line_hit.line());
+                                string.push_str(
+                                    &line_hit.line().detab(self.config.general().tab_width()),
+                                );
 
                                 let mut yarn = Yarn::from(string);
                                 yarn.resize(columns);
@@ -231,7 +244,6 @@ pub use event::Event;
 mod state {
     use super::{Action, Effect, Props};
     use crate::clipboard::Clipboard;
-    use crate::config::Config;
     use crate::data::Data;
     use crate::phrase_searcher::{FileHit, LineHit, PhraseSearcher};
     use crate::programs::{VimArgs, VimArgsBuilder};
@@ -243,7 +255,6 @@ mod state {
 
     #[derive(Debug, PartialEq, Eq, Default)]
     pub struct State {
-        config: Config,
         size: Size,
         directory: PathBuf,
         phrase: Option<String>,
@@ -256,12 +267,13 @@ mod state {
         line_selected: Option<usize>,
     }
 
-    impl From<Props> for State {
-        fn from(props: Props) -> Self {
+    impl From<&Props> for State {
+        fn from(props: &Props) -> Self {
             Self {
-                config: props.config,
                 size: props.size,
-                directory: props.directory,
+                // Would be nice to not have to clone this. Maybe use the builder pattern instead
+                // of using From &Props?
+                directory: props.directory.clone(),
                 phrase: None,
                 focussed: false,
                 searched: false,
@@ -403,7 +415,7 @@ mod state {
             Some(Effect::Unfocus)
         }
 
-        fn search(&mut self, phrase: &str) -> Option<Effect> {
+        fn search(&mut self, phrase: &str, max_history_length: usize) -> Option<Effect> {
             self.focus();
             self.phrase = Some(phrase.to_string());
 
@@ -411,7 +423,7 @@ mod state {
             self.hits = phrase_searcher.collect();
             self.searched = true;
 
-            self.add_to_history(phrase);
+            self.add_to_history(phrase, max_history_length);
 
             self.file_offset = 0;
             self.line_offset = None;
@@ -425,9 +437,8 @@ mod state {
             }
         }
 
-        fn add_to_history(&self, phrase: &str) {
+        fn add_to_history(&self, phrase: &str, max_length: usize) {
             let mut data: Data = Data::read();
-            let max_length: usize = self.config.searcher.history.length;
             data.searcher.add_to_history(phrase, max_length);
             data.write();
             data.release();
@@ -637,9 +648,9 @@ mod state {
         }
 
         /// Refresh the hits by searching for the phrase again.
-        fn refresh(&mut self) -> Option<Effect> {
+        fn refresh(&mut self, max_history_length: usize) -> Option<Effect> {
             if let Some(phrase) = self.phrase.clone() {
-                return self.search(&phrase);
+                return self.search(&phrase, max_history_length);
             }
             None
         }
@@ -726,14 +737,17 @@ mod state {
             match action {
                 Action::Resize { size } => self.resize(size),
                 Action::Unfocus => self.unfocus(),
-                Action::Search { phrase } => self.search(&phrase),
+                Action::Search {
+                    phrase,
+                    max_history_length,
+                } => self.search(&phrase, max_history_length),
                 Action::Down => self.down(),
                 Action::ReallyDown => self.really_down(),
                 Action::ScrollDown => self.scroll_down(1),
                 Action::Up => self.up(),
                 Action::ReallyUp => self.really_up(),
                 Action::ScrollUp => self.scroll_up(1),
-                Action::Refresh => self.refresh(),
+                Action::Refresh { max_history_length } => self.refresh(max_history_length),
                 Action::Edit => self.edit(),
                 Action::Goto => self.goto(),
                 Action::ReallyGoto => self.really_goto(),
@@ -803,16 +817,23 @@ mod action {
     use crate::rendering::Size;
 
     pub enum Action {
-        Resize { size: Size },
+        Resize {
+            size: Size,
+        },
         Unfocus,
-        Search { phrase: String },
+        Search {
+            phrase: String,
+            max_history_length: usize,
+        },
         Down,
         ReallyDown,
         ScrollDown,
         Up,
         ReallyUp,
         ScrollUp,
-        Refresh,
+        Refresh {
+            max_history_length: usize,
+        },
         Edit,
         Goto,
         ReallyGoto,

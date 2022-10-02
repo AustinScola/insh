@@ -98,4 +98,5 @@ The commands for the input bar are the same as those for the Finder.
 Insh can be configured by the file `~/.insh-config.yaml`.
 
 ### Options
-`searcher.history.length` (int): The number of searches to store.
+`general.tab_width` (usize): The width of the `<Tab>` character.
+`searcher.history.length` (usize): The number of searches to store.
