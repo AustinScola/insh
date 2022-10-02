@@ -58,19 +58,43 @@ jobs:
         run: curl https://sh.rustup.rs -sSf | sh -s -- -y
 
       - name: Install Brew
-        run: NONINTERACTIVE=1 /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+        run: |
+          NONINTERACTIVE=1 /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+
+          # Run the commands that Brew recommends for setting itself up.
+          echo '# Set PATH, MANPATH, etc., for Homebrew.' >> ~/.bash_profile
+          echo 'eval "$(/home/linuxbrew/.linuxbrew/bin/brew shellenv)"' >> ~/.bash_profile
+          eval "$(/home/linuxbrew/.linuxbrew/bin/brew shellenv)"
+
+          # Turn off Brew usage analytics.
+          brew analytics off
 
       - name: Install yq
-        run: brew install yq
+        run: |
+          # Make sure brew is setup.
+          eval "$(/home/linuxbrew/.linuxbrew/bin/brew shellenv)"
+
+          # Install yq using brew.
+          brew install yq
 
       - name: Install Arbsego
         run: |-
+          # Make sure brew is setup.
+          eval "$(/home/linuxbrew/.linuxbrew/bin/brew shellenv)"
+
+          # Get the version of Arbsego to use.
           ARBSEGO_VERSION="$(yq '.arbsego.version' < truth.yaml)"
+  
+          # Install Arbsego using cargo.
           cargo install --git https://github.com/AustinScola/arbsego.git --tag "v${ARBSEGO_VERSION}"
 
-      # TODO: Pass BOOTSTRAP=1 to lint-arbsego and have it handle all of the above installations.
       - name: Lint using Arbsego
-        run: ./scripts/lint-arbsego
+        run: |
+          # Make sure brew is setup.
+          eval "$(/home/linuxbrew/.linuxbrew/bin/brew shellenv)"
+
+          # Lint using Arbsego.
+          ./scripts/lint-arbsego
 
   format:
     name: Format
