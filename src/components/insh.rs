@@ -234,8 +234,9 @@ impl From<Props> for State {
             Start::Browser => Self {
                 mode: Mode::Browse,
                 browser,
+                finder: None,
+                searcher: None,
                 config: props.config().clone(),
-                ..Default::default()
             },
             Start::Finder { phrase } => {
                 let finder_props = FinderProps::new(directory, size, phrase.clone());
@@ -244,8 +245,8 @@ impl From<Props> for State {
                     mode: Mode::Finder,
                     browser,
                     finder,
+                    searcher: None,
                     config: props.config().clone(),
-                    ..Default::default()
                 }
             }
             Start::Searcher { phrase } => {
@@ -255,15 +256,17 @@ impl From<Props> for State {
                 Self {
                     mode: Mode::Searcher,
                     browser,
+                    finder: None,
                     searcher,
                     config: props.config().clone(),
-                    ..Default::default()
                 }
             }
             Start::Nothing => Self {
                 mode: Mode::Nothing,
+                browser: None,
+                finder: None,
+                searcher: None,
                 config: props.config().clone(),
-                ..Default::default()
             },
         }
     }
@@ -304,27 +307,6 @@ impl State {
     fn quit_searcher(&mut self) -> Option<SystemEffect> {
         self.mode = Mode::Browse;
         None
-    }
-}
-
-impl Default for State {
-    fn default() -> Self {
-        let mode: Mode = Mode::default();
-
-        let size: Size = Size::from(terminal::size().unwrap());
-
-        let directory: PathBuf = current_dir::current_dir();
-        let browser: Option<Browser> = Some(Browser::new(BrowserProps::new(directory, size, None)));
-        let finder: Option<Finder> = None;
-        let searcher: Option<Searcher> = None;
-
-        State {
-            mode,
-            browser,
-            finder,
-            searcher,
-            config: Config::default(),
-        }
     }
 }
 
