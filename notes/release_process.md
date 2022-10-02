@@ -13,7 +13,7 @@ The steps to perform to create a new release:
 - Run `git push origin v<version>`.
 - Update the `latest` tag.
     - Run `git tag -f latest`.
-    - Run `git push --force origin lastest`.
+    - Run `git push --force origin latest`.
 - Draft a new release on GitHub.
     - Use the tag created for the new version. 
     - The release title should be "Version <version>".

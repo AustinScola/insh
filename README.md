@@ -16,7 +16,7 @@ Some commands work from all components:
 | Command    | Description |
 |------------|-------------|
 | `<Ctrl>-x` | Exit Insh.  |
-| r          | Refresh.    |
+| `r`        | Refresh.    |
 
 ### Browser Help
 
@@ -98,5 +98,7 @@ The commands for the input bar are the same as those for the Finder.
 Insh can be configured by the file `~/.insh-config.yaml`.
 
 ### Options
+
 `general.tab_width` (usize): The width of the `<Tab>` character.
+
 `searcher.history.length` (usize): The number of searches to store.
