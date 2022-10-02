@@ -16,7 +16,7 @@ Some commands work from all components:
 | Command    | Description |
 |------------|-------------|
 | `<Ctrl>-x` | Exit Insh.  |
-| r          | Refresh.    |
+| `r`        | Refresh.    |
 
 ### Browser Help
 
