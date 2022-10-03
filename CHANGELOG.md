@@ -1,3 +1,6 @@
+# 0.3.16
+- Add a better message to the browser for when the directory does not exist.
+
 # 0.3.15
 - Fix the displaying of tabs in the Searcher contents and add a configuration option
 `general.tab_width` to enable changing the width that is used for tabs.

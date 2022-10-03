@@ -225,6 +225,7 @@ impl State {
                 Ok(entries)
             }
             Err(error) => match error.kind() {
+                IOErrorKind::NotFound => Err(GetEntriesError::DirectoryDoesNotExist),
                 IOErrorKind::PermissionDenied => Err(GetEntriesError::PermissionDenied),
                 _ => Err(GetEntriesError::OtherErrorReading),
             },
@@ -481,6 +482,7 @@ impl Stateful<Action, Effect> for State {
 type EntriesResult = Result<Vec<DirEntry>, GetEntriesError>;
 
 enum GetEntriesError {
+    DirectoryDoesNotExist,
     PermissionDenied,
     OtherErrorReading,
 }
@@ -488,6 +490,7 @@ enum GetEntriesError {
 impl ToString for GetEntriesError {
     fn to_string(&self) -> String {
         match self {
+            Self::DirectoryDoesNotExist => String::from("The directory does not exist."),
             Self::PermissionDenied => String::from("Permission denied."),
             Self::OtherErrorReading => String::from("Failed to read the directory entries."),
         }
