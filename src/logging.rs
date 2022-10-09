@@ -6,8 +6,10 @@ use flexi_logger::writers::FileLogWriter;
 use flexi_logger::{FileSpec, LogSpecification, Logger, LoggerHandle};
 
 /// Configure logging.
-pub fn configure_logging(path: PathBuf) -> ConfigureLoggingResult {
-    let log_specification: LogSpecification = LogSpecification::info();
+pub fn configure_logging(
+    path: PathBuf,
+    log_specification: LogSpecification,
+) -> ConfigureLoggingResult {
     let mut logger = Logger::with(log_specification);
 
     let file_log_writer = FileLogWriter::builder(FileSpec::try_from(path).unwrap())
