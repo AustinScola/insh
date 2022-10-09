@@ -4,6 +4,8 @@ use crate::system_effect::SystemEffect;
 use std::path::PathBuf;
 
 use clap::{Parser, Subcommand};
+#[cfg(feature = "logging")]
+use flexi_logger::{LevelFilter as LogLevelFilter, LogSpecification};
 
 #[derive(Parser, Debug)]
 #[clap(author, version, about)]
@@ -17,6 +19,16 @@ pub struct Args {
     #[clap(long = "log-file", display_order = 1)]
     pub log_file_path: Option<PathBuf>,
 
+    /// Default log level for all modules
+    #[cfg(feature = "logging")]
+    #[clap(display_order = 2, long="log-level", id="LOG_LEVEL", default_value_t=LogLevelFilter::Info)]
+    log_level_filter: LogLevelFilter,
+
+    /// Log level for a particular module (<module-name>=<log-level>)
+    #[cfg(feature = "logging")]
+    #[clap(display_order = 3, long = "module-log-level", id = "MODULE_LOG_LEVEL")]
+    module_log_level_filters: Vec<ModuleLogLevelFilter>,
+
     #[clap(subcommand)]
     command: Option<Command>,
 }
@@ -29,6 +41,22 @@ impl Args {
     #[cfg(feature = "logging")]
     pub fn log_file_path(&self) -> &Option<PathBuf> {
         &self.log_file_path
+    }
+
+    #[cfg(feature = "logging")]
+    pub fn log_specification(&self) -> LogSpecification {
+        let mut log_specification_builder = LogSpecification::builder();
+
+        log_specification_builder.default(self.log_level_filter);
+
+        for module_log_level_filter in &self.module_log_level_filters {
+            log_specification_builder.module(
+                module_log_level_filter.module_name(),
+                module_log_level_filter.log_level_filter().clone(),
+            );
+        }
+
+        log_specification_builder.finalize()
     }
 
     pub fn command(&self) -> &Option<Command> {
@@ -137,19 +165,19 @@ mod file_line_column {
     }
 
     impl Display for FileLineColumn {
-        fn fmt(&self, f: &mut Formatter<'_>) -> Result<(), FmtError> {
+        fn fmt(&self, formatter: &mut Formatter<'_>) -> Result<(), FmtError> {
             if let Some(file) = &self.file {
-                write!(f, "{}", file.display())?;
+                write!(formatter, "{}", file.display())?;
             } else {
                 return Ok(());
             }
 
             if let Some(line) = self.line {
-                write!(f, ":{}", line)?;
+                write!(formatter, ":{}", line)?;
             }
 
             if let Some(column) = self.column {
-                write!(f, ",{}", column)?;
+                write!(formatter, ",{}", column)?;
             }
             Ok(())
         }
@@ -158,19 +186,19 @@ mod file_line_column {
     impl FromStr for FileLineColumn {
         type Err = FileLineColumnParseError;
 
-        fn from_str(s: &str) -> Result<Self, Self::Err> {
-            if s.is_empty() {
+        fn from_str(string: &str) -> Result<Self, Self::Err> {
+            if string.is_empty() {
                 return Ok(FileLineColumn::default());
             }
             let file_string: &str;
             let line_and_maybe_column_string: Option<&str>;
-            match s.rsplit_once(':') {
+            match string.rsplit_once(':') {
                 Some((file_, line_and_maybe_column_string_)) => {
                     file_string = file_;
                     line_and_maybe_column_string = Some(line_and_maybe_column_string_);
                 }
                 None => {
-                    file_string = s;
+                    file_string = string;
                     line_and_maybe_column_string = None;
                 }
             }
@@ -324,10 +352,10 @@ mod file_line_column_parse_error {
     }
 
     impl Display for FileLineColumnParseError {
-        fn fmt(&self, f: &mut Formatter<'_>) -> Result<(), FmtError> {
+        fn fmt(&self, formatter: &mut Formatter<'_>) -> Result<(), FmtError> {
             if self.bad_file.is_none() && self.bad_line.is_none() && self.bad_column.is_none() {
                 write!(
-                    f,
+                    formatter,
                     "Something went wrong parsing the file, optional line, and or the optional column."
                 )?;
                 return Ok(());
@@ -349,9 +377,110 @@ mod file_line_column_parse_error {
 
             problems[0] = capitalize_first_letter(&problems[0]);
             let message: String = conjoin(problems, "and");
-            write!(f, "{}.", message)
+            write!(formatter, "{}.", message)
         }
     }
 
     impl Error for FileLineColumnParseError {}
 }
+
+#[cfg(feature = "logging")]
+mod module_log_level_filter {
+    use super::ModuleLevelFilterParseError;
+
+    use std::str::FromStr;
+
+    use flexi_logger::LevelFilter as LogLevelFilter;
+
+    /// A log level filter for a particular module.
+    #[derive(Debug)]
+    pub struct ModuleLogLevelFilter {
+        /// The name of the module.
+        module_name: String,
+        /// The log level filter for the module.
+        log_level_filter: LogLevelFilter,
+    }
+
+    impl ModuleLogLevelFilter {
+        pub fn module_name(&self) -> &str {
+            &self.module_name
+        }
+
+        pub fn log_level_filter(&self) -> &LogLevelFilter {
+            &self.log_level_filter
+        }
+    }
+
+    impl FromStr for ModuleLogLevelFilter {
+        type Err = ModuleLevelFilterParseError;
+
+        fn from_str(string: &str) -> Result<Self, Self::Err> {
+            let split_result: Option<(&str, &str)> = string.split_once("=");
+            let (module_name, log_level_filter_string) = match split_result {
+                None => {
+                    return Err(ModuleLevelFilterParseError::NoEqualsSign {
+                        bad_module_log_level: string.to_string(),
+                    })
+                }
+                Some(strings) => strings,
+            };
+
+            let log_level_filter = match LogLevelFilter::from_str(log_level_filter_string) {
+                Err(_) => {
+                    return Err(ModuleLevelFilterParseError::BadLogLevel {
+                        bad_module_log_level: string.to_string(),
+                        bad_log_level: log_level_filter_string.to_string(),
+                    })
+                }
+                Ok(log_level_filter) => log_level_filter,
+            };
+
+            Ok(ModuleLogLevelFilter {
+                module_name: module_name.to_string(),
+                log_level_filter,
+            })
+        }
+    }
+}
+#[cfg(feature = "logging")]
+use module_log_level_filter::ModuleLogLevelFilter;
+
+#[cfg(feature = "logging")]
+mod module_log_level_filter_parse_error {
+    use std::error::Error;
+    use std::fmt::{Display, Error as FmtError, Formatter};
+
+    /// An error for parsing a module level filter from a string.
+    #[derive(Debug)]
+    pub enum ModuleLevelFilterParseError {
+        NoEqualsSign {
+            bad_module_log_level: String,
+        },
+        BadLogLevel {
+            bad_module_log_level: String,
+            bad_log_level: String,
+        },
+    }
+
+    impl Display for ModuleLevelFilterParseError {
+        fn fmt(&self, formatter: &mut Formatter<'_>) -> Result<(), FmtError> {
+            match self {
+                Self::NoEqualsSign {
+                    bad_module_log_level,
+                } => {
+                    write!(formatter, "Failed to parse the module log level \"{}\" because it contains no equals sign. Module log levels should be of the form \"<module-name>=<log-level>\".", bad_module_log_level)
+                }
+                Self::BadLogLevel {
+                    bad_module_log_level,
+                    bad_log_level,
+                } => {
+                    write!(formatter, "Failed to parse the module log level \"{}\" because \"{}\" is not a valid log level.", bad_module_log_level, bad_log_level)
+                }
+            }
+        }
+    }
+
+    impl Error for ModuleLevelFilterParseError {}
+}
+#[cfg(feature = "logging")]
+use module_log_level_filter_parse_error::ModuleLevelFilterParseError;

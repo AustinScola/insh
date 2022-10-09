@@ -51,7 +51,7 @@ fn main() {
     #[cfg(feature = "logging")]
     if let Some(log_file_path) = args.log_file_path() {
         let configure_logging_result: ConfigureLoggingResult =
-            configure_logging(log_file_path.to_path_buf());
+            configure_logging(log_file_path.to_path_buf(), args.log_specification());
         _logger_handle = match configure_logging_result {
             Ok(_logger_handle) => _logger_handle,
             Err(error) => {
