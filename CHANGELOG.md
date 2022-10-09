@@ -1,3 +1,6 @@
+# 0.3.17
+- Fix yanking on Ubuntu 22.04.
+
 # 0.3.16
 - Add a better message to the browser for when the directory does not exist.
 
