@@ -297,7 +297,7 @@ mod file_line_column {
 pub use file_line_column::FileLineColumn;
 
 mod file_line_column_parse_error {
-    use crate::string::{capitalize_first_letter, conjoin};
+    use crate::string::{CapitalizeFirstLetterExt, ConjoinExt};
 
     use std::error::Error;
     use std::fmt::{Display, Error as FmtError, Formatter};
@@ -375,8 +375,8 @@ mod file_line_column_parse_error {
                 ));
             }
 
-            problems[0] = capitalize_first_letter(&problems[0]);
-            let message: String = conjoin(problems, "and");
+            problems[0] = problems[0].capitalize_first_letter();
+            let message: String = problems.conjoin("and");
             write!(formatter, "{}.", message)
         }
     }

@@ -1,12 +1,18 @@
+/*!
+Contains the [`Program`] [`Bash`].
+*/
 use crate::program::{Program, ProgramCleanup, ProgramSetup};
 use std::path::PathBuf;
 use std::process::{Command, Stdio};
 
+/// A Bash program.
 pub struct Bash {
+    /// The starting working directory.
     directory: PathBuf,
 }
 
 impl Bash {
+    /// Return a new Bash program.
     pub fn new(directory: PathBuf) -> Self {
         Self { directory }
     }

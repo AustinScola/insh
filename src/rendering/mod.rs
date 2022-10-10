@@ -1,3 +1,7 @@
+/*!
+Contains functionality for representing styled text, manipulating it, and rendering it to a
+terminal screen.
+*/
 mod fabric;
 mod location;
 mod renderer;

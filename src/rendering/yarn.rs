@@ -1,13 +1,20 @@
+/*!
+This module contains the [`Yarn`] struct which is used for representing styled text.
+*/
 use crossterm::style::Color as CrosstermColor;
 use std::cmp::Ordering;
 
+// MAYBE TODO: Store ranges instead of using `Vec` to save memory?
+/// A yarn is a string with text colors and background colors.
 #[derive(Default, Debug, PartialEq, Eq, Clone)]
 pub struct Yarn {
-    // MAYBE TODO: Store the length seperatley so we can represent blank yarn without vec manip?
+    // MAYBE TODO: Store the length seperately so we can represent a blank yarn without wasting mem?
+    /// The characters.
     characters: Vec<char>,
-
     // NOTE: The style vectors are Allowed to be shorter than the number of characters.
+    /// The colors of the text.
     colors: Vec<Option<CrosstermColor>>,
+    /// The background colors of the text.
     backgrounds: Vec<Option<CrosstermColor>>,
 }
 
@@ -65,6 +72,7 @@ impl Yarn {
         };
     }
 
+    /// Return the length of the yarn.
     pub fn len(&self) -> usize {
         self.characters.len()
     }
@@ -89,15 +97,7 @@ impl Yarn {
         self
     }
 
-    #[allow(dead_code)]
-    pub fn write_string(&mut self, position: usize, string: &str) {
-        let characters: Vec<char> = string.chars().collect();
-
-        let before = &self.characters[0..position];
-        let after = &self.characters[(position + characters.len())..];
-        self.characters = vec![before, &characters, after].concat();
-    }
-
+    /// Change the length of the yarn to the `new_size`.
     pub fn resize(&mut self, new_len: usize) {
         let len = self.len();
         match len.cmp(&new_len) {
@@ -111,8 +111,12 @@ impl Yarn {
         }
     }
 
+    /// Shortens the yarn to the given length.
+    ///
+    /// If the yarn is already shorter than the `new_len` then this has no effect.
     pub fn truncate(&mut self, new_len: usize) {
         self.characters.truncate(new_len);
+        self.colors.truncate(new_len);
         self.backgrounds.truncate(new_len);
     }
 
@@ -143,6 +147,7 @@ impl Yarn {
         }
     }
 
+    /// Set the text color of the entire yarn to the `color`.
     pub fn color(&mut self, color: CrosstermColor) {
         self.colors = vec![Some(color); self.len()];
     }
@@ -174,18 +179,22 @@ impl Yarn {
         }
     }
 
+    /// Set the background color of the entire yarn to the `color`.
     pub fn background(&mut self, color: CrosstermColor) {
         self.backgrounds = vec![Some(color); self.len()];
     }
 
+    /// Return the characters of the yarn.
     pub fn characters(&self) -> &Vec<char> {
         &self.characters
     }
 
+    /// Return the text colors of the yarn.
     pub fn colors(&self) -> &Vec<Option<CrosstermColor>> {
         &self.colors
     }
 
+    /// Return the background colors of the yarn.
     pub fn backgrounds(&self) -> &Vec<Option<CrosstermColor>> {
         &self.backgrounds
     }
