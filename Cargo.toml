@@ -36,5 +36,8 @@ lazy_static = "1.4.0"
 log = { version = "0.4.17", optional = true }
 flexi_logger = { version = "0.23.3", optional = true }
 
+# Used to create a parser for text with ANSI escape codes.
+nom = "7.1.1"
+
 [dev-dependencies]
 test-case = "2.0.0"
