@@ -1,21 +1,30 @@
-use super::{Location, Size, Yarn};
+/*!
+This module contains the [`Fabric`] struct which is used for representing a 2D rectangle of styled
+text.
+*/
+use super::{Size, Yarn};
 
 use std::cmp::Ordering;
 
 use crossterm::style::Color;
 use itertools::izip;
 
+// MAYBE TODO: Use ranges for storage to save memory when elements are sparse?
+/// A 2D rectangle of styled text.
 #[derive(PartialEq, Eq, Debug, Clone, Default)]
 pub struct Fabric {
+    /// The size of the fabric.
     size: Size,
+    /// The characters of the text.
     characters: Vec<Vec<char>>,
-
-    // TODO: Use ranges to store this!
+    /// The text colors.
     colors: Vec<Vec<Option<Color>>>,
+    /// The background colors of the text.
     backgrounds: Vec<Vec<Option<Color>>>,
 }
 
 impl Fabric {
+    /// Return a new fabric with the given `size`.
     pub fn new(size: Size) -> Self {
         let characters = vec![vec![' '; size.columns]; size.rows];
         let colors = vec![vec![]; size.rows];
@@ -55,24 +64,17 @@ impl Fabric {
         self.size
     }
 
-    #[allow(dead_code)]
-    pub fn write(&mut self, string: String, location: Location) {
-        let row = location.row;
-        let mut column = location.column;
-        for character in string.chars() {
-            self.characters[row][column] = character;
-            column += 1;
-        }
-    }
-
+    /// Return the characters composing the fabric.
     pub fn characters(&self) -> &Vec<Vec<char>> {
         &self.characters
     }
 
+    /// Return the text colors.
     pub fn colors(&self) -> &Vec<Vec<Option<Color>>> {
         &self.colors
     }
 
+    /// Return the background colors of the text.
     pub fn backgrounds(&self) -> &Vec<Vec<Option<Color>>> {
         &self.backgrounds
     }
@@ -136,6 +138,8 @@ impl Fabric {
         }
     }
 
+    /// Combine this fabric with another adding the contents of the other fabric to the bottom of
+    /// this one.
     pub fn quilt_bottom(mut self, other: Fabric) -> Fabric {
         for (row, row_colors, row_backgrounds) in
             izip!(other.characters, other.colors, other.backgrounds)

@@ -1,3 +1,6 @@
+/*!
+[`Program`](super::program::Program) that can be run.
+*/
 mod bash;
 mod vim;
 

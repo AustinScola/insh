@@ -1,10 +1,18 @@
+/*!
+This module contains the [`Size`] struct which is used for representing a 2D size.
+*/
+
+/// A 2D size.
 #[derive(PartialEq, Eq, Debug, Clone, Copy, Default)]
 pub struct Size {
+    /// The number of rows.
     pub rows: usize,
+    /// The number of columns.
     pub columns: usize,
 }
 
 impl Size {
+    /// Return a new [`Size`].
     pub fn new(rows: usize, columns: usize) -> Self {
         Size { rows, columns }
     }
