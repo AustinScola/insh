@@ -2,8 +2,6 @@
 This module contains the [`Program`] trait which is used to represent programs that can be run.
 */
 
-use std::process::Command;
-
 /**
 A program that can be run and is allowed to take over rendering of the terminal.
 */
@@ -18,8 +16,8 @@ pub trait Program {
         ProgramCleanup::default()
     }
 
-    /// Return a [`Command`] to run the program.
-    fn run(&self) -> Command;
+    /// Run the program.
+    fn run(&self);
 }
 
 /**

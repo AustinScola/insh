@@ -3,9 +3,21 @@ Contains the [`Program`] [`Vim`].
 */
 
 use crate::program::{Program, ProgramCleanup};
-use std::process::{Command, Stdio};
+use crate::ansi_escaped_text::{self, ANSIEscapedText, ANSIEscapeCode};
 
+use std::process::{Command, Stdio, ChildStdout, Child};
 use std::path::{Path, PathBuf};
+use std::io::{self, BufReader, Write, Read};
+
+use combine::Parser;
+use combine::parser::combinator::AnyPartialState;
+use combine::parser::combinator::any_partial_state;
+use combine::stream::{PartialStream};
+
+
+#[cfg(feature = "logging")]
+use log::debug;
+
 
 /// The `vim` program.
 pub struct Vim {
@@ -28,8 +40,11 @@ impl Program for Vim {
         }
     }
 
-    fn run(&self) -> Command {
+    fn run(&self) {
         let mut command = Command::new("vim");
+
+        // Tell vim that it's output is not a terminal so that it doesn't output a warning message.
+        command.arg("--not-a-term");
 
         if let Some(path) = self.args.path() {
             command.arg(path.clone());
@@ -46,9 +61,64 @@ impl Program for Vim {
             }
         }
 
-        command.stdin(Stdio::inherit()).stdout(Stdio::inherit());
+        command.stdin(Stdio::inherit()).stdout(Stdio::piped());
 
-        command
+        let mut child: Child = command.spawn().unwrap();
+
+        let command_stdout: ChildStdout = child.stdout.take().unwrap();
+        let mut reader: BufReader<ChildStdout> = BufReader::new(command_stdout);
+        let mut buffer: [u8; 1] = [0; 1];
+
+        let mut stdout = io::stdout().lock();
+        let mut parser = any_partial_state(ansi_escaped_text::parser());
+        let mut parser_state = AnyPartialState::default();
+        let mut length: usize;
+        loop {
+            length = {
+                reader.read(&mut buffer).unwrap()
+            };
+            if length == 0 {
+                break;
+            }
+
+            #[cfg(feature = "logging")]
+            debug!("Got output {:?} from vim.", &buffer[..length]);
+
+            // Parse the text so that we can strip out the ANSI escape codes for enabling and
+            // disabling the alternative screen.
+            let mut stream = PartialStream(&buffer[..]);
+            let parsed_text = parser.parse_with_state(&mut stream, &mut parser_state);
+            match parsed_text {
+                Ok(ansi_escaped_text) => {
+                    match ansi_escaped_text {
+                        ANSIEscapedText::ANSIEscapeCode(ansi_escape_code) => {
+                            match ansi_escape_code {
+                                ANSIEscapeCode::EnableAlternativeScreen => {
+                                    #[cfg(feature = "logging")]
+                                    debug!("Stripping enable alternative screen ANSI escape code from vim's output.");
+                                },
+                                ANSIEscapeCode::DisableAlternativeScreen => {
+                                    #[cfg(feature = "logging")]
+                                    debug!("Stripping disable alternative screen ANSI escape code from vim's output.");
+                                }
+                            }
+                        },
+                        ANSIEscapedText::Character(character) => {
+                            stdout.write(&[character]).unwrap();
+                            stdout.flush().unwrap();
+                        }
+                    };
+                },
+                #[cfg(feature = "logging")]
+                Err(error) => {
+                    error!("Failed to parse ANSI escaped text: {:?}", error);
+                },
+                #[cfg(not(feature = "logging"))]
+                Err(_) => {},
+            };
+        }
+
+        let _ = child.wait();
     }
 }
 

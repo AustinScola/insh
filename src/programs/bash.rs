@@ -3,7 +3,7 @@ Contains the [`Program`] [`Bash`].
 */
 use crate::program::{Program, ProgramCleanup, ProgramSetup};
 use std::path::PathBuf;
-use std::process::{Command, Stdio};
+use std::process::{Command, Stdio, Child};
 
 /// A Bash program.
 pub struct Bash {
@@ -35,12 +35,14 @@ impl Program for Bash {
         }
     }
 
-    fn run(&self) -> Command {
+    fn run(&self) {
         let mut command = Command::new("bash");
         command
             .current_dir(self.directory.clone())
             .stdin(Stdio::inherit())
             .stdout(Stdio::inherit());
-        command
+
+        let mut child: Child = command.spawn().unwrap();
+        let _ = child.wait();
     }
 }

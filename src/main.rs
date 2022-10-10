@@ -29,6 +29,7 @@ mod rendering;
 mod stateful;
 mod string;
 mod system_effect;
+mod ansi_escaped_text;
 
 use crate::app::App;
 use crate::args::Args;

@@ -6,7 +6,6 @@ use crate::system_effect::SystemEffect;
 
 use std::io::{self, Stdout, Write};
 use std::panic;
-use std::process::{Child, Command};
 
 use crossterm::cursor::{Hide as HideCursor, MoveTo as MoveCursorTo, Show as ShowCursor};
 use crossterm::event::{read, Event as CrosstermEvent};
@@ -98,10 +97,7 @@ impl App {
             self.update_terminal();
         }
 
-        let mut command: Command = (*program).run();
-        let mut child: Child = command.spawn().unwrap();
-
-        let _ = child.wait();
+        (*program).run();
 
         let cleanup: ProgramCleanup = program.cleanup();
         if cleanup.hide_cursor {
