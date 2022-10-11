@@ -3,30 +3,41 @@
 set -euo pipefail
 
 REPO_ROOT="$(git rev-parse --show-toplevel)"
-TRUTH_FILE="${REPO_ROOT}/truth.yaml"
 
-BASH_LIB="${REPO_ROOT}/bash-lib"
-pushd "${BASH_LIB}" > /dev/null
-source "${BASH_LIB}/ensure_brew_formula_installed.sh"
-source "${BASH_LIB}/check_cargo_crate_installed.sh"
-popd > /dev/null
+# Determine if we are running in CI or not. The CI variable should be set to 1 when running in CI.
+set +u
+if [[ ! -v CI ]]; then
+set -u
+    CI=0
+fi
 
-ensure_brew_formula_installed yq
+# If we are not in CI, then check that Arbsego is installed and that the right version is installed.
+if [[ "${CI}" -eq 0 ]]; then
+    TRUTH_FILE="${REPO_ROOT}/truth.yaml"
 
-ARBSEGO_VERSION="$(yq '.arbsego.version' < "${TRUTH_FILE}")"
+    BASH_LIB="${REPO_ROOT}/bash-lib"
+    pushd "${BASH_LIB}" > /dev/null
+    source "${BASH_LIB}/ensure_brew_formula_installed.sh"
+    source "${BASH_LIB}/check_cargo_crate_installed.sh"
+    popd > /dev/null
 
-# Ensure that arbsego is installed.
-# TODO: Once we push arbsego to crates.io, then make a `ensure_cargo_crate_installed` function in
-# the `bash-lib` repo and use that here.
-if [[ $(check_cargo_crate_installed arbsego "${ARBSEGO_VERSION}") == "no" ]]; then
-    echo "Arbsego version "${ARBSEGO_VERSION}" is not installed."
-    echo -n "Would you like to install it and continue? "
-    install="$(ask_yes_or_no)"
-    if [[ "${install}" == "no" ]]; then
-        echo "Aborting..."
-        exit 1
+    ensure_brew_formula_installed yq
+
+    ARBSEGO_VERSION="$(yq '.arbsego.version' < "${TRUTH_FILE}")"
+
+    # Ensure that arbsego is installed.
+    # TODO: Once we push arbsego to crates.io, then make a `ensure_cargo_crate_installed` function
+    # in the `bash-lib` repo and use that here.
+    if [[ $(check_cargo_crate_installed arbsego "${ARBSEGO_VERSION}") == "no" ]]; then
+        echo "Arbsego version "${ARBSEGO_VERSION}" is not installed."
+        echo -n "Would you like to install it and continue? "
+        install="$(ask_yes_or_no)"
+        if [[ "${install}" == "no" ]]; then
+            echo "Aborting..."
+            exit 1
+        fi
+        cargo install --git https://github.com/AustinScola/arbsego.git --tag "v${ARBSEGO_VERSION}"
     fi
-    cargo install --git https://github.com/AustinScola/arbsego.git --tag "v${ARBSEGO_VERSION}"
 fi
 
 arbsego

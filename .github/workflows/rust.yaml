@@ -12,8 +12,26 @@ jobs:
         with:
           submodules: true
 
-      - name: Setup Rust
-        run: curl https://sh.rustup.rs -sSf | sh -s -- -y
+      - name: Cache build dependencies
+        uses: actions/cache@v3
+        env:
+          cache-name: deps
+        with:
+          path: ~/.cargo/registry/
+          key: ${{ env.cache-name }}-default-features
+          restore-keys: |
+            ${{ env.cache-name }}-
+
+      - name: Cache build output
+        uses: actions/cache@v3
+        env:
+          cache-name: rustc
+        with:
+          path: target/
+          key: ${{ env.cache-name }}-debug-check-default-features
+          restore-keys: |
+            ${{ env.cache-name }}-debug-
+            ${{ env.cache-name }}-
 
       - name: Check that it compiles
         run: ./cargo-scripts/check
@@ -25,8 +43,26 @@ jobs:
     steps:
       - uses: actions/checkout@v3
 
-      - name: Setup Rust
-        run: curl https://sh.rustup.rs -sSf | sh -s -- -y
+      - name: Cache build dependencies
+        uses: actions/cache@v3
+        env:
+          cache-name: deps
+        with:
+          path: ~/.cargo/registry/
+          key: ${{ env.cache-name }}-with-logging
+          restore-keys: |
+            ${{ env.cache-name }}-
+
+      - name: Cache build output
+        uses: actions/cache@v3
+        env:
+          cache-name: rustc
+        with:
+          path: target/
+          key: ${{ env.cache-name }}-debug-check-with-logging
+          restore-keys: |
+            ${{ env.cache-name }}-debug-
+            ${{ env.cache-name }}-
 
       - name: Check that it compiles with the logging feature enabled
         run: ./scripts/check-with-logging-feature
@@ -39,8 +75,26 @@ jobs:
         with:
           submodules: true
 
-      - name: Setup Rust
-        run: curl https://sh.rustup.rs -sSf | sh -s -- -y
+      - name: Cache build dependencies
+        uses: actions/cache@v3
+        env:
+          cache-name: deps
+        with:
+          path: ~/.cargo/registry/
+          key: ${{ env.cache-name }}-default-features
+          restore-keys: |
+            ${{ env.cache-name }}-
+
+      - name: Cache build output
+        uses: actions/cache@v3
+        env:
+          cache-name: rustc
+        with:
+          path: target/
+          key: ${{ env.cache-name }}-debug-lint
+          restore-keys: |
+            ${{ env.cache-name }}-debug-
+            ${{ env.cache-name }}-
 
       - name: Lint with clippy
         run: ./cargo-scripts/lint
@@ -54,41 +108,87 @@ jobs:
         with:
           submodules: true
 
-      - name: Install Rust
-        run: curl https://sh.rustup.rs -sSf | sh -s -- -y
+      # Caches getting the Arbsego version from the truth file.
+      - name: Cache Arbsego version
+        id: cache-arbsego-version
+        uses: actions/cache@v3
+        env:
+          cache-name: arbsego-version-${{ hashFiles('truth.yaml') }}
+        with:
+          path: ~/arbsego-version.txt
+          key: ${{ env.cache-name }}
 
-      - name: Install Brew
+      - if: ${{ steps.cache-arbsego-version.outputs.cache-hit != 'true' }}
+        name: Cache Homebrew
+        uses: actions/cache@v3
+        env:
+          cache-name: homebrew
+        with:
+          path: ~/.cache/Homebrew
+          key: ${{ env.cache-name }}
+
+      - if: ${{ steps.cache-arbsego-version.outputs.cache-hit != 'true' }}
+        name: Install yq
         run: |
-          NONINTERACTIVE=1 /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
-
-          # Run the commands that Brew recommends for setting itself up.
-          echo '# Set PATH, MANPATH, etc., for Homebrew.' >> ~/.bash_profile
-          echo 'eval "$(/home/linuxbrew/.linuxbrew/bin/brew shellenv)"' >> ~/.bash_profile
+          # Make sure Brew is setup.
           eval "$(/home/linuxbrew/.linuxbrew/bin/brew shellenv)"
 
-          # Turn off Brew usage analytics.
-          brew analytics off
-
-      - name: Install yq
-        run: |
-          # Make sure brew is setup.
-          eval "$(/home/linuxbrew/.linuxbrew/bin/brew shellenv)"
-
-          # Install yq using brew.
+          # Install yq using Brew.
           brew install yq
 
-      - name: Install Arbsego
-        run: |-
+      - if: ${{ steps.cache-arbsego-version.outputs.cache-hit != 'true' }}
+        name: Get Abrsego version
+        run: |
           # Make sure brew is setup.
           eval "$(/home/linuxbrew/.linuxbrew/bin/brew shellenv)"
 
           # Get the version of Arbsego to use.
           ARBSEGO_VERSION="$(yq '.arbsego.version' < truth.yaml)"
+
+          # Write the Arbsego version to use to a file.
+          echo "${ARBSEGO_VERSION}" > ~/arbsego-version.txt
+
+      # Since we are just testing w/ one platform I think we can get away with this for now.
+      - name: Cache Arbsego binary
+        id: cache-arbsego-binary
+        uses: actions/cache@v3
+        env:
+          cache-name: arbsego-binary
+        with:
+          path: ~/.cargo/bin/arbsego
+          key: ${{ env.cache-name }}-${{ hashFiles('~/arbsego-version.txt') }}
+
+      - if: ${{ steps.cache-arbsego-binary.outputs.cache-hit == 'true' }}
+        name: Verify cached Arbsergo binary
+        id: very-cached-arbsego-binary
+        continue-on-error: true
+        run: |
+          arbsego --version
+
+      - if: ${{ steps.cache-arbsego-binary.outputs.cache-hit != 'true' ||  steps.very-cached-arbsego-binary.outcome == 'failure' }}
+        name: Cache Arbsego build dependencies
+        uses: actions/cache@v3
+        env:
+          cache-name: arbsego-deps-${{ hashFiles('~/arbsego-version.txt') }}
+        with:
+          path: ~/.cargo/registry/
+          key: ${{ env.cache-name }}-${{ hashFiles('~/arbsego-version.txt') }}
+          restore-keys: |
+            ${{ env.cache-name }}-
+
+
+      - if: ${{ steps.cache-arbsego-binary.outputs.cache-hit != 'true' ||  steps.very-cached-arbsego-binary.outcome == 'failure' }}
+        name: Install Arbsego
+        run: |
+          # Get the version of Arbsego to use.
+          ARBSEGO_VERSION="$(cat ~/arbsego-version.txt)"
   
           # Install Arbsego using cargo.
           cargo install --git https://github.com/AustinScola/arbsego.git --tag "v${ARBSEGO_VERSION}"
 
       - name: Lint using Arbsego
+        env:
+          CI: 1
         run: |
           # Make sure brew is setup.
           eval "$(/home/linuxbrew/.linuxbrew/bin/brew shellenv)"
@@ -105,9 +205,6 @@ jobs:
         with:
           submodules: true
 
-      - name: Setup Rust
-        run: curl https://sh.rustup.rs -sSf | sh -s -- -y
-
       - name: Check formatting
         run: ./cargo-scripts/format -- --check
 
@@ -120,8 +217,26 @@ jobs:
         with:
           submodules: true
 
-      - name: Setup Rust
-        run: curl https://sh.rustup.rs -sSf | sh -s -- -y
+      - name: Cache build dependencies
+        uses: actions/cache@v3
+        env:
+          cache-name: deps
+        with:
+          path: ~/.cargo/registry/
+          key: ${{ env.cache-name }}-test
+          restore-keys: |
+            ${{ env.cache-name }}-
+
+      - name: Cache build output
+        uses: actions/cache@v3
+        env:
+          cache-name: rustc
+        with:
+          path: target/
+          key: ${{ env.cache-name }}-debug-test
+          restore-keys: |
+            ${{ env.cache-name }}-debug-
+            ${{ env.cache-name }}-
 
       - name: Test
         run: cargo test
