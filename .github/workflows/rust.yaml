@@ -18,8 +18,9 @@ jobs:
           cache-name: deps
         with:
           path: ~/.cargo/registry/
-          key: ${{ env.cache-name }}-default-features
+          key: ${{ env.cache-name }}-default-features-${{ hashFiles('Cargo.lock') }}
           restore-keys: |
+            ${{ env.cache-name }}-default-features
             ${{ env.cache-name }}-
 
       - name: Cache build output
@@ -49,8 +50,9 @@ jobs:
           cache-name: deps
         with:
           path: ~/.cargo/registry/
-          key: ${{ env.cache-name }}-with-logging
+          key: ${{ env.cache-name }}-with-logging-${{ hashFiles('Cargo.lock') }}
           restore-keys: |
+            ${{ env.cache-name }}-with-logging-
             ${{ env.cache-name }}-
 
       - name: Cache build output
@@ -81,8 +83,9 @@ jobs:
           cache-name: deps
         with:
           path: ~/.cargo/registry/
-          key: ${{ env.cache-name }}-default-features
+          key: ${{ env.cache-name }}-default-features-${{ hashFiles('Cargo.lock') }}
           restore-keys: |
+            ${{ env.cache-name }}-default-features
             ${{ env.cache-name }}-
 
       - name: Cache build output
@@ -223,8 +226,9 @@ jobs:
           cache-name: deps
         with:
           path: ~/.cargo/registry/
-          key: ${{ env.cache-name }}-test
+          key: ${{ env.cache-name }}-test-${{ hashFiles('Cargo.lock') }}
           restore-keys: |
+            ${{ env.cache-name }}-test
             ${{ env.cache-name }}-
 
       - name: Cache build output
