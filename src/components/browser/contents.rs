@@ -38,10 +38,10 @@ impl Component<Props, Event, Effect> for Contents {
     }
 
     fn handle(&mut self, event: Event) -> Option<Effect> {
-        if let Some(action) = self.map(event) {
-            return self.state.perform(action);
+        match self.map(event) {
+            Some(action) => self.state.perform(action),
+            None => Some(Effect::Bell),
         }
-        None
     }
 
     fn render(&self, size: Size) -> Fabric {
@@ -518,4 +518,5 @@ pub enum Effect {
     OpenSearcher { directory: PathBuf },
     OpenVim(VimArgs),
     RunBash { directory: PathBuf },
+    Bell,
 }

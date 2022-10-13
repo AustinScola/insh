@@ -68,6 +68,9 @@ mod searcher {
                                     Some(Action::FocusContents)
                                 }
                             }
+                            Some(PhraseEffect::Bell) => {
+                                return Some(Effect::Bell);
+                            }
                             Some(PhraseEffect::Quit) => Some(Action::Quit),
                             None => None,
                         };
@@ -91,6 +94,9 @@ mod searcher {
                             }
                             Some(ContentsEffect::OpenVim(vim_args)) => {
                                 Some(Action::OpenVim(vim_args))
+                            }
+                            Some(ContentsEffect::Bell) => {
+                                return Some(Effect::Bell);
                             }
                             None => None,
                         };
@@ -144,8 +150,9 @@ mod effect {
             directory: PathBuf,
             file: Option<PathBuf>,
         },
-        Quit,
         OpenVim(VimArgs),
+        Bell,
+        Quit,
     }
 }
 pub use effect::Effect;

@@ -64,7 +64,7 @@ mod phrase {
                     }) => Some(Action::Enter),
                     CrosstermEvent::Key(KeyEvent {
                         code: KeyCode::Char(character),
-                        ..
+                        modifiers: KeyModifiers::NONE | KeyModifiers::SHIFT,
                     }) => Some(Action::Push {
                         character,
                         auto_completer: &mut self.auto_completer,
@@ -76,7 +76,7 @@ mod phrase {
             if let Some(action) = action {
                 self.state.perform(action)
             } else {
-                None
+                Some(Effect::Bell)
             }
         }
 
@@ -263,6 +263,7 @@ pub use action::Action;
 mod effect {
     pub enum Effect {
         Enter { phrase: String },
+        Bell,
         Quit,
     }
 }

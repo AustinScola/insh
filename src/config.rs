@@ -11,7 +11,9 @@ mod config {
 
     #[derive(Deserialize, Debug, Default, Clone, Eq, PartialEq)]
     pub struct Config {
+        #[serde(default)]
         general: GeneralConfig,
+        #[serde(default)]
         searcher: SearcherConfig,
     }
 
@@ -134,18 +136,31 @@ mod general {
 
     #[derive(Deserialize, Debug, Clone, Eq, PartialEq)]
     pub struct GeneralConfig {
+        #[serde(default)]
         tab_width: usize,
+
+        /// Whether the bell sound should be made or not.
+        #[serde(default)]
+        bell: bool,
     }
 
     impl Default for GeneralConfig {
         fn default() -> Self {
-            Self { tab_width: 4 }
+            Self {
+                tab_width: 4,
+                bell: true,
+            }
         }
     }
 
     impl GeneralConfig {
         pub fn tab_width(&self) -> usize {
             self.tab_width
+        }
+
+        /// Return whether the bell sound should be made or not.
+        pub fn bell(&self) -> bool {
+            self.bell
         }
     }
 }
@@ -156,6 +171,7 @@ mod search {
 
     #[derive(Deserialize, Debug, Default, Clone, Eq, PartialEq)]
     pub struct SearcherConfig {
+        #[serde(default)]
         history: SearcherHistoryConfig,
     }
 
@@ -169,6 +185,7 @@ mod search {
     #[derive(Deserialize, Debug, Clone, Eq, PartialEq)]
     pub struct SearcherHistoryConfig {
         /// The maximum length of the searcher history.
+        #[serde(default)]
         length: usize,
     }
 

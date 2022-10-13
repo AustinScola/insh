@@ -99,7 +99,7 @@ mod contents {
             if let Some(action) = action {
                 self.state.perform(action)
             } else {
-                None
+                Some(Effect::Bell)
             }
         }
 
@@ -476,6 +476,7 @@ mod effect {
             file: Option<PathBuf>,
         },
         OpenVim(VimArgs),
+        Bell,
     }
 }
 pub use effect::Effect;

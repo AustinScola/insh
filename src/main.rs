@@ -9,6 +9,7 @@ extern crate lazy_static;
 
 mod app;
 mod args;
+mod ascii;
 mod auto_completer;
 mod auto_completers;
 mod clipboard;

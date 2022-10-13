@@ -1,3 +1,7 @@
+# 0.3.18
+- Add making of the bell sound for invalid commands. This can be turned off via the configuration
+setting `general.bell`.
+
 # 0.3.17
 - Fix yanking on Ubuntu 22.04.
 
