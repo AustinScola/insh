@@ -73,6 +73,9 @@ impl Component<Props, Event, Effect> for Browser {
                             Some(ContentsEffect::RunBash { directory }) => {
                                 effect = Some(Effect::RunBash { directory });
                             }
+                            Some(ContentsEffect::Bell) => {
+                                effect = Some(Effect::Bell);
+                            }
                             None => {}
                         }
                     }
@@ -145,4 +148,5 @@ pub enum Effect {
     OpenSearcher { directory: PathBuf },
     OpenVim(VimArgs),
     RunBash { directory: PathBuf },
+    Bell,
 }

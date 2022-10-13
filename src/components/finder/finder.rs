@@ -66,6 +66,9 @@ mod finder {
                                     action = Some(Action::FocusContents);
                                 }
                             }
+                            Some(PhraseEffect::Bell) => {
+                                return Some(Effect::Bell);
+                            }
                             Some(PhraseEffect::Quit) => {
                                 action = Some(Action::Quit);
                             }
@@ -93,6 +96,7 @@ mod finder {
                             Some(ContentsEffect::OpenVim(vim_args)) => {
                                 Some(Effect::OpenVim(vim_args))
                             }
+                            Some(ContentsEffect::Bell) => Some(Effect::Bell),
                             None => None,
                         }
                     }
@@ -256,6 +260,7 @@ mod effect {
             file: Option<PathBuf>,
         },
         OpenVim(VimArgs),
+        Bell,
         Quit,
     }
 }

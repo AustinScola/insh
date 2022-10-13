@@ -152,6 +152,9 @@ impl Component<Props, Event, SystemEffect> for Insh {
                         let program = Box::new(Bash::new(directory));
                         return Some(SystemEffect::RunProgram { program });
                     }
+                    Some(BrowserEffect::Bell) => {
+                        action = Some(Action::Bell);
+                    }
                     None => {}
                 }
             }
@@ -169,6 +172,9 @@ impl Component<Props, Event, SystemEffect> for Insh {
                     Some(FinderEffect::Quit) => {
                         action = Some(Action::QuitFinder);
                     }
+                    Some(FinderEffect::Bell) => {
+                        action = Some(Action::Bell);
+                    }
                     None => {}
                 }
             }
@@ -185,6 +191,9 @@ impl Component<Props, Event, SystemEffect> for Insh {
                     Some(SearcherEffect::OpenVim(vim_args)) => {
                         let program = Box::new(Vim::new(vim_args));
                         return Some(SystemEffect::RunProgram { program });
+                    }
+                    Some(SearcherEffect::Bell) => {
+                        action = Some(Action::Bell);
                     }
                     None => {}
                 }
@@ -308,6 +317,15 @@ impl State {
         self.mode = Mode::Browse;
         None
     }
+
+    /// If the bell sound is configured to be made, then return the effect for making the bell
+    /// sound.
+    fn bell(&self) -> Option<SystemEffect> {
+        match self.config.general().bell() {
+            true => Some(SystemEffect::Bell),
+            false => None,
+        }
+    }
 }
 
 impl Stateful<Action, SystemEffect> for State {
@@ -318,6 +336,7 @@ impl Stateful<Action, SystemEffect> for State {
             Action::Search { directory } => self.search(directory),
             Action::QuitFinder => self.quit_finder(),
             Action::QuitSearcher => self.quit_searcher(),
+            Action::Bell => self.bell(),
         }
     }
 }
@@ -346,6 +365,7 @@ enum Action {
     Search {
         directory: PathBuf,
     },
+    Bell,
     QuitFinder,
     QuitSearcher,
 }

@@ -1,5 +1,5 @@
+use crate::ascii::ASCII;
 use crate::component::Component;
-
 use crate::program::{Program, ProgramCleanup, ProgramSetup};
 use crate::rendering::{Fabric, Renderer, Size};
 use crate::system_effect::SystemEffect;
@@ -10,9 +10,10 @@ use std::process::{Child, Command};
 
 use crossterm::cursor::{Hide as HideCursor, MoveTo as MoveCursorTo, Show as ShowCursor};
 use crossterm::event::{read, Event as CrosstermEvent};
+use crossterm::style::Print;
 use crossterm::terminal::{self, EnterAlternateScreen, LeaveAlternateScreen};
 use crossterm::terminal::{Clear as ClearTerminal, ClearType as TerminalClearType};
-use crossterm::QueueableCommand;
+use crossterm::{ExecutableCommand, QueueableCommand};
 
 pub struct App {
     stdout: Stdout,
@@ -39,12 +40,15 @@ impl App {
         if let Some(effects) = starting_effects {
             for effect in effects {
                 match effect {
+                    SystemEffect::RunProgram { program } => {
+                        self.run_program(program);
+                    }
+                    SystemEffect::Bell => {
+                        self.make_bell_sound();
+                    }
                     SystemEffect::Exit => {
                         self.teardown();
                         return;
-                    }
-                    SystemEffect::RunProgram { program } => {
-                        self.run_program(program);
                     }
                 }
             }
@@ -60,11 +64,14 @@ impl App {
 
             let effect: Option<SystemEffect> = root.handle(event);
             match effect {
-                Some(SystemEffect::Exit) => {
-                    break;
-                }
                 Some(SystemEffect::RunProgram { program }) => {
                     self.run_program(program);
+                }
+                Some(SystemEffect::Bell) => {
+                    self.make_bell_sound();
+                }
+                Some(SystemEffect::Exit) => {
+                    break;
                 }
                 None => {}
             }
@@ -155,6 +162,10 @@ impl App {
 
     fn lazy_move_cursor_home(&mut self) {
         self.stdout.queue(MoveCursorTo(0, 0)).unwrap();
+    }
+
+    fn make_bell_sound(&mut self) {
+        self.stdout.execute(Print(ASCII::Bell)).unwrap();
     }
 
     fn update_terminal(&mut self) {
