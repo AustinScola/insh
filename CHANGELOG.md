@@ -1,3 +1,7 @@
+# 0.3.19
+- Fix restoring the terminal screen after running vim by wrapping vim's stdout and stripping the
+ANSI escape codes for enabling and disabling the alternative screen.
+
 # 0.3.18
 - Add making of the bell sound for invalid commands. This can be turned off via the configuration
 setting `general.bell`.

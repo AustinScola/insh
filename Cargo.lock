@@ -267,7 +267,7 @@ dependencies = [
 
 [[package]]
 name = "insh"
-version = "0.3.18"
+version = "0.3.19"
 dependencies = [
  "clap",
  "copypasta",
