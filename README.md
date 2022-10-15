@@ -99,6 +99,8 @@ Insh can be configured by the file `~/.insh-config.yaml`.
 
 ### Options
 
-`general.tab_width` (usize): The width of the `<Tab>` character.
+`general.tab_width` (usize): The width of the `<Tab>` character (default=`4`).
 
-`searcher.history.length` (usize): The number of searches to store.
+`general.bell` (bool): Whether the bell sound should be made or not (default=`true`).
+
+`searcher.history.length` (usize): The number of searches to store (default=`1000`).
