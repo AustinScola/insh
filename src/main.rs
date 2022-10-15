@@ -7,6 +7,7 @@
 #[macro_use]
 extern crate lazy_static;
 
+mod ansi_escaped_text;
 mod app;
 mod args;
 mod ascii;

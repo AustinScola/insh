@@ -278,6 +278,7 @@ dependencies = [
  "itertools",
  "lazy_static",
  "log",
+ "nom",
  "regex",
  "serde",
  "serde_yaml",
