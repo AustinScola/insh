@@ -9,6 +9,7 @@ use std::fs::{self, DirEntry};
 use std::io::ErrorKind as IOErrorKind;
 use std::path::{Path, PathBuf};
 
+use crate::clipboard::Clipboard;
 use crossterm::event::{Event as CrosstermEvent, KeyCode, KeyEvent, KeyModifiers};
 
 pub struct Props {
@@ -130,6 +131,14 @@ impl Contents {
                             code: KeyCode::Backspace,
                             ..
                         } => Some(Action::Pop),
+                        KeyEvent {
+                            code: KeyCode::Char('y'),
+                            modifiers: KeyModifiers::NONE,
+                        } => Some(Action::Yank),
+                        KeyEvent {
+                            code: KeyCode::Char('Y'),
+                            modifiers: KeyModifiers::SHIFT,
+                        } => Some(Action::ReallyYank),
                         KeyEvent {
                             code: KeyCode::Char('b'),
                             ..
@@ -289,7 +298,7 @@ impl State {
         self.offset = 0;
     }
 
-    fn resize(&mut self, new_size: Size) {
+    fn resize(&mut self, new_size: Size) -> Option<Effect> {
         if let Some(selected) = self.selected {
             if let Ok(entries) = &self.entries {
                 let rows_before = self.size.rows;
@@ -323,23 +332,25 @@ impl State {
         }
 
         self.size = new_size;
+
+        None
     }
 
-    fn down(&mut self) {
+    fn down(&mut self) -> Option<Effect> {
         let entries: &Vec<DirEntry> = match &self.entries {
             Ok(entries) => entries,
             Err(_) => {
-                return;
+                return None;
             }
         };
 
         if entries.is_empty() {
-            return;
+            return None;
         }
 
         let entry_number = self.entry_number().unwrap();
         if entry_number >= entries.len() - 1 {
-            return;
+            return None;
         }
         let selected = self.selected.unwrap();
         if selected < self.size.rows - 1 {
@@ -347,19 +358,21 @@ impl State {
         } else {
             self.offset += 1;
         }
+
+        None
     }
 
     /// Select the last entry and adjust the scroll position if necessary.
-    fn really_down(&mut self) {
+    fn really_down(&mut self) -> Option<Effect> {
         let entries: &Vec<DirEntry> = match &self.entries {
             Ok(entries) => entries,
             Err(_) => {
-                return;
+                return None;
             }
         };
 
         if entries.is_empty() {
-            return;
+            return None;
         }
 
         if entries.len() > self.size.rows {
@@ -368,9 +381,11 @@ impl State {
         } else {
             self.selected = Some(entries.len() - 1);
         }
+
+        None
     }
 
-    fn up(&mut self) {
+    fn up(&mut self) -> Option<Effect> {
         if let Some(selected) = self.selected {
             if selected > 0 {
                 self.selected = Some(selected.saturating_sub(1))
@@ -378,19 +393,23 @@ impl State {
                 self.offset = self.offset.saturating_sub(1);
             }
         }
+
+        None
     }
 
     /// Select the first entry and adjust the scroll position if necessary.
-    fn really_up(&mut self) {
+    fn really_up(&mut self) -> Option<Effect> {
         self.offset = 0;
         self.selected = Some(0);
+        None
     }
 
     /// Refresh the contents of the browser to reflect the current state of the file system.
-    fn refresh(&mut self) {
+    fn refresh(&mut self) -> Option<Effect> {
         // TODO: Maintain the currently selected entry (if possible) and maintain the currently
         // selected scroll position (if possible).
         self.reset_entries();
+        None
     }
 
     fn push(&mut self) -> Option<Effect> {
@@ -418,6 +437,51 @@ impl State {
         None
     }
 
+    /// Copy the file name of the selected entry to the clipboard.
+    ///
+    /// If the entry is a directory, a trailing slash is added.
+    fn yank(&self) -> Option<Effect> {
+        let entry: &DirEntry = match self.entry() {
+            Some(entry) => entry,
+            None => {
+                return None;
+            }
+        };
+
+        let mut contents: String = entry.file_name().to_string_lossy().to_string();
+        if entry.path().is_dir() {
+            contents.push('/');
+        }
+
+        let mut clipboard = Clipboard::new();
+        clipboard.copy(contents);
+
+        None
+    }
+
+    /// Copy the path of the selected entry to the clipboard.
+    ///
+    /// If the entry is a directory, a trailing slash is added.
+    fn really_yank(&self) -> Option<Effect> {
+        let entry: &DirEntry = match self.entry() {
+            Some(entry) => entry,
+            None => {
+                return None;
+            }
+        };
+
+        let path: PathBuf = entry.path();
+        let mut contents: String = path.to_string_lossy().to_string();
+        if path.is_dir() {
+            contents.push('/');
+        }
+
+        let mut clipboard = Clipboard::new();
+        clipboard.copy(contents);
+
+        None
+    }
+
     fn open_finder(&self) -> Option<Effect> {
         Some(Effect::OpenFinder {
             directory: self.directory.clone(),
@@ -439,43 +503,21 @@ impl State {
 
 impl Stateful<Action, Effect> for State {
     fn perform(&mut self, action: Action) -> Option<Effect> {
-        let mut effect: Option<Effect> = None;
         match action {
-            Action::Resize { size } => {
-                self.resize(size);
-            }
-            Action::Down => {
-                self.down();
-            }
-            Action::ReallyDown => {
-                self.really_down();
-            }
-            Action::Up => {
-                self.up();
-            }
-            Action::ReallyUp => {
-                self.really_up();
-            }
-            Action::Refresh => {
-                self.refresh();
-            }
-            Action::Push => {
-                effect = self.push();
-            }
-            Action::Pop => {
-                effect = self.pop();
-            }
-            Action::OpenFinder => {
-                effect = self.open_finder();
-            }
-            Action::OpenSearcher => {
-                effect = self.open_searcher();
-            }
-            Action::RunBash => {
-                effect = self.run_bash();
-            }
+            Action::Resize { size } => self.resize(size),
+            Action::Down => self.down(),
+            Action::ReallyDown => self.really_down(),
+            Action::Up => self.up(),
+            Action::ReallyUp => self.really_up(),
+            Action::Refresh => self.refresh(),
+            Action::Push => self.push(),
+            Action::Pop => self.pop(),
+            Action::Yank => self.yank(),
+            Action::ReallyYank => self.really_yank(),
+            Action::OpenFinder => self.open_finder(),
+            Action::OpenSearcher => self.open_searcher(),
+            Action::RunBash => self.run_bash(),
         }
-        effect
     }
 }
 
@@ -506,6 +548,8 @@ enum Action {
     Refresh,
     Push,
     Pop,
+    Yank,
+    ReallyYank,
     OpenFinder,
     OpenSearcher,
     RunBash,
