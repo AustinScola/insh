@@ -33,7 +33,10 @@ below. The currently selected entry is highlighed in yellow.
 | `h` \| `<Backspace>` | Change directories to the parent of the current directory (if the current directory is not the root directory).                                                                    |
 | `b`                  | Run bash with the working directory set to the current directory.                                                                                                                  |
 | `f`                  | Open the file finder.                                                                                                                                                              |
-| `s`                  | Open the file contents searcher.
+| `s`                  | Open the file contents searcher.                                                                                                                                                   |
+| `y`                  | Yank the selected entry. (Copy the file name of the selection to the clipboard.)                                                                                                   |
+| `Y`                  | Really yank the selected entry. (Copy the absolute path of the selected entry to the clipboard.)                                                                                   |
+
 
 ### Finder Help
 
@@ -64,7 +67,7 @@ the file name.
 | `g`              | Go to the hit in the file browser.                                         |
 | `G`              | Go to the hit in the file browser and select it.                           |
 | `y`              | Yank the hit. (Copy the path of the hit to the clipboard.)                 |
-| `Y`              | Really yank the hit. (Copy the aboslute path of the hit to the clipboard.) |
+| `Y`              | Really yank the hit. (Copy the absolute path of the hit to the clipboard.) |
 
 ### Searcher Help
 
@@ -90,7 +93,7 @@ The commands for the input bar are the same as those for the Finder.
 | `g`              | Go to the hit in the file browser.                                                                                                                                                                 |
 | `G`              | Go to the hit in the file browser and select it.                                                                                                                                                   |
 | `y`              | Yank the hit. If the file path of a hit is selected, yank the file path. Else, if an occurence of the string is selected, yank that line.                                                          |
-| `Y`              | Really yank the hit. If the file path of a hit is selected, yank the **absolute** file path. Else, if an occurence of the string is selected, yank that line.                                      |
+| `Y`              | Really yank the hit. If the file path of a hit is selected, yank the absolute file path. Else, if an occurence of the string is selected, yank that line.                                      |
 
 
 ## Configuration

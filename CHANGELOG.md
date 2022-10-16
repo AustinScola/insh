@@ -1,3 +1,6 @@
+# 0.3.20
+- Add the yank (`y`) and really yank (`Y`) commands to the file browser.
+
 # 0.3.19
 - Fix restoring the terminal screen after running vim by wrapping vim's stdout and stripping the
 ANSI escape codes for enabling and disabling the alternative screen.
