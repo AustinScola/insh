@@ -1,3 +1,7 @@
+/*!
+This module contains the [`Data`] struct which is used to access persistent data stored in the file
+system.
+*/
 use std::collections::VecDeque;
 use std::fs::{DirBuilder, File, OpenOptions};
 use std::io::ErrorKind as IOErrorKind;
@@ -8,8 +12,9 @@ use fslock::LockFile;
 
 use serde::{Deserialize, Serialize};
 
-/// The permissions to use for the data directory and files in it.
+/// The permissions to use for the data directory
 static INSH_DIRECTORY_PERMISSIONS: u32 = 0o700; // rwx --- ---
+/// The permissions to use for files in the data directory.
 static INSH_FILES_PERMISSIONS: u32 = 0o600; // rw- --- ---
 
 lazy_static! {
@@ -59,11 +64,14 @@ lazy_static! {
     };
 }
 
+/// Peristent data.
 #[derive(Serialize, Deserialize)]
 pub struct Data {
+    /// Used to synchronize access to the data.
     #[serde(skip, default = "get_lock_file")]
     lock: LockFile,
 
+    /// Data related to searching for text in files.
     pub searcher: SearcherData,
 }
 
@@ -113,15 +121,18 @@ fn ensure_insh_directory_exists() {
 }
 
 impl Data {
+    /// Acquire the lock to the data file.
     #[allow(dead_code)]
     pub fn acquire(&mut self) {
         self.lock = get_lock_file();
     }
 
+    /// Return if the lock to the data file is owned.
     fn has_lock(&self) -> bool {
         self.lock.owns_lock()
     }
 
+    /// Release the lock around the data file.
     pub fn release(&mut self) {
         self.lock.unlock().unwrap();
     }

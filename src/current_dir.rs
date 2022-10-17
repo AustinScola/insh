@@ -1,3 +1,6 @@
+/*!
+This module contains the [`current_dir`] helper function for returning the current directory.
+*/
 use std::env;
 use std::path::PathBuf;
 
