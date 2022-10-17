@@ -1,3 +1,8 @@
+/*!
+Configuration options loaded from the YAML file `~/.insh-config` if it exists.
+*/
+
+/// Configuration options.
 mod config {
     use super::{GeneralConfig, SearcherConfig};
 
@@ -9,10 +14,13 @@ mod config {
     use serde::Deserialize;
     use serde_yaml::Error as YamlParseError;
 
+    /// Configuration options.
     #[derive(Deserialize, Debug, Default, Clone, Eq, PartialEq)]
     pub struct Config {
+        /// General configuration.
         #[serde(default)]
         general: GeneralConfig,
+        /// Configuration of the Searcher.
         #[serde(default)]
         searcher: SearcherConfig,
     }
@@ -72,24 +80,39 @@ mod config {
         }
     }
 
+    /// The result of trying to determine a default path.
     type ConfigDefaultPathResult = Result<PathBuf, ConfigDefaultPathError>;
 
+    /// A problem with determining a default path.
     pub enum ConfigDefaultPathError {
+        /// The home directory could not be determined.
         CannotDetermineHomeDirectory,
     }
 
+    /// The result of trying to load the configuration file.
     type ConfigLoadResult = Result<Config, ConfigLoadError>;
 
+    /// An error loading the configuration file.
     #[allow(clippy::enum_variant_names)]
     pub enum ConfigLoadError {
+        /// An error when the there is a problem determining one of the default paths that is used
+        /// in determining the configuration file. For example, if the home directory cannot be
+        /// determined.
         ConfigDefaultPathError(ConfigDefaultPathError),
+        /// An error when permission is denied while trying to read the configuration file.
         PermissionDeniedError(PathBuf),
+        /// An generic error with reading the configuration file.
         OtherFileReadError {
+            /// The path of the configuration file the there was a problem reading.
             path: PathBuf,
+            /// The IO error that was encountered while attempting to read the configuration file.
             error: IOError,
         },
+        /// An error parsing the configuration file.
         ParseError {
+            /// The path of the configuration file the there was a problem parsing.
             path: PathBuf,
+            /// An error parsing the configuration file as YAML.
             error: YamlParseError,
         },
     }
@@ -131,11 +154,14 @@ mod config {
 }
 pub use config::{Config, ConfigLoadError};
 
+/// Contains general configuration.
 mod general {
     use serde::Deserialize;
 
+    /// General configuration options.
     #[derive(Deserialize, Debug, Clone, Eq, PartialEq)]
     pub struct GeneralConfig {
+        /// The width of tab characters.
         #[serde(default)]
         tab_width: usize,
 
@@ -154,6 +180,7 @@ mod general {
     }
 
     impl GeneralConfig {
+        /// Return the width of tab characters.
         pub fn tab_width(&self) -> usize {
             self.tab_width
         }
@@ -166,11 +193,14 @@ mod general {
 }
 pub use general::GeneralConfig;
 
+/// Contains search configuration.
 mod search {
     use serde::Deserialize;
 
+    /// Configuration for the Searcher.
     #[derive(Deserialize, Debug, Default, Clone, Eq, PartialEq)]
     pub struct SearcherConfig {
+        /// Configuration for the Searcher history.
         #[serde(default)]
         history: SearcherHistoryConfig,
     }
@@ -182,6 +212,7 @@ mod search {
         }
     }
 
+    /// Configuration for the Searcher history.
     #[derive(Deserialize, Debug, Clone, Eq, PartialEq)]
     pub struct SearcherHistoryConfig {
         /// The maximum length of the searcher history.

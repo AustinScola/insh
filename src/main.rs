@@ -1,4 +1,6 @@
-//! A graphical, interactive, terminal environment.
+/*!
+A graphical, interactive, terminal environment.
+*/
 #![deny(warnings)]
 #![deny(missing_docs)]
 #![allow(clippy::module_inception)]
