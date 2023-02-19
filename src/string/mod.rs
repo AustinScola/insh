@@ -92,7 +92,7 @@ mod capitalize_first_letter {
 }
 pub use capitalize_first_letter::CapitalizeFirstLetterExt;
 
-/// Contains functionality for removing tabs from strings.
+// Contains functionality for removing tabs from strings.
 mod detab {
     /// An extension trait for strings to remove tabs.
     pub trait DetabExt {
@@ -162,3 +162,49 @@ mod detab {
     }
 }
 pub use detab::DetabExt;
+
+pub mod is_all_whitespace {
+    /// An extension trait for strings to determine if it contains all whitespace characters.
+    pub trait IsAllWhitespace {
+        /// Returns `true` if the string contains all whitespace characters, else return `false`.
+        fn is_all_whitespace(&self) -> bool;
+    }
+
+    impl IsAllWhitespace for String {
+        fn is_all_whitespace(&self) -> bool {
+            self.chars().all(|character| character.is_whitespace())
+        }
+    }
+
+    impl IsAllWhitespace for &str {
+        fn is_all_whitespace(&self) -> bool {
+            self.chars().all(|character| character.is_whitespace())
+        }
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use super::IsAllWhitespace;
+        use test_case::test_case;
+
+        #[test_case("", true; "empty string")]
+        #[test_case("  ", true; "string consisting of only whitespace characters")]
+        #[test_case("\n\t", true; "string with mixed whitespace characters")]
+        #[test_case("Hello, world!", false; "string with non-whitespace characters")]
+        fn test_is_all_whitespace_str(string: &str, expected: bool) {
+            assert_eq!(string.to_string().is_all_whitespace(), expected);
+        }
+
+        #[test_case("", true; "empty string")]
+        #[test_case("  ", true; "string consisting of only whitespace characters")]
+        #[test_case("\n\t", true; "string with mixed whitespace characters")]
+        #[test_case("Hello, world!", false; "string with non-whitespace characters")]
+        fn test_is_all_whitespace_string(string: &str, expected: bool) {
+            assert_eq!(string.is_all_whitespace(), expected);
+        }
+    }
+}
+pub use is_all_whitespace::IsAllWhitespace;
+
+mod pad;
+pub use pad::{Pad, PadOptions};

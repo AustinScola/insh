@@ -24,6 +24,7 @@ mod current_dir;
 mod data;
 #[cfg(feature = "logging")]
 mod logging;
+mod misc;
 mod path_finder;
 mod phrase_searcher;
 mod program;

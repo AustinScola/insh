@@ -1,8 +1,13 @@
 /*!
 This module contains the [`Yarn`] struct which is used for representing styled text.
 */
-use crossterm::style::Color as CrosstermColor;
+use crate::misc::align::Align;
+use crate::string::is_all_whitespace::IsAllWhitespace;
+use crate::string::{Pad, PadOptions};
+
 use std::cmp::Ordering;
+
+use crossterm::style::Color as CrosstermColor;
 
 // MAYBE TODO: Store ranges instead of using `Vec` to save memory?
 /// A yarn is a string with text colors and background colors.
@@ -70,6 +75,120 @@ impl Yarn {
                 return Yarn::from(string);
             }
         };
+    }
+
+    pub fn wrapped(text: &str, columns: usize, align: Align) -> Vec<Yarn> {
+        if text.is_empty() || text.is_all_whitespace() || columns == 0 {
+            return vec![];
+        }
+
+        let mut words = text.split_whitespace();
+        let mut word: &str = words.next().unwrap();
+
+        if columns == 1 {
+            let mut yarns: Vec<Yarn> = vec![];
+            loop {
+                for character in word.chars() {
+                    yarns.push(Yarn::from(character));
+                }
+
+                word = match words.next() {
+                    Some(word) => {
+                        yarns.push(Yarn::from(" "));
+                        word
+                    }
+                    None => break,
+                };
+            }
+
+            return yarns;
+        }
+
+        let mut strings: Vec<String> = vec![];
+        let mut string: String = String::new();
+        loop {
+            // Handle the first word in a line.
+            if string.len() == 0 {
+                match word.len().cmp(&columns) {
+                    Ordering::Less => {
+                        string += word;
+                        word = match words.next() {
+                            Some(word) => word,
+                            None => {
+                                strings.push(string);
+                                break
+                            }
+                        };
+                        continue;
+                    }
+                    Ordering::Equal => {
+                        strings.push(word.to_string());
+                        string = String::new();
+                        word = match words.next() {
+                            Some(word) => word,
+                            None => break,
+                        };
+                        continue;
+                    }
+                    Ordering::Greater => {
+                        let start: &str;
+                        (start, word) = word.split_at(columns - 1);
+                        strings.push(start.to_string() + "-");
+                        string = String::new();
+                        continue;
+                    }
+                };
+            }
+
+            match (string.len() + word.len() + 1).cmp(&columns) {
+                Ordering::Less => {
+                    string.push_str(" ");
+                    string.push_str(&word);
+                    word = match words.next() {
+                        Some(word) => word,
+                        None => break,
+                    };
+                }
+                Ordering::Equal => {
+                    string.push_str(" ");
+                    string.push_str(&word);
+
+                    strings.push(string);
+                    string = String::new();
+
+                    word = match words.next() {
+                        Some(word) => word,
+                        None => break,
+                    };
+                }
+                Ordering::Greater => {
+                    if string.len() + 1 == columns || string.len() + 2 == columns {
+                        strings.push(string);
+                        string = String::new();
+                        continue;
+                    }
+
+                    let start: &str;
+                    println!("{word}");
+                    (start, word) = word.split_at((columns - string.len()) - 2);
+                    string.push_str(" ");
+                    string.push_str(start);
+                    string.push_str("-");
+                    strings.push(string);
+                    string = String::new();
+                }
+            }
+        }
+
+        strings
+            .into_iter()
+            .map(|string| {
+                let pad_options: PadOptions =
+                    PadOptions::builder().width(columns).align(align).build();
+                let string = string.pad(pad_options);
+                Yarn::from(string)
+            })
+            .collect::<Vec<Yarn>>()
     }
 
     /// Return the length of the yarn.
@@ -229,9 +348,19 @@ impl From<Vec<char>> for Yarn {
     }
 }
 
+impl From<char> for Yarn {
+    fn from(character: char) -> Self {
+        Yarn {
+            characters: vec![character],
+            ..Default::default()
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::misc::align::Align;
 
     use test_case::test_case;
 
@@ -244,6 +373,23 @@ mod tests {
     #[test_case("foobar", 2, Yarn::from(".."); "dot truncation can handle lengths less than 3")]
     fn test_center(string: &str, len: usize, expected_result: Yarn) {
         let result: Yarn = Yarn::center(string, len);
+
+        assert_eq!(result, expected_result);
+    }
+
+    #[test_case("", 0, Align::Center, vec![]; "no text and zero columns")]
+    #[test_case("", 3, Align::Center, vec![]; "no text and some columns")]
+    #[test_case("  ", 3, Align::Center, vec![]; "all whitespace")]
+    #[test_case("foo", 0, Align::Center, vec![]; "some text and zero columns")]
+    #[test_case("foo", 5, Align::Center, vec![Yarn::from(" foo ")]; "a single word is centered")]
+    #[test_case("foo", 5, Align::Left, vec![Yarn::from("foo  ")]; "a single word is left aligned")]
+    #[test_case("foo", 5, Align::Right, vec![Yarn::from("  foo")]; "a single word is right aligned")]
+    #[test_case("a man a plan a canal panama", 6, Align::Center, vec![Yarn::from("a man "), Yarn::from("a plan"), Yarn::from("a can-"), Yarn::from("al pa-"), Yarn::from(" nama ")]; "multiple words get wrapped")]
+    #[test_case("foobar", 4, Align::Center, vec![Yarn::from("foo-"), Yarn::from("bar ")]; "text that is too long gets hyphenated")]
+    #[test_case("foo", 1, Align::Center, vec![Yarn::from("f"), Yarn::from("o"), Yarn::from("o")]; "if there is only one column, don't hyphenate")]
+    #[test_case("foo bar", 1, Align::Center, vec![Yarn::from("f"), Yarn::from("o"), Yarn::from("o"), Yarn::from(" "), Yarn::from("b"), Yarn::from("a"),  Yarn::from("r")]; "multiple words and one column should be space seperated")]
+    fn test_wrapped(text: &str, columns: usize, align: Align, expected_result: Vec<Yarn>) {
+        let result: Vec<Yarn> = Yarn::wrapped(text, columns, align);
 
         assert_eq!(result, expected_result);
     }

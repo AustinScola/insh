@@ -2,14 +2,20 @@
 Contains functionality for representing styled text, manipulating it, and rendering it to a
 terminal screen.
 */
-mod fabric;
-mod location;
 mod renderer;
-mod size;
-mod yarn;
-
-pub use fabric::Fabric;
-pub use location::Location;
 pub use renderer::Renderer;
-pub use size::Size;
+
+mod yarn;
 pub use yarn::Yarn;
+
+mod fabric;
+pub use fabric::Fabric;
+
+mod location;
+pub use location::Location;
+
+mod size;
+pub use size::Size;
+
+pub mod renderables;
+pub use renderables::{JoinAndWrap, VerticallyCentered};
