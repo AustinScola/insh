@@ -1,3 +1,6 @@
+# 0.3.21
+- Fix the build for latest stable Rust.
+
 # 0.3.20
 - Add the yank (`y`) and really yank (`Y`) commands to the file browser.
 
