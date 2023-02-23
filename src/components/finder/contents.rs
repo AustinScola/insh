@@ -112,7 +112,7 @@ mod contents {
                     for (entry, row) in self.state.visible_entries().iter().zip(0..size.rows) {
                         let path: &Path = entry.path();
                         let mut string: &str = &path.to_string_lossy();
-                        string = string.strip_prefix(&directory).unwrap();
+                        string = string.strip_prefix(directory).unwrap();
                         if string.starts_with(PATH_SEPARATOR) {
                             string = string.strip_prefix(PATH_SEPARATOR).unwrap();
                         }
