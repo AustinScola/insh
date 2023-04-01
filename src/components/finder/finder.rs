@@ -228,15 +228,11 @@ mod state {
 use state::State;
 
 mod focus {
+    #[derive(Default)]
     pub enum Focus {
+        #[default]
         Phrase,
         Contents,
-    }
-
-    impl Default for Focus {
-        fn default() -> Self {
-            Focus::Phrase
-        }
     }
 }
 use focus::Focus;

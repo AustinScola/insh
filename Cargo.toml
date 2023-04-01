@@ -1,6 +1,6 @@
 [package]
 name = "insh"
-version = "0.3.21"
+version = "0.3.22"
 edition = "2021"
 
 [features]
@@ -38,6 +38,9 @@ flexi_logger = { version = "0.23.3", optional = true }
 
 # Used to create a parser for text with ANSI escape codes.
 nom = "7.1.1"
+
+# Used for generatingr the builder pattern for structs.
+typed-builder = "0.14.0"
 
 [dev-dependencies]
 test-case = "2.0.0"

@@ -1,8 +1,8 @@
-use super::browser::{Browser, BrowserEffect, BrowserProps};
-use super::finder::{Finder, FinderEffect, FinderProps};
-use super::searcher::{Searcher, SearcherEffect, SearcherProps};
-
 use crate::component::Component;
+use crate::components::browser::{Browser, BrowserEffect, BrowserProps};
+use crate::components::file_creator::{FileCreator, FileCreatorEffect, FileCreatorProps};
+use crate::components::finder::{Finder, FinderEffect, FinderProps};
+use crate::components::searcher::{Searcher, SearcherEffect, SearcherProps};
 use crate::config::Config;
 use crate::current_dir;
 use crate::programs::{Bash, Vim};
@@ -138,6 +138,9 @@ impl Component<Props, Event, SystemEffect> for Insh {
                 let browser = self.state.browser.as_mut().unwrap();
                 let browser_effect: Option<BrowserEffect> = browser.handle(event);
                 match browser_effect {
+                    Some(BrowserEffect::OpenFileCreator { directory }) => {
+                        action = Some(Action::CreateFile { directory });
+                    }
                     Some(BrowserEffect::OpenFinder { directory }) => {
                         action = Some(Action::Find { directory });
                     }
@@ -154,6 +157,22 @@ impl Component<Props, Event, SystemEffect> for Insh {
                     }
                     Some(BrowserEffect::Bell) => {
                         action = Some(Action::Bell);
+                    }
+                    None => {}
+                }
+            }
+            Mode::FileCreator => {
+                let file_creator = self.state.file_creator.as_mut().unwrap();
+                let file_creator_effect: Option<FileCreatorEffect> = file_creator.handle(event);
+                match file_creator_effect {
+                    Some(FileCreatorEffect::Browse { directory, file }) => {
+                        action = Some(Action::Browse { directory, file });
+                    }
+                    Some(FileCreatorEffect::Bell) => {
+                        action = Some(Action::Bell);
+                    }
+                    Some(FileCreatorEffect::Quit) => {
+                        action = Some(Action::QuitFinder);
                     }
                     None => {}
                 }
@@ -214,6 +233,7 @@ impl Component<Props, Event, SystemEffect> for Insh {
     fn render(&self, size: Size) -> Fabric {
         match self.state.mode {
             Mode::Browse => self.state.browser.as_ref().unwrap().render(size),
+            Mode::FileCreator => self.state.file_creator.as_ref().unwrap().render(size),
             Mode::Finder => self.state.finder.as_ref().unwrap().render(size),
             Mode::Searcher => self.state.searcher.as_ref().unwrap().render(size),
             Mode::Nothing => Fabric::new(size),
@@ -224,6 +244,7 @@ impl Component<Props, Event, SystemEffect> for Insh {
 struct State {
     mode: Mode,
     browser: Option<Browser>,
+    file_creator: Option<FileCreator>,
     finder: Option<Finder>,
     searcher: Option<Searcher>,
     config: Config,
@@ -243,6 +264,7 @@ impl From<Props> for State {
             Start::Browser => Self {
                 mode: Mode::Browse,
                 browser,
+                file_creator: None,
                 finder: None,
                 searcher: None,
                 config: props.config().clone(),
@@ -253,6 +275,7 @@ impl From<Props> for State {
                 Self {
                     mode: Mode::Finder,
                     browser,
+                    file_creator: None,
                     finder,
                     searcher: None,
                     config: props.config().clone(),
@@ -265,6 +288,7 @@ impl From<Props> for State {
                 Self {
                     mode: Mode::Searcher,
                     browser,
+                    file_creator: None,
                     finder: None,
                     searcher,
                     config: props.config().clone(),
@@ -273,6 +297,7 @@ impl From<Props> for State {
             Start::Nothing => Self {
                 mode: Mode::Nothing,
                 browser: None,
+                file_creator: None,
                 finder: None,
                 searcher: None,
                 config: props.config().clone(),
@@ -287,6 +312,13 @@ impl State {
         let size: Size = Size::from(terminal::size().unwrap());
         let browser_props = BrowserProps::new(directory, size, file);
         self.browser = Some(Browser::new(browser_props));
+        None
+    }
+
+    fn create_file(&mut self, directory: PathBuf) -> Option<SystemEffect> {
+        self.mode = Mode::FileCreator;
+        let file_creator_props = FileCreatorProps::builder().directory(directory).build();
+        self.file_creator = Some(FileCreator::new(file_creator_props));
         None
     }
 
@@ -332,6 +364,7 @@ impl Stateful<Action, SystemEffect> for State {
     fn perform(&mut self, action: Action) -> Option<SystemEffect> {
         match action {
             Action::Browse { directory, file } => self.browse(directory, file),
+            Action::CreateFile { directory } => self.create_file(directory),
             Action::Find { directory } => self.find(directory),
             Action::Search { directory } => self.search(directory),
             Action::QuitFinder => self.quit_finder(),
@@ -341,23 +374,23 @@ impl Stateful<Action, SystemEffect> for State {
     }
 }
 
+#[derive(Default)]
 enum Mode {
+    #[default]
     Browse,
+    FileCreator,
     Finder,
     Searcher,
     Nothing,
-}
-
-impl Default for Mode {
-    fn default() -> Self {
-        Mode::Browse
-    }
 }
 
 enum Action {
     Browse {
         directory: PathBuf,
         file: Option<PathBuf>,
+    },
+    CreateFile {
+        directory: PathBuf,
     },
     Find {
         directory: PathBuf,
