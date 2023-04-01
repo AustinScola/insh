@@ -1,3 +1,6 @@
+# 0.3.22
+- Add the ability to create a file with the the `c` command from the file browser.
+
 # 0.3.21
 - Fix the build for latest stable Rust.
 

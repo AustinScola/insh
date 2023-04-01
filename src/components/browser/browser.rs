@@ -61,6 +61,9 @@ impl Component<Props, Event, Effect> for Browser {
                                 let directory_event = DirectoryEvent::PopDirectory;
                                 self.state.directory.handle(directory_event);
                             }
+                            Some(ContentsEffect::OpenFileCreator { directory }) => {
+                                effect = Some(Effect::OpenFileCreator { directory });
+                            }
                             Some(ContentsEffect::OpenFinder { directory }) => {
                                 effect = Some(Effect::OpenFinder { directory });
                             }
@@ -131,19 +134,16 @@ impl Stateful<Action, Effect> for State {
     }
 }
 
+#[derive(Default)]
 enum Focus {
+    #[default]
     Contents,
-}
-
-impl Default for Focus {
-    fn default() -> Self {
-        Focus::Contents
-    }
 }
 
 enum Action {}
 
 pub enum Effect {
+    OpenFileCreator { directory: PathBuf },
     OpenFinder { directory: PathBuf },
     OpenSearcher { directory: PathBuf },
     OpenVim(VimArgs),

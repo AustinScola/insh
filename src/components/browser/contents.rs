@@ -144,6 +144,10 @@ impl Contents {
                             ..
                         } => Some(Action::RunBash),
                         KeyEvent {
+                            code: KeyCode::Char('c'),
+                            modifiers: KeyModifiers::NONE,
+                        } => Some(Action::OpenFileCreator),
+                        KeyEvent {
                             code: KeyCode::Char('f'),
                             ..
                         } => Some(Action::OpenFinder),
@@ -482,6 +486,12 @@ impl State {
         None
     }
 
+    fn open_file_creator(&self) -> Option<Effect> {
+        Some(Effect::OpenFileCreator {
+            directory: self.directory.clone(),
+        })
+    }
+
     fn open_finder(&self) -> Option<Effect> {
         Some(Effect::OpenFinder {
             directory: self.directory.clone(),
@@ -514,6 +524,7 @@ impl Stateful<Action, Effect> for State {
             Action::Pop => self.pop(),
             Action::Yank => self.yank(),
             Action::ReallyYank => self.really_yank(),
+            Action::OpenFileCreator => self.open_file_creator(),
             Action::OpenFinder => self.open_finder(),
             Action::OpenSearcher => self.open_searcher(),
             Action::RunBash => self.run_bash(),
@@ -550,6 +561,7 @@ enum Action {
     Pop,
     Yank,
     ReallyYank,
+    OpenFileCreator,
     OpenFinder,
     OpenSearcher,
     RunBash,
@@ -558,6 +570,7 @@ enum Action {
 pub enum Effect {
     SetDirectory { directory: PathBuf },
     PopDirectory,
+    OpenFileCreator { directory: PathBuf },
     OpenFinder { directory: PathBuf },
     OpenSearcher { directory: PathBuf },
     OpenVim(VimArgs),
