@@ -1,6 +1,11 @@
 name: Rust
 
-on: [push]
+on:
+  push:
+
+  # Run every day at 3AM.
+  schedule:
+    - cron: "0 3 * * *"
 
 jobs:
   check:
