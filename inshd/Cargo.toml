@@ -1,0 +1,49 @@
+[package]
+name = "inshd"
+version = "0.1.0"
+edition = "2021"
+description = "A daemon for insh."
+
+[[bin]]
+name = "inshd"
+path = "src/main.rs"
+
+[dependencies]
+common = { version = "0.1.0", path = "../common" }
+insh-api = { version = "0.1.0", path = "../insh-api" }
+path-finder = { version = "0.1.0", path = "../path-finder" }
+
+# Used for command line argument parsing.
+clap = { version = "3.2.17", features = ["derive"] }
+
+# Used to make the server a daemon.
+daemonize = "0.5.0"
+
+# Used for logging.
+log = "0.4.17"
+flexi_logger =  "0.25.5"
+
+# Used for declaring lazily evaluated static values.
+lazy_static = "1.4.0"
+
+# Provides friendly bindings for *nix platform APIs.
+# Used for doing things such as sending signals to processes (to stop inshd for example).
+nix = "0.26.2"
+
+# Used for generating the builder pattern for structs.
+typed-builder = "0.14.0"
+
+# Used for deserializing requests.
+bincode = "1.3.3"
+
+# Used for globally unique identifiers.
+uuid = { version = "1.3.1", features = ["v4", "fast-rng", "macro-diagnostics"] }
+
+# Used for concurrent programming.
+crossbeam = "0.8.2"
+
+# Used to handle signals.
+signal-hook = { version = "0.3.15", features = ["extended-siginfo"] }
+
+# Used to make handling pipes easier.
+os_pipe = "1.1.4"

@@ -1,0 +1,14 @@
+[package]
+name = "path-finder"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+# Used for pattern matching.
+regex = "1.5.4"
+
+# Used for walking directories.
+walkdir = "2.3.2"
+
+# Used for serialization and deserialization of data structures.
+serde = { version = "1.0.144", features = ["derive"] }

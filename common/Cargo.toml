@@ -1,0 +1,15 @@
+[package]
+name = "common"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+
+# Used for logging.
+flexi_logger = "0.23.3"
+
+# Used for declaring lazily evaluated static values.
+lazy_static = "1.4.0"
+
+# Used for determining platform-specific directories.
+dirs = "4.0.0"

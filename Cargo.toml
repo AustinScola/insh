@@ -1,46 +1,13 @@
-[package]
-name = "insh"
-version = "0.3.22"
-edition = "2021"
+[workspace]
 
-[features]
-# Explicitly, the default features are none.
-default = []
-
-# The logging feature enables logging which is helpful for development.
-logging = ["dep:log", "dep:flexi_logger"]
-
-[dependencies]
-crossterm = "0.23.0"
-regex = "1.5.4"
-clap = { version = "3.2.17", features = ["derive"] }
-dirs = "4.0.0"
-unicode-segmentation = "1.9.0"
-itertools = "0.10.3"
-walkdir = "2.3.2"
-
-# Used to manage the clipboard.
-copypasta = "0.8.1"
-
-# Used to control access to persistent data stored in the file system.
-fslock = "0.2.1"
-
-# Used for serialization and deserialization of data structures.
-serde = { version = "1.0.144", features = ["derive"] }
-serde_yaml = "0.9.10"
-
-# Used for declaring lazily evaluated static values.
-lazy_static = "1.4.0"
-
-# Used for logging. (These dependencies are only included if the logging features is enabled.)
-log = { version = "0.4.17", optional = true }
-flexi_logger = { version = "0.23.3", optional = true }
-
-# Used to create a parser for text with ANSI escape codes.
-nom = "7.1.1"
-
-# Used for generatingr the builder pattern for structs.
-typed-builder = "0.14.0"
-
-[dev-dependencies]
-test-case = "2.0.0"
+members = [
+    "insh",
+    "inshd",
+    "common",
+    "insh-api",
+    "til",
+    "term",
+    "rend",
+    "path-finder",
+    "size",
+]

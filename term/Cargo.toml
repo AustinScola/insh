@@ -1,0 +1,19 @@
+[package]
+name = "term"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+size = { version = "0.1.0", path = "../size" }
+bitflags = "2.3.1"
+termios = "0.3.3"
+
+# Provides friendly bindings for *nix platform APIs.
+#
+# Used for:
+#   - detecting terminal size changes (via  the SIGWINCH signal).
+nix = "0.26.2"
+
+[[bin]]
+name = "print-event"
+path = "src/bin/print_event.rs"
