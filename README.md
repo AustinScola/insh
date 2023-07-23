@@ -4,7 +4,7 @@ A graphical, interactive, terminal environment.
 
 ## Installation
 ```
-cargo install --git https://github.com/AustinScola/insh --tag latest
+cargo install --git https://github.com/AustinScola/insh --tag latest insh inshd
 ```
 
 ## Help
