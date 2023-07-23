@@ -1,3 +1,6 @@
+# 0.4.0
+- Add a daemon for performing tasks. 
+
 # 0.3.22
 - Add the ability to create a file with the the `c` command from the file browser.
 

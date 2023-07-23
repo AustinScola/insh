@@ -16,7 +16,7 @@ Then run `Insh` with the argument `--log-file <log-file>`.
 
 For example:
 ```
-cargo run --features logging -- --log-file /tmp/insh-log
+cargo run --bin insh --features logging -- --log-file /tmp/insh-log
 ```
 
 ## Log Levels
