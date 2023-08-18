@@ -6,7 +6,7 @@ edition = "2021"
 [dependencies]
 
 # Used for logging.
-flexi_logger = "0.23.3"
+flexi_logger = "0.25.6"
 
 # Used for declaring lazily evaluated static values.
 lazy_static = "1.4.0"

@@ -175,9 +175,9 @@ impl Server {
         let (conn_handler_stop_rx, mut conn_handler_stop_tx) = os_pipe::pipe().unwrap();
         let mut conn_handler: ConnHandler = ConnHandler::builder()
             .listener(listener)
-            .new_clients_tx(new_clients_tx)
+            .new_clients_tx(new_clients_tx.clone())
             .incoming_requests_tx(incoming_requests_tx.clone())
-            .client_requests_tx(client_requests_tx)
+            .client_requests_tx(client_requests_tx.clone())
             .disconnected_clients_txs(disconnected_clients_txs)
             .client_handler_handles_tx(client_handler_handles_tx.clone())
             .stop_rx(conn_handler_stop_rx)
@@ -248,7 +248,7 @@ impl Server {
     }
 
     /// Perform cleanup.
-    fn cleanup() {
+    pub fn cleanup() {
         // Try to remove the socket file.
         log::debug!("Removing the socket...");
         match remove_file(&*INSHD_SOCKET) {
