@@ -1,8 +1,9 @@
 # Release Process
+Insh and inshd share version numbers.
 
-The steps to perform to create a new release:
-
-- Bump the version in `Cargo.toml`.
+## Insh/Inshd
+To create a new release for insh/inshd perform the following:
+- Bump the version in `insh/Cargo.toml` and `inshd/Cargo.toml` (the versions should match).
 - Rebuild (so that `Cargo.lock` is updated with the new version number).
 - Update `CHANGELOG.md`.
 - Commit the above changes and merge to master.
