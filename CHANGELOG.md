@@ -1,3 +1,8 @@
+# 0.4.1
+- Add more inshd commands:
+    - `-f|--force` for `start`/`stop`
+    - `restart`
+
 # 0.4.0
 - Add a daemon for performing tasks. 
 

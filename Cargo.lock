@@ -447,7 +447,7 @@ dependencies = [
 
 [[package]]
 name = "insh"
-version = "0.4.0"
+version = "0.4.1"
 dependencies = [
  "bincode",
  "clap",
@@ -489,7 +489,7 @@ dependencies = [
 
 [[package]]
 name = "inshd"
-version = "0.2.0"
+version = "0.4.1"
 dependencies = [
  "bincode",
  "clap",
