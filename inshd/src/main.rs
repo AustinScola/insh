@@ -306,7 +306,14 @@ mod pid_waiter {
     use std::os::fd::AsRawFd;
     use std::time::{Duration, Instant};
 
+    #[cfg(target_os = "linux")]
     use nix::libc::{syscall, SYS_pidfd_open};
+
+    use nix::sys::signal::kill;
+    #[cfg(target_os = "macos")]
+    use nix::sys::wait::{waitpid, WaitPidFlag, WaitStatus};
+
+    use nix::errno::Errno;
     use nix::sys::select::{select, FdSet};
     use nix::sys::time::TimeVal;
     use nix::unistd::Pid;
@@ -329,41 +336,75 @@ mod pid_waiter {
         pub fn run(&mut self) -> PidWaitResult {
             let start = Instant::now();
 
-            // Obtain a file descriptor for the pid.
-            log::debug!("Getting fd for pid {}...", self.pid);
-            let pid_fd: i32;
-            unsafe {
-                let flags = 0;
-                let result: i64 = syscall(SYS_pidfd_open, self.pid, flags);
-                if result == -1 {
-                    let error = IOError::last_os_error();
-                    return Err(PidWaitError::FailedToGetPidFd(error));
+            #[cfg(not(any(target_os = "linux", target_os = "macos")))]
+            {
+                compile_error!("Only Linux and MacOS are supported.");
+            }
+
+            #[cfg(target_os = "linux")]
+            {
+                // Obtain a file descriptor for the pid.
+                log::debug!("Getting fd for pid {}...", self.pid);
+                let pid_fd: i32;
+                unsafe {
+                    let flags = 0;
+                    let result: i64 = syscall(SYS_pidfd_open, self.pid, flags);
+                    if result == -1 {
+                        let error = IOError::last_os_error();
+                        return Err(PidWaitError::FailedToGetPidFd(error));
+                    }
+                    pid_fd = result.try_into().unwrap();
                 }
-                pid_fd = result.try_into().unwrap();
+                log::debug!("Got fd {} for pid {}.", pid_fd, self.pid);
+
+                let mut readfds = FdSet::new();
+                let stop_fd: i32 = self.stop_rx.as_raw_fd();
+                readfds.insert(stop_fd);
+                readfds.insert(pid_fd);
+
+                let timeout_secs: u64 = self.timeout.as_secs();
+                let timeout_secs: i64 = timeout_secs.try_into().unwrap_or(i64::MAX);
+                let mut time_val = TimeVal::new(timeout_secs, 0);
+
+                select(None, &mut readfds, None, None, &mut time_val).unwrap();
+
+                if readfds.contains(stop_fd) {
+                    return Err(PidWaitError::Stopped);
+                }
+
+                if readfds.contains(pid_fd) {
+                    let waited: Duration = start.elapsed();
+                    return Ok(PidWaitSuccess::builder().waited(waited).build());
+                }
+
+                return Err(PidWaitError::Timeout);
             }
-            log::debug!("Got fd {} for pid {}.", pid_fd, self.pid);
 
-            let mut readfds = FdSet::new();
-            let stop_fd: i32 = self.stop_rx.as_raw_fd();
-            readfds.insert(stop_fd);
-            readfds.insert(pid_fd);
+            #[cfg(target_os = "macos")]
+            {
+                let signal = None;
 
-            let timeout_secs: u64 = self.timeout.as_secs();
-            let timeout_secs: i64 = timeout_secs.try_into().unwrap_or(i64::MAX);
-            let mut time_val = TimeVal::new(timeout_secs, 0);
+                loop {
+                    match kill(self.pid, signal) {
+                        Ok(_) => {}
+                        Err(error) => {
+                            match error {
+                                Errno::ESRCH => {
+                                    // There is no process or process group corresponding to the pid.
+                                    let waited: Duration = start.elapsed();
+                                    return Ok(PidWaitSuccess::builder().waited(waited).build());
+                                }
+                                _ => return Err(PidWaitError::ErrorWaitingOnPid(error)),
+                            }
+                        }
+                    };
 
-            select(None, &mut readfds, None, None, &mut time_val).unwrap();
-
-            if readfds.contains(stop_fd) {
-                return Err(PidWaitError::Stopped);
+                    let elapsed = start.elapsed();
+                    if elapsed >= self.timeout {
+                        return Err(PidWaitError::Timeout);
+                    }
+                }
             }
-
-            if readfds.contains(pid_fd) {
-                let waited: Duration = start.elapsed();
-                return Ok(PidWaitSuccess::builder().waited(waited).build());
-            }
-
-            return Err(PidWaitError::Timeout);
         }
     }
 
@@ -380,6 +421,8 @@ mod pid_waiter {
         Stopped,
         /// An error getting a file descriptor for the PID.
         FailedToGetPidFd(IOError),
+        /// An error waiting for a process to terminate.
+        ErrorWaitingOnPid(Errno),
         /// The timeout was exceeded.
         Timeout,
     }
@@ -392,6 +435,13 @@ mod pid_waiter {
                 }
                 Self::FailedToGetPidFd(io_error) => {
                     write!(formatter, "Failed to get pid fd for process: {}.", io_error)
+                }
+                Self::ErrorWaitingOnPid(errno) => {
+                    write!(
+                        formatter,
+                        "Encountered an error while waiting on the process: {}",
+                        errno
+                    )
                 }
                 Self::Timeout => {
                     write!(formatter, "Timed out waiting for process to terminate.")
