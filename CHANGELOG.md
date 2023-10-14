@@ -1,3 +1,6 @@
+# 0.4.2
+- Fix compilation on MacOS 
+
 # 0.4.1
 - Add more inshd commands:
     - `-f|--force` for `start`/`stop`
