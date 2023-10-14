@@ -303,18 +303,18 @@ mod pid_waiter {
 
     use std::fmt::{Display, Error as FmtError, Formatter};
     use std::io::Error as IOError;
+    #[cfg(target_os = "linux")]
     use std::os::fd::AsRawFd;
     use std::time::{Duration, Instant};
 
+    use nix::errno::Errno;
     #[cfg(target_os = "linux")]
     use nix::libc::{syscall, SYS_pidfd_open};
-
-    use nix::sys::signal::kill;
-    #[cfg(target_os = "macos")]
-    use nix::sys::wait::{waitpid, WaitPidFlag, WaitStatus};
-
-    use nix::errno::Errno;
+    #[cfg(target_os = "linux")]
     use nix::sys::select::{select, FdSet};
+    #[cfg(target_os = "macos")]
+    use nix::sys::signal::kill;
+    #[cfg(target_os = "linux")]
     use nix::sys::time::TimeVal;
     use nix::unistd::Pid;
     use os_pipe::PipeReader;
@@ -416,6 +416,7 @@ mod pid_waiter {
     }
 
     /// An error waiting for a process with a given pid to terminate.
+    #[allow(dead_code)]
     pub enum PidWaitError {
         /// The pid waiter was stopped.
         Stopped,
