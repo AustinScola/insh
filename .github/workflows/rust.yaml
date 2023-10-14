@@ -80,7 +80,12 @@ jobs:
         run: ./scripts/check-with-logging-feature
   lint:
     name: Lint
-    runs-on: ubuntu-latest
+
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+
+    runs-on: ${{ matrix.os }}
 
     steps:
       - uses: actions/checkout@v3
