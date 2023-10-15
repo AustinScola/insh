@@ -1,5 +1,8 @@
+# 0.4.3
+- Fix exiting bash on MacOS.
+
 # 0.4.2
-- Fix compilation on MacOS 
+- Fix compilation on MacOS.
 
 # 0.4.1
 - Add more inshd commands:
