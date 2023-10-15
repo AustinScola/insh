@@ -334,7 +334,7 @@ impl App {
             }) => {
                 master = master_;
                 #[cfg(feature = "logging")]
-                log::debug!("Program has a pid of {}", child_);
+                log::debug!("Program has a pid of {}.", child_);
                 child = child_;
             }
             Ok(ForkptyResult {
@@ -505,8 +505,17 @@ impl App {
             }
         }
 
+        #[cfg(feature = "logging")]
+        log::debug!("Waiting for program monitor to stop...");
         program_monitor_handle.join().unwrap();
+        #[cfg(feature = "logging")]
+        log::debug!("Program monitor stopped.");
+
+        #[cfg(feature = "logging")]
+        log::debug!("Waiting for output handler stop...");
         outputer_handle.join().unwrap();
+        #[cfg(feature = "logging")]
+        log::debug!("Output handler stopped.");
 
         self.cleanup_program(&program_uuid, cleanup);
 
