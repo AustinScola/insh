@@ -343,6 +343,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "file-type"
+version = "0.1.0"
+dependencies = [
+ "serde",
+]
+
+[[package]]
 name = "flexi_logger"
 version = "0.25.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -447,7 +454,7 @@ dependencies = [
 
 [[package]]
 name = "insh"
-version = "0.4.3"
+version = "0.4.4"
 dependencies = [
  "bincode",
  "clap",
@@ -456,6 +463,7 @@ dependencies = [
  "crossbeam",
  "crossterm",
  "dirs",
+ "file-type",
  "flexi_logger",
  "fslock",
  "insh-api",
@@ -481,6 +489,7 @@ dependencies = [
 name = "insh-api"
 version = "0.1.0"
 dependencies = [
+ "file-type",
  "path-finder",
  "serde",
  "typed-builder",
@@ -489,13 +498,14 @@ dependencies = [
 
 [[package]]
 name = "inshd"
-version = "0.4.3"
+version = "0.4.4"
 dependencies = [
  "bincode",
  "clap",
  "common",
  "crossbeam",
  "daemonize",
+ "file-type",
  "flexi_logger",
  "insh-api",
  "lazy_static",

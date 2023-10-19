@@ -32,7 +32,8 @@ below. The currently selected entry is highlighed in yellow.
 | `l` \| `<Enter>`     | If the currently selected entry is a file, then open it in vim. Else, if the currently selected entry is a directory, then change the current directory to the selected directory. |
 | `h` \| `<Backspace>` | Change directories to the parent of the current directory (if the current directory is not the root directory).                                                                    |
 | `b`                  | Run bash with the working directory set to the current directory.                                                                                                                  |
-| `c`                  | Open the file creator.                                                                                                                                                             |
+| `c`                  | Open the file creator for creating a file.                                                                                                                                         |
+| `C`                  | Open the file creator for creating a directory.                                                                                                                                    |
 | `f`                  | Open the file finder.                                                                                                                                                              |
 | `s`                  | Open the file contents searcher.                                                                                                                                                   |
 | `y`                  | Yank the selected entry. (Copy the file name of the selection to the clipboard.)                                                                                                   |

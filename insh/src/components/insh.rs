@@ -1,5 +1,7 @@
 use crate::components::browser::{Browser, BrowserEffect, BrowserProps};
-use crate::components::file_creator::{FileCreator, FileCreatorEffect, FileCreatorProps};
+use crate::components::file_creator::{
+    FileCreator, FileCreatorEffect, FileCreatorEvent, FileCreatorProps,
+};
 use crate::components::finder::{Finder, FinderEffect, FinderProps};
 use crate::components::searcher::{Searcher, SearcherEffect, SearcherProps};
 use crate::config::Config;
@@ -7,6 +9,7 @@ use crate::current_dir;
 use crate::programs::{Bash, Vim};
 use crate::stateful::Stateful;
 
+use file_type::FileType;
 use insh_api::{FindFilesRequestParams, Request, RequestParams, Response};
 use rend::{Fabric, Size};
 use term::{Key, KeyEvent, KeyMods, TermEvent};
@@ -148,8 +151,14 @@ impl Component<Props, Event<Response>, SystemEffect<Request>> for Insh {
                 let browser = self.state.browser.as_mut().unwrap();
                 let browser_effect: Option<BrowserEffect> = browser.handle(event);
                 match browser_effect {
-                    Some(BrowserEffect::OpenFileCreator { directory }) => {
-                        action = Some(Action::CreateFile { directory });
+                    Some(BrowserEffect::OpenFileCreator {
+                        directory,
+                        file_type,
+                    }) => {
+                        action = Some(Action::CreateFile {
+                            directory,
+                            file_type,
+                        });
                     }
                     Some(BrowserEffect::OpenFinder { directory }) => {
                         action = Some(Action::Find { directory });
@@ -172,18 +181,18 @@ impl Component<Props, Event<Response>, SystemEffect<Request>> for Insh {
                 }
             }
             Mode::FileCreator => {
-                let event = match event {
-                    Event::TermEvent(event) => event,
-                    Event::Response(_) => {
-                        #[cfg(feature = "logging")]
-                        log::warn!("File creator doesn't handle responses yet.");
-                        return None;
-                    }
+                let file_creator_event: FileCreatorEvent = match event {
+                    Event::TermEvent(term_event) => FileCreatorEvent::TermEvent(term_event),
+                    Event::Response(response) => FileCreatorEvent::Response(response),
                 };
 
                 let file_creator = self.state.file_creator.as_mut().unwrap();
-                let file_creator_effect: Option<FileCreatorEffect> = file_creator.handle(event);
+                let file_creator_effect: Option<FileCreatorEffect> =
+                    file_creator.handle(file_creator_event);
                 match file_creator_effect {
+                    Some(FileCreatorEffect::Request(request)) => {
+                        return Some(SystemEffect::Request(request));
+                    }
                     Some(FileCreatorEffect::Browse { directory, file }) => {
                         action = Some(Action::Browse { directory, file });
                     }
@@ -361,9 +370,16 @@ impl State {
         None
     }
 
-    fn create_file(&mut self, directory: PathBuf) -> Option<SystemEffect<Request>> {
+    fn create_file(
+        &mut self,
+        directory: PathBuf,
+        file_type: FileType,
+    ) -> Option<SystemEffect<Request>> {
         self.mode = Mode::FileCreator;
-        let file_creator_props = FileCreatorProps::builder().directory(directory).build();
+        let file_creator_props = FileCreatorProps::builder()
+            .directory(directory)
+            .file_type(file_type)
+            .build();
         self.file_creator = Some(FileCreator::new(file_creator_props));
         None
     }
@@ -414,7 +430,10 @@ impl Stateful<Action, SystemEffect<Request>> for State {
     fn perform(&mut self, action: Action) -> Option<SystemEffect<Request>> {
         match action {
             Action::Browse { directory, file } => self.browse(directory, file),
-            Action::CreateFile { directory } => self.create_file(directory),
+            Action::CreateFile {
+                directory,
+                file_type,
+            } => self.create_file(directory, file_type),
             Action::Find { directory } => self.find(directory),
             Action::Search { directory } => self.search(directory),
             Action::QuitFinder => self.quit_finder(),
@@ -441,6 +460,7 @@ enum Action {
     },
     CreateFile {
         directory: PathBuf,
+        file_type: FileType,
     },
     Find {
         directory: PathBuf,

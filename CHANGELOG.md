@@ -1,3 +1,6 @@
+# 0.4.4
+- Add creating a directory with `C` from the file browser.
+
 # 0.4.3
 - Fix exiting bash on MacOS.
 

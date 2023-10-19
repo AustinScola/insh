@@ -1,12 +1,14 @@
 #![allow(clippy::needless_return)]
 
-use path_finder::Entry;
-
+use std::fmt::{Display, Error as FmtError, Formatter};
 use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 use typed_builder::TypedBuilder;
 use uuid::Uuid;
+
+use file_type::FileType;
+use path_finder::Entry;
 
 #[derive(Debug, TypedBuilder, Serialize, Deserialize)]
 pub struct Request {
@@ -28,6 +30,7 @@ impl Request {
 #[derive(Debug, Serialize, Deserialize)]
 pub enum RequestParams {
     FindFiles(FindFilesRequestParams),
+    CreateFile(CreateFileRequestParams),
 }
 
 #[derive(Debug, TypedBuilder, Serialize, Deserialize)]
@@ -43,6 +46,22 @@ impl FindFilesRequestParams {
 
     pub fn pattern(&self) -> &str {
         &self.pattern
+    }
+}
+
+#[derive(Debug, TypedBuilder, Serialize, Deserialize)]
+pub struct CreateFileRequestParams {
+    path: PathBuf,
+    file_type: FileType,
+}
+
+impl CreateFileRequestParams {
+    pub fn path(&self) -> &Path {
+        &self.path
+    }
+
+    pub fn file_type(&self) -> FileType {
+        self.file_type
     }
 }
 
@@ -70,7 +89,8 @@ impl Response {
 
 #[derive(Debug, Serialize, Deserialize)]
 pub enum ResponseParams {
-    FindFilesResponseParams(FindFilesResponseParams),
+    FindFiles(FindFilesResponseParams),
+    CreateFile(CreateFileResponseParams),
 }
 
 #[derive(Debug, TypedBuilder)]
@@ -91,5 +111,37 @@ impl FindFilesResponseParams {
 
     pub fn is_empty(&self) -> bool {
         return self.entries.is_empty();
+    }
+}
+
+type CreateFileResult = Result<(), CreateFileError>;
+
+#[derive(Debug, TypedBuilder, Serialize, Deserialize)]
+pub struct CreateFileResponseParams {
+    result: CreateFileResult,
+}
+
+impl CreateFileResponseParams {
+    pub fn result(&self) -> &CreateFileResult {
+        &self.result
+    }
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub enum CreateFileError {
+    AlreadyExists(PathBuf),
+    Other(String),
+}
+
+impl Display for CreateFileError {
+    fn fmt(&self, formatter: &mut Formatter<'_>) -> Result<(), FmtError> {
+        match self {
+            Self::AlreadyExists(filepath) => write!(
+                formatter,
+                "The file {:?} already exists.",
+                filepath.file_name()
+            ),
+            Self::Other(string) => write!(formatter, "{}", string),
+        }
     }
 }

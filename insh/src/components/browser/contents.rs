@@ -1,17 +1,17 @@
-use crate::color::Color;
-use crate::programs::{VimArgs, VimArgsBuilder};
-use crate::stateful::Stateful;
-
-use rend::{Fabric, Size, Yarn};
-use til::Component;
-
 use std::cmp::{self, Ordering};
 use std::fs::{self, DirEntry};
 use std::io::ErrorKind as IOErrorKind;
 use std::path::{Path, PathBuf};
 
-use crate::clipboard::Clipboard;
+use file_type::FileType;
+use rend::{Fabric, Size, Yarn};
 use term::{Key, KeyEvent, KeyMods, TermEvent};
+use til::Component;
+
+use crate::clipboard::Clipboard;
+use crate::color::Color;
+use crate::programs::{VimArgs, VimArgsBuilder};
+use crate::stateful::Stateful;
 
 pub struct Props {
     directory: PathBuf,
@@ -147,7 +147,15 @@ impl Contents {
                         KeyEvent {
                             key: Key::Char('c'),
                             mods: KeyMods::NONE,
-                        } => Some(Action::OpenFileCreator),
+                        } => Some(Action::OpenFileCreator {
+                            file_type: FileType::File,
+                        }),
+                        KeyEvent {
+                            key: Key::Char('C'),
+                            mods: KeyMods::SHIFT,
+                        } => Some(Action::OpenFileCreator {
+                            file_type: FileType::Dir,
+                        }),
                         KeyEvent {
                             key: Key::Char('f'),
                             ..
@@ -487,9 +495,10 @@ impl State {
         None
     }
 
-    fn open_file_creator(&self) -> Option<Effect> {
+    fn open_file_creator(&self, file_type: FileType) -> Option<Effect> {
         Some(Effect::OpenFileCreator {
             directory: self.directory.clone(),
+            file_type,
         })
     }
 
@@ -525,7 +534,7 @@ impl Stateful<Action, Effect> for State {
             Action::Pop => self.pop(),
             Action::Yank => self.yank(),
             Action::ReallyYank => self.really_yank(),
-            Action::OpenFileCreator => self.open_file_creator(),
+            Action::OpenFileCreator { file_type } => self.open_file_creator(file_type),
             Action::OpenFinder => self.open_finder(),
             Action::OpenSearcher => self.open_searcher(),
             Action::RunBash => self.run_bash(),
@@ -562,19 +571,30 @@ enum Action {
     Pop,
     Yank,
     ReallyYank,
-    OpenFileCreator,
+    OpenFileCreator { file_type: FileType },
     OpenFinder,
     OpenSearcher,
     RunBash,
 }
 
 pub enum Effect {
-    SetDirectory { directory: PathBuf },
+    SetDirectory {
+        directory: PathBuf,
+    },
     PopDirectory,
-    OpenFileCreator { directory: PathBuf },
-    OpenFinder { directory: PathBuf },
-    OpenSearcher { directory: PathBuf },
+    OpenFileCreator {
+        directory: PathBuf,
+        file_type: FileType,
+    },
+    OpenFinder {
+        directory: PathBuf,
+    },
+    OpenSearcher {
+        directory: PathBuf,
+    },
     OpenVim(VimArgs),
-    RunBash { directory: PathBuf },
+    RunBash {
+        directory: PathBuf,
+    },
     Bell,
 }

@@ -1,13 +1,14 @@
+use std::path::PathBuf;
+
+use file_type::FileType;
+use rend::{Fabric, Size};
+pub use term::TermEvent as Event;
+use til::Component;
+
 use super::{Contents, ContentsEffect, ContentsEvent, ContentsProps};
 use crate::components::common::{Directory, DirectoryEvent, DirectoryProps};
 use crate::programs::VimArgs;
 use crate::stateful::Stateful;
-pub use term::TermEvent as Event;
-use til::Component;
-
-use rend::{Fabric, Size};
-
-use std::path::PathBuf;
 
 pub struct Props {
     directory: PathBuf,
@@ -59,8 +60,14 @@ impl Component<Props, Event, Effect> for Browser {
                                 let directory_event = DirectoryEvent::PopDirectory;
                                 self.state.directory.handle(directory_event);
                             }
-                            Some(ContentsEffect::OpenFileCreator { directory }) => {
-                                effect = Some(Effect::OpenFileCreator { directory });
+                            Some(ContentsEffect::OpenFileCreator {
+                                directory,
+                                file_type,
+                            }) => {
+                                effect = Some(Effect::OpenFileCreator {
+                                    directory,
+                                    file_type,
+                                });
                             }
                             Some(ContentsEffect::OpenFinder { directory }) => {
                                 effect = Some(Effect::OpenFinder { directory });
@@ -141,10 +148,19 @@ enum Focus {
 enum Action {}
 
 pub enum Effect {
-    OpenFileCreator { directory: PathBuf },
-    OpenFinder { directory: PathBuf },
-    OpenSearcher { directory: PathBuf },
+    OpenFileCreator {
+        directory: PathBuf,
+        file_type: FileType,
+    },
+    OpenFinder {
+        directory: PathBuf,
+    },
+    OpenSearcher {
+        directory: PathBuf,
+    },
     OpenVim(VimArgs),
-    RunBash { directory: PathBuf },
+    RunBash {
+        directory: PathBuf,
+    },
     Bell,
 }

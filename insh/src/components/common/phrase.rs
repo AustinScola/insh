@@ -34,7 +34,7 @@ mod phrase {
         fn new(props: Props) -> Self {
             Self {
                 state: State::builder()
-                    .value(props.value.unwrap_or(String::new()))
+                    .value(props.value.unwrap_or_default())
                     .build(),
                 auto_completer: props.auto_completer,
             }
