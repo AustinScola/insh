@@ -3,28 +3,34 @@ mod props {
 
     use typed_builder::TypedBuilder;
 
+    use file_type::FileType;
+
     #[derive(TypedBuilder)]
     pub struct Props {
         directory: PathBuf,
+        file_type: FileType,
     }
 
     impl Props {
         pub fn directory(&self) -> &PathBuf {
             &self.directory
         }
+
+        pub fn file_type(&self) -> FileType {
+            self.file_type
+        }
     }
 }
 pub use props::Props;
 
 mod file_creator {
-    use super::{Action, Effect, Props, State};
-    use crate::components::common::{PhraseEffect, PhraseEvent};
-    use crate::Stateful;
-
     use rend::{Fabric, Size};
     use til::Component;
 
-    use term::TermEvent as Event;
+    use super::Event;
+    use super::{Action, Effect, Props, State};
+    use crate::components::common::{PhraseEffect, PhraseEvent};
+    use crate::Stateful;
 
     pub struct FileCreator {
         state: State,
@@ -40,19 +46,26 @@ mod file_creator {
         fn handle(&mut self, event: Event) -> Option<Effect> {
             let mut action: Option<Action> = None;
 
-            let phrase_event = PhraseEvent::TermEvent(event);
-            let phrase_effect = self.state.phrase.handle(phrase_event);
-            match phrase_effect {
-                Some(PhraseEffect::Enter { phrase }) => {
-                    action = Some(Action::CreateFile { filename: phrase });
+            match event {
+                Event::TermEvent(term_event) => {
+                    let phrase_event = PhraseEvent::TermEvent(term_event);
+                    let phrase_effect = self.state.phrase.handle(phrase_event);
+                    match phrase_effect {
+                        Some(PhraseEffect::Enter { phrase }) => {
+                            action = Some(Action::CreateFile { filename: phrase });
+                        }
+                        Some(PhraseEffect::Bell) => {
+                            action = Some(Action::Bell);
+                        }
+                        Some(PhraseEffect::Quit) => {
+                            action = Some(Action::Quit);
+                        }
+                        None => {}
+                    }
                 }
-                Some(PhraseEffect::Bell) => {
-                    action = Some(Action::Bell);
+                Event::Response(response) => {
+                    action = Some(Action::HandleResponse(response));
                 }
-                Some(PhraseEffect::Quit) => {
-                    action = Some(Action::Quit);
-                }
-                None => {}
             }
 
             if let Some(action) = action {
@@ -104,20 +117,43 @@ mod file_creator {
 }
 pub use file_creator::FileCreator;
 
-mod state {
-    use super::{Action, Effect, Props};
-    use crate::components::common::{Directory, DirectoryProps, Phrase, PhraseEvent};
-    use crate::Stateful;
+mod event {
+    use insh_api::Response;
+    use term::TermEvent;
 
+    pub enum Event {
+        Response(Response),
+        TermEvent(TermEvent),
+    }
+}
+pub use event::Event;
+
+mod state {
+    use std::path::PathBuf;
+
+    use uuid::Uuid;
+
+    use file_type::FileType;
+    use insh_api::{
+        CreateFileRequestParams, CreateFileResponseParams, Request, RequestParams, Response,
+        ResponseParams,
+    };
     use til::Component;
 
-    use std::fs::File;
-    use std::path::PathBuf;
+    use super::{Action, Effect, Props};
+    use crate::components::common::PhraseEvent;
+    use crate::components::common::{Directory, DirectoryProps, Phrase};
+    use crate::Stateful;
 
     pub struct State {
         directory: PathBuf,
         directory_component: Directory,
         pub phrase: Phrase,
+        file_type: FileType,
+
+        pending_request: Option<Uuid>,
+        pending_file: Option<PathBuf>,
+
         error: Option<String>,
     }
 
@@ -130,6 +166,9 @@ mod state {
                 directory: props.directory().to_path_buf(),
                 directory_component,
                 phrase: Phrase::default(),
+                file_type: props.file_type(),
+                pending_request: None,
+                pending_file: None,
                 error: None,
             }
         }
@@ -139,6 +178,7 @@ mod state {
         fn perform(&mut self, action: Action) -> Option<Effect> {
             match action {
                 Action::CreateFile { filename } => self.create_file(&filename),
+                Action::HandleResponse(response) => self.handle_response(response),
                 Action::Bell => self.bell(),
                 Action::Quit => self.quit(),
             }
@@ -155,16 +195,52 @@ mod state {
         }
 
         fn create_file(&mut self, filename: &str) -> Option<Effect> {
-            let mut filepath = self.directory.clone();
-            filepath.push(filename);
+            let mut path = self.directory.clone();
+            path.push(filename);
 
-            if filepath.exists() {
-                self.error = Some(format!("The file {} already exists.", filename));
-                self.phrase.handle(PhraseEvent::Focus);
+            let request = Request::builder()
+                .params(RequestParams::CreateFile(
+                    CreateFileRequestParams::builder()
+                        .path(path.clone())
+                        .file_type(self.file_type)
+                        .build(),
+                ))
+                .build();
+            self.pending_request = Some(*request.uuid());
+            self.pending_file = Some(path);
+
+            Some(Effect::Request(request))
+        }
+
+        fn handle_response(&mut self, response: Response) -> Option<Effect> {
+            #[cfg(feature = "logging")]
+            log::debug!("Handling response...");
+
+            let pending_request: Uuid = match self.pending_request {
+                Some(pending_request) => pending_request,
+                None => {
+                    #[cfg(feature = "logging")]
+                    log::debug!("There is no pending request.");
+                    return None;
+                }
+            };
+
+            if response.uuid() != &pending_request {
+                #[cfg(feature = "logging")]
+                log::debug!("The response is not for the pending request.");
                 return None;
             }
 
-            if let Err(error) = File::create(&filepath) {
+            let params: &CreateFileResponseParams = match response.params() {
+                ResponseParams::CreateFile(params) => params,
+                _ => {
+                    #[cfg(feature = "logging")]
+                    log::error!("Unexpected response parameters.");
+                    return None;
+                }
+            };
+
+            if let Err(error) = params.result() {
                 self.error = Some(error.to_string());
                 self.phrase.handle(PhraseEvent::Focus);
                 return None;
@@ -172,7 +248,7 @@ mod state {
 
             Some(Effect::Browse {
                 directory: self.directory.clone(),
-                file: Some(filepath),
+                file: Some(self.pending_file.clone().unwrap()),
             })
         }
 
@@ -190,7 +266,10 @@ use state::State;
 mod effect {
     use std::path::PathBuf;
 
+    use insh_api::Request;
+
     pub enum Effect {
+        Request(Request),
         Browse {
             directory: PathBuf,
             file: Option<PathBuf>,
@@ -202,8 +281,11 @@ mod effect {
 pub use effect::Effect;
 
 mod action {
+    use insh_api::Response;
+
     pub enum Action {
         CreateFile { filename: String },
+        HandleResponse(Response),
         Bell,
         Quit,
     }

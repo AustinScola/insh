@@ -1,17 +1,22 @@
 //! Handles requests from clients.
-use crate::file_finder::FindFilesResult;
-use crate::file_finder::{FileFinder, FileFinderOptions};
-use crate::stop::Stop;
-use insh_api::{
-    FindFilesRequestParams, FindFilesResponseParams, Request, RequestParams, Response,
-    ResponseParams, ResponseParamsAndLast,
-};
-use path_finder::Entry;
-
+use std::fs::{DirBuilder, File};
+use std::path::PathBuf;
 use std::thread::{self, JoinHandle};
 
 use crossbeam::channel::{self, select, Receiver, Sender};
 use typed_builder::TypedBuilder;
+
+use file_type::FileType;
+use insh_api::{
+    CreateFileError, CreateFileRequestParams, CreateFileResponseParams, FindFilesRequestParams,
+    FindFilesResponseParams, Request, RequestParams, Response, ResponseParams,
+    ResponseParamsAndLast,
+};
+use path_finder::Entry;
+
+use crate::file_finder::FindFilesResult;
+use crate::file_finder::{FileFinder, FileFinderOptions};
+use crate::stop::Stop;
 
 /// Handles requests from clients.
 #[derive(TypedBuilder)]
@@ -43,19 +48,36 @@ impl RequestHandler {
 
                     let response_params_and_last_iter: Box<dyn Iterator<Item = ResponseParamsAndLast>> = match request.params() {
                         RequestParams::FindFiles(params) => Box::new(FindFiles::run(params)),
+                        RequestParams::CreateFile(params) => Box::new(CreateFile::new(params)),
                     };
 
+                    let mut sent_last: bool = false;
+                    let mut send_error: bool = false;
                     for response_params_and_last in response_params_and_last_iter {
                         let response = Response::builder()
                             .uuid(*request.uuid())
                             .last(response_params_and_last.last)
                             .params(response_params_and_last.response_params)
                             .build();
+
+                        if response_params_and_last.last {
+                            if sent_last {
+                                log::error!("Multiple last responses.");
+                                break;
+                            }
+                            sent_last = true;
+                        }
+
                         if let Err(error) = self.responses.send(response) {
                             log::error!("Error sending response: {}", error);
+                            send_error = true;
                             break;
                         }
                     }
+                    if !sent_last && !send_error {
+                        log::warn!("Never received last response.");
+                    }
+
                     log::info!("Done handling request {}.", request.uuid());
                 }
             }
@@ -137,7 +159,7 @@ impl Iterator for FindFiles {
                         let _ = file_finder_handle.join();
                         return Some(ResponseParamsAndLast::builder()
                             .response_params(
-                                ResponseParams::FindFilesResponseParams(
+                                ResponseParams::FindFiles(
                                     FindFilesResponseParams::builder()
                                         .entries(vec![])
                                         .build()
@@ -150,7 +172,7 @@ impl Iterator for FindFiles {
 
                 return Some(ResponseParamsAndLast::builder()
                     .response_params(
-                        ResponseParams::FindFilesResponseParams(
+                        ResponseParams::FindFiles(
                             FindFilesResponseParams::builder()
                                 .entries(vec![entry])
                                 .build()
@@ -160,5 +182,94 @@ impl Iterator for FindFiles {
                     .build());
             }
         }
+    }
+}
+
+/// Handles creating a file.
+struct CreateFile {
+    /// The path of the file to create.
+    path: PathBuf,
+    /// The type of file to create.
+    file_type: FileType,
+    /// Whether or not created the file is done.
+    done: bool,
+}
+
+impl CreateFile {
+    /// Return a file creator.
+    fn new(params: &CreateFileRequestParams) -> Self {
+        Self {
+            path: params.path().to_path_buf(),
+            file_type: params.file_type(),
+            done: false,
+        }
+    }
+}
+
+impl Iterator for CreateFile {
+    type Item = ResponseParamsAndLast;
+
+    fn next(&mut self) -> Option<ResponseParamsAndLast> {
+        if self.done {
+            return None;
+        }
+
+        let response_params: ResponseParams = if self.path.exists() {
+            ResponseParams::CreateFile(
+                CreateFileResponseParams::builder()
+                    .result(Err(CreateFileError::AlreadyExists(self.path.clone())))
+                    .build(),
+            )
+        } else {
+            match self.file_type {
+                FileType::File => {
+                    log::info!("Creating file {:?}...", self.path);
+                    match File::create(&self.path) {
+                        Ok(_) => {
+                            log::info!("Created file {:?}.", self.path);
+                            ResponseParams::CreateFile(
+                                CreateFileResponseParams::builder().result(Ok(())).build(),
+                            )
+                        }
+                        Err(io_error) => {
+                            log::error!("Error creating file: {}", io_error);
+                            ResponseParams::CreateFile(
+                                CreateFileResponseParams::builder()
+                                    .result(Err(CreateFileError::Other(format!("{}", io_error))))
+                                    .build(),
+                            )
+                        }
+                    }
+                }
+                FileType::Dir => {
+                    log::info!("Creating directory {:?}...", self.path);
+                    match DirBuilder::new().create(&self.path) {
+                        Ok(_) => {
+                            log::info!("Created directory {:?}.", self.path);
+                            ResponseParams::CreateFile(
+                                CreateFileResponseParams::builder().result(Ok(())).build(),
+                            )
+                        }
+                        Err(io_error) => {
+                            log::error!("Error creating directory: {}", io_error);
+                            ResponseParams::CreateFile(
+                                CreateFileResponseParams::builder()
+                                    .result(Err(CreateFileError::Other(format!("{}", io_error))))
+                                    .build(),
+                            )
+                        }
+                    }
+                }
+            }
+        };
+
+        self.done = true;
+
+        Some(
+            ResponseParamsAndLast::builder()
+                .response_params(response_params)
+                .last(true)
+                .build(),
+        )
     }
 }

@@ -1,0 +1,8 @@
+[package]
+name = "file-type"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+# Used for serialization and deserialization of data structures.
+serde = { version = "1.0.144", features = ["derive"] }

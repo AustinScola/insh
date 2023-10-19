@@ -5,6 +5,7 @@ edition = "2021"
 
 [dependencies]
 path-finder = { version = "0.1.0", path = "../path-finder" }
+file-type = { version = "0.1.0", path = "../file-type" }
 
 # Used for generating the builder pattern for structs.
 typed-builder = "0.14.0"

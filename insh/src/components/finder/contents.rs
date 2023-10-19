@@ -438,7 +438,12 @@ mod state {
             }
 
             let params: &FindFilesResponseParams = match response.params() {
-                ResponseParams::FindFilesResponseParams(params) => params,
+                ResponseParams::FindFiles(params) => params,
+                _ => {
+                    #[cfg(feature = "logging")]
+                    log::error!("Unexpected response parameters.");
+                    return None;
+                }
             };
 
             self.entries.extend_from_slice(params.entries());
