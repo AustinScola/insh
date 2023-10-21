@@ -1,10 +1,8 @@
-use crate::event::TermEvent;
-use size::Size;
-
+use std::collections::VecDeque;
 use std::ffi::c_int;
 use std::fmt::{Display, Error as FmtError, Formatter};
 use std::fs::File;
-use std::io::{self, Error as IOError, ErrorKind as IOErrorKind, Read, Stdin};
+use std::io::{self, Error as IOError, Read, Stdin};
 use std::os::fd::AsRawFd;
 use std::os::fd::RawFd;
 
@@ -15,8 +13,10 @@ use nix::poll::{poll, PollFd, PollFlags};
 use nix::sys::signal::{signal, SigHandler, Signal};
 use nix::unistd::{pipe, read, write};
 use nix::Result as NixResult;
-
 use termios::*;
+
+use crate::event::TermEvent;
+use size::Size;
 
 // TODO: Make sure we close these?
 static mut RESIZED_RX: Option<RawFd> = None;
@@ -25,6 +25,7 @@ static mut RESIZED_TX: Option<RawFd> = None;
 pub struct Term {
     stdin: Stdin,
     buffer: [u8; 1],
+    buffered_reads: VecDeque<Result<TermEvent, ReadError>>,
     termios: Termios,
     saved_termios: Option<Termios>,
 }
@@ -50,6 +51,7 @@ impl Term {
 
         Self {
             stdin,
+            buffered_reads: VecDeque::new(),
             buffer: [0; 1],
             termios,
             saved_termios: None,
@@ -57,11 +59,17 @@ impl Term {
     }
 
     pub fn read(&mut self) -> Result<TermEvent, ReadError> {
+        // If there are any buffered reads, then return the first one.
+        if let Some(result) = self.buffered_reads.pop_front() {
+            return result;
+        }
+
         loop {
             let timeout = -1; //  block indefinitely
             let stdin_pollfd = PollFd::new(self.stdin.as_raw_fd(), PollFlags::POLLIN);
             let resized_rx_pollfd = unsafe { PollFd::new(RESIZED_RX.unwrap(), PollFlags::POLLIN) };
             let mut pollfds: [PollFd; 2] = [stdin_pollfd, resized_rx_pollfd];
+
             let result: NixResult<c_int> = poll(&mut pollfds, timeout);
             match result {
                 Err(Errno::EINTR) => {
@@ -78,10 +86,29 @@ impl Term {
             let stdin_events: Option<PollFlags> = stdin_events.revents();
             if let Some(stdin_events) = stdin_events {
                 if stdin_events.contains(PollFlags::POLLIN) {
-                    if let Err(error) = self.stdin.read_exact(&mut self.buffer) {
-                        return Err(ReadError::IOError(error));
+                    let result = match self.stdin.read_exact(&mut self.buffer) {
+                        Ok(_) => Ok(TermEvent::try_from(&self.buffer[..]).unwrap()),
+                        Err(error) => Err(ReadError::IOError(error)),
+                    };
+
+                    // Buffer an other events.
+                    loop {
+                        match self.stdin.read(&mut self.buffer) {
+                            Ok(read) => {
+                                if read == 0 {
+                                    break;
+                                }
+                            }
+                            Err(error) => {
+                                self.buffered_reads
+                                    .push_back(Err(ReadError::IOError(error)));
+                            }
+                        }
+                        self.buffered_reads
+                            .push_back(Ok(TermEvent::try_from(&self.buffer[..]).unwrap()));
                     }
-                    return Ok(TermEvent::try_from(&self.buffer[..]).unwrap());
+
+                    return result;
                 }
             }
 
@@ -104,16 +131,6 @@ impl Term {
 
             unreachable!();
         }
-    }
-
-    pub fn try_read(&mut self) -> Result<Option<TermEvent>, ReadError> {
-        if let Err(error) = self.stdin.read_exact(&mut self.buffer) {
-            if error.kind() == IOErrorKind::Interrupted {
-                return Ok(None);
-            }
-            return Err(ReadError::IOError(error));
-        }
-        return Ok(Some(TermEvent::try_from(&self.buffer[..]).unwrap()));
     }
 
     /// Set the minimum number of bytes to read (VMIN).
@@ -172,8 +189,8 @@ impl Term {
         self.termios.c_cflag |= CS8;
         self.termios.c_lflag &= !(ECHO | ICANON | ISIG | IEXTEN);
 
-        // self.termios.c_cc[VMIN] = 0; // Min number of bytes before read() will return
-        // self.termios.c_cc[VTIME] = 1; // Max time to wait before read() returns (100ms)
+        self.termios.c_cc[VMIN] = 0; // Min number of bytes before read() will return
+        self.termios.c_cc[VTIME] = 0; // Max time to wait before read() returns (measured in 1/10ths of a second)
 
         if let Err(error) = termios::tcsetattr(self.stdin.as_raw_fd(), TCSAFLUSH, &self.termios) {
             return Err(EnableRawError::FailedToSetAttrs(error));
