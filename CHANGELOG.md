@@ -1,3 +1,6 @@
+# 0.4.5
+- Fix handling of rapid input (for example pasting or keys that send ANSI escape codes).
+
 # 0.4.4
 - Add creating a directory with `C` from the file browser.
 
