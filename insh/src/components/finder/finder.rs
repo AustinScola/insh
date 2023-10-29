@@ -112,10 +112,9 @@ mod finder {
                             Some(ContentsEffect::SendFindFilesRequest { uuid, dir, pattern }) => {
                                 Some(Effect::SendFindFilesRequest { uuid, dir, pattern })
                             }
-                            Some(ContentsEffect::Goto { dir, file }) => Some(Effect::Browse {
-                                directory: dir,
-                                file,
-                            }),
+                            Some(ContentsEffect::Goto { dir, file }) => {
+                                Some(Effect::Browse { dir, file })
+                            }
                             Some(ContentsEffect::OpenVim(vim_args)) => {
                                 Some(Effect::OpenVim(vim_args))
                             }
@@ -158,14 +157,14 @@ pub use finder::Finder;
 mod state {
     use super::super::{Contents, ContentsProps};
     use super::{Action, Effect, Focus, Props};
-    use crate::components::common::{Directory, DirectoryProps, Phrase, PhraseProps};
+    use crate::components::common::{Dir, DirProps, Phrase, PhraseProps};
     use crate::stateful::Stateful;
 
     use rend::Size;
     use til::Component;
 
     pub struct State {
-        dir: Directory,
+        dir: Dir,
         pub phrase: Phrase,
         pub contents: Contents,
         focus: Focus,
@@ -173,8 +172,8 @@ mod state {
 
     impl From<Props> for State {
         fn from(props: Props) -> Self {
-            let dir_props = DirectoryProps::new(props.dir.clone());
-            let dir = Directory::new(dir_props);
+            let dir_props = DirProps::new(props.dir.clone());
+            let dir = Dir::new(dir_props);
 
             let phrase = Phrase::new(PhraseProps::builder().value(props.phrase).build());
 
@@ -197,7 +196,7 @@ mod state {
     }
 
     impl State {
-        pub fn dir(&self) -> &Directory {
+        pub fn dir(&self) -> &Dir {
             &self.dir
         }
 
@@ -269,7 +268,7 @@ mod effect {
             pattern: String,
         },
         Browse {
-            directory: PathBuf,
+            dir: PathBuf,
             file: Option<PathBuf>,
         },
         OpenVim(VimArgs),

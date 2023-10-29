@@ -2,18 +2,18 @@ mod props {
     use std::path::PathBuf;
 
     pub struct Props {
-        pub directory: PathBuf,
+        pub dir: PathBuf,
     }
 
     impl Props {
-        pub fn new(directory: PathBuf) -> Self {
-            Self { directory }
+        pub fn new(dir: PathBuf) -> Self {
+            Self { dir }
         }
     }
 }
 pub use props::Props;
 
-mod directory {
+mod dir {
     use super::{Action, Effect, Event, Props, State};
     use crate::color::Color;
     use crate::stateful::Stateful;
@@ -21,11 +21,11 @@ mod directory {
     use rend::{Fabric, Size, Yarn};
     use til::Component;
 
-    pub struct Directory {
+    pub struct Dir {
         state: State,
     }
 
-    impl Component<Props, Event, Effect> for Directory {
+    impl Component<Props, Event, Effect> for Dir {
         fn new(props: Props) -> Self {
             let state = State::from(props);
             Self { state }
@@ -39,7 +39,7 @@ mod directory {
         }
 
         fn render(&self, size: Size) -> Fabric {
-            let string = self.state.directory_string();
+            let string = self.state.dir_string();
             let mut yarn = Yarn::from(string);
             yarn.resize(size.columns);
             yarn.color(Color::InvertedText.into());
@@ -49,30 +49,30 @@ mod directory {
         }
     }
 
-    impl Directory {
+    impl Dir {
         fn map(&self, event: Event) -> Option<Action> {
             match event {
-                Event::SetDirectory { directory } => Some(Action::SetDirectory { directory }),
-                Event::PopDirectory => Some(Action::PopDirectory),
+                Event::SetDir { dir } => Some(Action::SetDir { dir }),
+                Event::PopDir => Some(Action::PopDir),
             }
         }
     }
 
-    impl Default for Directory {
+    impl Default for Dir {
         fn default() -> Self {
             let state = State::default();
             Self { state }
         }
     }
 }
-pub use directory::Directory;
+pub use dir::Dir;
 
 mod event {
     use std::path::PathBuf;
 
     pub enum Event {
-        SetDirectory { directory: PathBuf },
-        PopDirectory,
+        SetDir { dir: PathBuf },
+        PopDir,
     }
 }
 pub use event::Event;
@@ -85,14 +85,14 @@ mod state {
     use std::path::{PathBuf, MAIN_SEPARATOR as PATH_SEPARATOR};
 
     pub struct State {
-        directory: PathBuf,
+        dir: PathBuf,
         home: Option<PathBuf>,
     }
 
     impl State {
-        pub fn directory_string(&self) -> String {
+        pub fn dir_string(&self) -> String {
             if let Some(home) = &self.home {
-                if let Ok(path) = self.directory.strip_prefix(home) {
+                if let Ok(path) = self.dir.strip_prefix(home) {
                     let mut string = String::from("~");
                     string.push(PATH_SEPARATOR);
 
@@ -106,34 +106,34 @@ mod state {
                 }
             }
 
-            let mut string = self.directory.to_str().unwrap().to_string();
-            if self.directory.parent().is_some() {
+            let mut string = self.dir.to_str().unwrap().to_string();
+            if self.dir.parent().is_some() {
                 string.push(PATH_SEPARATOR);
             }
             string
         }
 
-        fn set_directory(&mut self, directory: PathBuf) {
-            self.directory = directory;
+        fn set_dir(&mut self, dir: PathBuf) {
+            self.dir = dir;
         }
 
-        fn pop_directory(&mut self) {
-            self.directory.pop();
+        fn pop_dir(&mut self) {
+            self.dir.pop();
         }
     }
 
     impl Default for State {
         fn default() -> Self {
-            let directory: PathBuf = current_dir::current_dir();
+            let dir: PathBuf = current_dir::current_dir();
             let home: Option<PathBuf> = dirs::home_dir();
-            State { directory, home }
+            State { dir, home }
         }
     }
 
     impl From<Props> for State {
         fn from(props: Props) -> Self {
             Self {
-                directory: props.directory,
+                dir: props.dir,
                 ..Default::default()
             }
         }
@@ -142,11 +142,11 @@ mod state {
     impl Stateful<Action, Effect> for State {
         fn perform(&mut self, action: Action) -> Option<Effect> {
             match action {
-                Action::SetDirectory { directory } => {
-                    self.set_directory(directory);
+                Action::SetDir { dir } => {
+                    self.set_dir(dir);
                 }
-                Action::PopDirectory => {
-                    self.pop_directory();
+                Action::PopDir => {
+                    self.pop_dir();
                 }
             }
             None
@@ -159,8 +159,8 @@ mod action {
     use std::path::PathBuf;
 
     pub enum Action {
-        SetDirectory { directory: PathBuf },
-        PopDirectory,
+        SetDir { dir: PathBuf },
+        PopDir,
     }
 }
 use action::Action;

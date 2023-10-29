@@ -13,6 +13,7 @@ common = { version = "0.1.0", path = "../common" }
 insh-api = { version = "0.1.0", path = "../insh-api" }
 path-finder = { version = "0.1.0", path = "../path-finder" }
 file-type = { version = "0.1.0", path = "../file-type" }
+file-info = { version = "0.1.0", path = "../file-info" }
 
 # Used for command line argument parsing.
 clap = { version = "3.2.17", features = ["derive"] }
