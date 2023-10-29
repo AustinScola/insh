@@ -1,3 +1,6 @@
+# 0.4.6
+- Change the browser to use inshd to get files in a directory.
+
 # 0.4.5
 - Fix handling of rapid input (for example pasting or keys that send ANSI escape codes).
 
