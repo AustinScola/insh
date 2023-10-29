@@ -7,13 +7,13 @@ mod props {
 
     #[derive(TypedBuilder)]
     pub struct Props {
-        directory: PathBuf,
+        dir: PathBuf,
         file_type: FileType,
     }
 
     impl Props {
-        pub fn directory(&self) -> &PathBuf {
-            &self.directory
+        pub fn dir(&self) -> &PathBuf {
+            &self.dir
         }
 
         pub fn file_type(&self) -> FileType {
@@ -82,19 +82,13 @@ mod file_creator {
                 2 => {
                     let columns = size.columns;
                     let phrase_fabric = self.state.phrase.render(Size::new(1, columns));
-                    let directory_fabric = self
-                        .state
-                        .directory_component()
-                        .render(Size::new(1, columns));
-                    directory_fabric.quilt_bottom(phrase_fabric)
+                    let dir_fabric = self.state.dir_component().render(Size::new(1, columns));
+                    dir_fabric.quilt_bottom(phrase_fabric)
                 }
                 rows => {
                     let columns = size.columns;
-                    let directory_fabric = self
-                        .state
-                        .directory_component()
-                        .render(Size::new(1, columns));
-                    let mut fabric: Fabric = directory_fabric;
+                    let dir_fabric = self.state.dir_component().render(Size::new(1, columns));
+                    let mut fabric: Fabric = dir_fabric;
 
                     let phrase_fabric = self.state.phrase.render(Size::new(1, columns));
                     fabric = fabric.quilt_bottom(phrase_fabric);
@@ -142,12 +136,12 @@ mod state {
 
     use super::{Action, Effect, Props};
     use crate::components::common::PhraseEvent;
-    use crate::components::common::{Directory, DirectoryProps, Phrase};
+    use crate::components::common::{Dir, DirProps, Phrase};
     use crate::Stateful;
 
     pub struct State {
-        directory: PathBuf,
-        directory_component: Directory,
+        dir: PathBuf,
+        dir_component: Dir,
         pub phrase: Phrase,
         file_type: FileType,
 
@@ -159,12 +153,12 @@ mod state {
 
     impl From<Props> for State {
         fn from(props: Props) -> Self {
-            let directory_component_props = DirectoryProps::new(props.directory().clone());
-            let directory_component = Directory::new(directory_component_props);
+            let dir_component_props = DirProps::new(props.dir().clone());
+            let dir_component = Dir::new(dir_component_props);
 
             Self {
-                directory: props.directory().to_path_buf(),
-                directory_component,
+                dir: props.dir().to_path_buf(),
+                dir_component,
                 phrase: Phrase::default(),
                 file_type: props.file_type(),
                 pending_request: None,
@@ -186,8 +180,8 @@ mod state {
     }
 
     impl State {
-        pub fn directory_component(&self) -> &Directory {
-            &self.directory_component
+        pub fn dir_component(&self) -> &Dir {
+            &self.dir_component
         }
 
         pub fn error(&self) -> &Option<String> {
@@ -195,7 +189,7 @@ mod state {
         }
 
         fn create_file(&mut self, filename: &str) -> Option<Effect> {
-            let mut path = self.directory.clone();
+            let mut path = self.dir.clone();
             path.push(filename);
 
             let request = Request::builder()
@@ -247,7 +241,7 @@ mod state {
             }
 
             Some(Effect::Browse {
-                directory: self.directory.clone(),
+                dir: self.dir.clone(),
                 file: Some(self.pending_file.clone().unwrap()),
             })
         }
@@ -270,10 +264,7 @@ mod effect {
 
     pub enum Effect {
         Request(Request),
-        Browse {
-            directory: PathBuf,
-            file: Option<PathBuf>,
-        },
+        Browse { dir: PathBuf, file: Option<PathBuf> },
         Bell,
         Quit,
     }

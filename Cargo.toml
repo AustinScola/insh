@@ -10,5 +10,6 @@ members = [
     "rend",
     "path-finder",
     "size",
+    "file-info",
     "file-type",
 ]

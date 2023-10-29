@@ -1,15 +1,18 @@
 //! Handles requests from clients.
-use std::fs::{DirBuilder, File};
+use std::fs::{self, DirBuilder, DirEntry, File, ReadDir};
+use std::io::{Error as IOError, ErrorKind as IOErrorKind};
 use std::path::PathBuf;
 use std::thread::{self, JoinHandle};
 
 use crossbeam::channel::{self, select, Receiver, Sender};
 use typed_builder::TypedBuilder;
 
+use file_info::FileInfo;
 use file_type::FileType;
 use insh_api::{
-    CreateFileError, CreateFileRequestParams, CreateFileResponseParams, FindFilesRequestParams,
-    FindFilesResponseParams, Request, RequestParams, Response, ResponseParams,
+    CreateFileError, CreateFileRequestParams, CreateFileResponseParams, CreateFileResult,
+    FindFilesRequestParams, FindFilesResponseParams, GetFilesError, GetFilesRequestParams,
+    GetFilesResponseParams, GetFilesResult, Request, RequestParams, Response, ResponseParams,
     ResponseParamsAndLast,
 };
 use path_finder::Entry;
@@ -47,6 +50,7 @@ impl RequestHandler {
                     log::info!("Handling request {}.", request.uuid());
 
                     let response_params_and_last_iter: Box<dyn Iterator<Item = ResponseParamsAndLast>> = match request.params() {
+                        RequestParams::GetFiles(params) => Box::new(GetFiles::new(params)),
                         RequestParams::FindFiles(params) => Box::new(FindFiles::run(params)),
                         RequestParams::CreateFile(params) => Box::new(CreateFile::new(params)),
                     };
@@ -91,8 +95,85 @@ impl RequestHandler {
 #[derive(TypedBuilder)]
 pub struct Context {}
 
+/// Handles a request to get files.
+struct GetFiles {
+    /// The directory to get files for.
+    dir: PathBuf,
+    /// If getting files is done.
+    done: bool,
+}
+
+impl GetFiles {
+    /// Return a new handler for getting files.
+    pub fn new(params: &GetFilesRequestParams) -> Self {
+        Self {
+            dir: params.dir().to_path_buf(),
+            done: false,
+        }
+    }
+}
+
+impl Iterator for GetFiles {
+    type Item = ResponseParamsAndLast;
+
+    fn next(&mut self) -> Option<ResponseParamsAndLast> {
+        if self.done {
+            return None;
+        }
+
+        let read_dir: Result<ReadDir, IOError> = fs::read_dir(&self.dir);
+        let get_files_result: GetFilesResult = match read_dir {
+            Ok(dir_entries) => {
+                let mut file_infos: Vec<FileInfo> = Vec::new();
+
+                for dir_entry in dir_entries {
+                    let dir_entry: DirEntry = match dir_entry {
+                        Ok(dir_entry) => dir_entry,
+                        Err(error) => {
+                            log::warn!("Error for dir entry: {}", error);
+                            continue;
+                        }
+                    };
+
+                    let file_type: Result<FileType, String> = match dir_entry.file_type() {
+                        Ok(std_file_type) => Ok(FileType::from(std_file_type)),
+                        Err(io_error) => Err(io_error.to_string()),
+                    };
+
+                    let file_info: FileInfo = FileInfo::builder()
+                        .path(dir_entry.path().to_path_buf())
+                        .r#type(file_type)
+                        .build();
+                    file_infos.push(file_info);
+                }
+                Ok(file_infos)
+            }
+            Err(error) => match error.kind() {
+                IOErrorKind::NotFound => Err(GetFilesError::DirDoesNotExist),
+                IOErrorKind::PermissionDenied => Err(GetFilesError::PermissionDenied),
+                _ => Err(GetFilesError::OtherErrorReading(error.to_string())),
+            },
+        };
+
+        let response_params = ResponseParams::GetFiles(
+            GetFilesResponseParams::builder()
+                .result(get_files_result)
+                .build(),
+        );
+
+        self.done = true;
+
+        Some(
+            ResponseParamsAndLast::builder()
+                .response_params(response_params)
+                .last(true)
+                .build(),
+        )
+    }
+}
+
 /// Handles a request to find files.
-pub struct FindFiles {
+struct FindFiles {
     /// A receiver for results of finding files.
     results_rx: Receiver<FindFilesResult>,
     /// A handle to the thread for finding files.
@@ -214,12 +295,8 @@ impl Iterator for CreateFile {
             return None;
         }
 
-        let response_params: ResponseParams = if self.path.exists() {
-            ResponseParams::CreateFile(
-                CreateFileResponseParams::builder()
-                    .result(Err(CreateFileError::AlreadyExists(self.path.clone())))
-                    .build(),
-            )
+        let create_file_result: CreateFileResult = if self.path.exists() {
+            Err(CreateFileError::AlreadyExists(self.path.clone()))
         } else {
             match self.file_type {
                 FileType::File => {
@@ -227,17 +304,11 @@ impl Iterator for CreateFile {
                     match File::create(&self.path) {
                         Ok(_) => {
                             log::info!("Created file {:?}.", self.path);
-                            ResponseParams::CreateFile(
-                                CreateFileResponseParams::builder().result(Ok(())).build(),
-                            )
+                            Ok(())
                         }
                         Err(io_error) => {
                             log::error!("Error creating file: {}", io_error);
-                            ResponseParams::CreateFile(
-                                CreateFileResponseParams::builder()
-                                    .result(Err(CreateFileError::Other(format!("{}", io_error))))
-                                    .build(),
-                            )
+                            Err(CreateFileError::Other(format!("{}", io_error)))
                         }
                     }
                 }
@@ -246,22 +317,22 @@ impl Iterator for CreateFile {
                     match DirBuilder::new().create(&self.path) {
                         Ok(_) => {
                             log::info!("Created directory {:?}.", self.path);
-                            ResponseParams::CreateFile(
-                                CreateFileResponseParams::builder().result(Ok(())).build(),
-                            )
+                            Ok(())
                         }
                         Err(io_error) => {
                             log::error!("Error creating directory: {}", io_error);
-                            ResponseParams::CreateFile(
-                                CreateFileResponseParams::builder()
-                                    .result(Err(CreateFileError::Other(format!("{}", io_error))))
-                                    .build(),
-                            )
+                            Err(CreateFileError::Other(format!("{}", io_error)))
                         }
                     }
                 }
+                file_type => Err(CreateFileError::UnsupportedFileType(file_type)),
             }
         };
+        let response_params: ResponseParams = ResponseParams::CreateFile(
+            CreateFileResponseParams::builder()
+                .result(create_file_result)
+                .build(),
+        );
 
         self.done = true;
 

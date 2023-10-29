@@ -7,17 +7,13 @@ mod props {
 
     pub struct Props {
         pub config: Config,
-        pub directory: PathBuf,
+        pub dir: PathBuf,
         pub size: Size,
     }
 
     impl Props {
-        pub fn new(config: Config, directory: PathBuf, size: Size) -> Self {
-            Self {
-                config,
-                directory,
-                size,
-            }
+        pub fn new(config: Config, dir: PathBuf, size: Size) -> Self {
+            Self { config, dir, size }
         }
     }
 }
@@ -157,9 +153,9 @@ mod contents {
                             if draw_path {
                                 let mut path: String =
                                     file_hit.path().to_string_lossy().to_string();
-                                let directory_string: String =
-                                    self.state.directory().to_string_lossy().to_string();
-                                path = path.strip_prefix(&directory_string).unwrap().to_string();
+                                let dir_string: String =
+                                    self.state.dir().to_string_lossy().to_string();
+                                path = path.strip_prefix(&dir_string).unwrap().to_string();
                                 if path.starts_with(PATH_SEPARATOR) {
                                     path = path.strip_prefix(PATH_SEPARATOR).unwrap().to_string();
                                 }
@@ -257,7 +253,7 @@ mod state {
     #[derive(Debug, PartialEq, Eq, Default)]
     pub struct State {
         size: Size,
-        directory: PathBuf,
+        dir: PathBuf,
         phrase: Option<String>,
         focussed: bool,
         searched: bool,
@@ -274,7 +270,7 @@ mod state {
                 size: props.size,
                 // Would be nice to not have to clone this. Maybe use the builder pattern instead
                 // of using From &Props?
-                directory: props.directory.clone(),
+                dir: props.dir.clone(),
                 phrase: None,
                 focussed: false,
                 searched: false,
@@ -288,8 +284,8 @@ mod state {
     }
 
     impl State {
-        pub fn directory(&self) -> &Path {
-            &self.directory
+        pub fn dir(&self) -> &Path {
+            &self.dir
         }
 
         /// Return if the search contents are currently foccused on.
@@ -420,7 +416,7 @@ mod state {
             self.focus();
             self.phrase = Some(phrase.to_string());
 
-            let phrase_searcher = PhraseSearcher::new(&self.directory, phrase);
+            let phrase_searcher = PhraseSearcher::new(&self.dir, phrase);
             self.hits = phrase_searcher.collect();
             self.searched = true;
 
@@ -683,14 +679,14 @@ mod state {
         fn _goto(&mut self, really: bool) -> Option<Effect> {
             if let Some(file_hit) = self.hit() {
                 let path: &Path = file_hit.path();
-                let directory = path.parent().unwrap().to_path_buf();
+                let dir = path.parent().unwrap().to_path_buf();
                 let file: Option<PathBuf> = if really {
                     Some(path.to_path_buf())
                 } else {
                     None
                 };
 
-                return Some(Effect::Goto { directory, file });
+                return Some(Effect::Goto { dir, file });
             }
             None
         }
@@ -716,9 +712,8 @@ mod state {
                         let mut path: String =
                             file_hit.path().to_path_buf().to_string_lossy().to_string();
                         if !really {
-                            let directory_string: String =
-                                self.directory().to_string_lossy().to_string();
-                            path = path.strip_prefix(&directory_string).unwrap().to_string();
+                            let dir_string: String = self.dir().to_string_lossy().to_string();
+                            path = path.strip_prefix(&dir_string).unwrap().to_string();
                             if path.starts_with(PATH_SEPARATOR) {
                                 path = path.strip_prefix(PATH_SEPARATOR).unwrap().to_string();
                             }
@@ -851,10 +846,7 @@ mod effect {
 
     pub enum Effect {
         Unfocus,
-        Goto {
-            directory: PathBuf,
-            file: Option<PathBuf>,
-        },
+        Goto { dir: PathBuf, file: Option<PathBuf> },
         OpenVim(VimArgs),
         Bell,
     }

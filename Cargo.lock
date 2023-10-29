@@ -343,6 +343,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "file-info"
+version = "0.1.0"
+dependencies = [
+ "file-type",
+ "serde",
+ "typed-builder",
+]
+
+[[package]]
 name = "file-type"
 version = "0.1.0"
 dependencies = [
@@ -463,6 +472,7 @@ dependencies = [
  "crossbeam",
  "crossterm",
  "dirs",
+ "file-info",
  "file-type",
  "flexi_logger",
  "fslock",
@@ -489,6 +499,7 @@ dependencies = [
 name = "insh-api"
 version = "0.1.0"
 dependencies = [
+ "file-info",
  "file-type",
  "path-finder",
  "serde",
@@ -505,6 +516,7 @@ dependencies = [
  "common",
  "crossbeam",
  "daemonize",
+ "file-info",
  "file-type",
  "flexi_logger",
  "insh-api",

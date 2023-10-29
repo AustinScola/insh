@@ -1,4 +1,4 @@
-use crate::components::browser::{Browser, BrowserEffect, BrowserProps};
+use crate::components::browser::{Browser, BrowserEffect, BrowserEvent, BrowserProps};
 use crate::components::file_creator::{
     FileCreator, FileCreatorEffect, FileCreatorEvent, FileCreatorProps,
 };
@@ -10,7 +10,7 @@ use crate::programs::{Bash, Vim};
 use crate::stateful::Stateful;
 
 use file_type::FileType;
-use insh_api::{FindFilesRequestParams, Request, RequestParams, Response};
+use insh_api::{FindFilesRequestParams, GetFilesRequestParams, Request, RequestParams, Response};
 use rend::{Fabric, Size};
 use term::{Key, KeyEvent, KeyMods, TermEvent};
 use til::{Component, Event, SystemEffect};
@@ -20,71 +20,34 @@ use std::path::PathBuf;
 use crossterm::terminal;
 
 mod props {
-    use crate::args::{Args, Command};
-    use crate::config::Config;
-    use crate::current_dir;
-
     use std::path::PathBuf;
 
+    use typed_builder::TypedBuilder;
+    use uuid::Uuid;
+
+    use crate::args::Command;
+    use crate::config::Config;
+
+    #[derive(TypedBuilder)]
     pub struct Props {
-        directory: Option<PathBuf>,
         start: Start,
+        dir: Option<PathBuf>,
+        #[builder(default)]
+        pending_browser_request: Option<Uuid>,
         config: Config,
     }
 
-    impl From<(Args, Config)> for Props {
-        fn from(args_and_config: (Args, Config)) -> Self {
-            let (args, config) = args_and_config;
-
-            let mut directory: Option<PathBuf> =
-                args.directory().as_ref().map(|path| path.to_path_buf());
-
-            // If the directory was not passed as an argument, and we are editing a file and then
-            // browsing, then the directory should be the directory of the file (if a file was
-            // passed).
-            if directory.is_none() {
-                if let Some(Command::Edit {
-                    browse,
-                    file_line_column,
-                }) = args.command()
-                {
-                    if *browse {
-                        if let Some(file_line_column) = file_line_column {
-                            if let Some(file) = file_line_column.file() {
-                                directory = match file.parent() {
-                                    Some(parent) => Some(parent.to_path_buf()),
-                                    None => Some(PathBuf::from("/")),
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-
-            // If the directory is relative, make it absolute.
-            if let Some(directory_) = &directory {
-                if directory_.is_relative() {
-                    let mut absolute_directory = current_dir::current_dir();
-                    absolute_directory.push(directory_);
-                    directory = Some(absolute_directory);
-                }
-            }
-
-            Self {
-                directory,
-                start: Start::from(args.command().clone()),
-                config,
-            }
-        }
-    }
-
     impl Props {
-        pub fn directory(&self) -> &Option<PathBuf> {
-            &self.directory
-        }
-
         pub fn start(&self) -> &Start {
             &self.start
+        }
+
+        pub fn dir(&self) -> &Option<PathBuf> {
+            &self.dir
+        }
+
+        pub fn pending_browser_request(&self) -> &Option<Uuid> {
+            &self.pending_browser_request
         }
 
         pub fn config(&self) -> &Config {
@@ -139,43 +102,36 @@ impl Component<Props, Event<Response>, SystemEffect<Request>> for Insh {
 
         match self.state.mode {
             Mode::Browse => {
-                let event = match event {
-                    Event::TermEvent(event) => event,
-                    Event::Response(_) => {
-                        #[cfg(feature = "logging")]
-                        log::warn!("Browser doesn't handle responses yet.");
-                        return None;
-                    }
+                let event: BrowserEvent = match event {
+                    Event::TermEvent(term_event) => BrowserEvent::TermEvent(term_event),
+                    Event::Response(response) => BrowserEvent::Response(response),
                 };
 
                 let browser = self.state.browser.as_mut().unwrap();
                 let browser_effect: Option<BrowserEffect> = browser.handle(event);
                 match browser_effect {
-                    Some(BrowserEffect::OpenFileCreator {
-                        directory,
-                        file_type,
-                    }) => {
-                        action = Some(Action::CreateFile {
-                            directory,
-                            file_type,
-                        });
+                    Some(BrowserEffect::OpenFileCreator { dir, file_type }) => {
+                        action = Some(Action::CreateFile { dir, file_type });
                     }
-                    Some(BrowserEffect::OpenFinder { directory }) => {
-                        action = Some(Action::Find { directory });
+                    Some(BrowserEffect::OpenFinder { dir }) => {
+                        action = Some(Action::Find { dir });
                     }
-                    Some(BrowserEffect::OpenSearcher { directory }) => {
-                        action = Some(Action::Search { directory });
+                    Some(BrowserEffect::OpenSearcher { dir }) => {
+                        action = Some(Action::Search { dir });
                     }
                     Some(BrowserEffect::OpenVim(vim_args)) => {
                         let program = Box::new(Vim::new(vim_args));
                         return Some(SystemEffect::RunProgram { program });
                     }
-                    Some(BrowserEffect::RunBash { directory }) => {
-                        let program = Box::new(Bash::new(directory));
+                    Some(BrowserEffect::RunBash { dir }) => {
+                        let program = Box::new(Bash::new(dir));
                         return Some(SystemEffect::RunProgram { program });
                     }
                     Some(BrowserEffect::Bell) => {
                         action = Some(Action::Bell);
+                    }
+                    Some(BrowserEffect::Request(request)) => {
+                        return Some(SystemEffect::Request(request));
                     }
                     None => {}
                 }
@@ -193,8 +149,8 @@ impl Component<Props, Event<Response>, SystemEffect<Request>> for Insh {
                     Some(FileCreatorEffect::Request(request)) => {
                         return Some(SystemEffect::Request(request));
                     }
-                    Some(FileCreatorEffect::Browse { directory, file }) => {
-                        action = Some(Action::Browse { directory, file });
+                    Some(FileCreatorEffect::Browse { dir, file }) => {
+                        action = Some(Action::Browse { dir, file });
                     }
                     Some(FileCreatorEffect::Bell) => {
                         action = Some(Action::Bell);
@@ -219,8 +175,8 @@ impl Component<Props, Event<Response>, SystemEffect<Request>> for Insh {
                         let request: Request = Request::builder().uuid(uuid).params(params).build();
                         return Some(SystemEffect::Request(request));
                     }
-                    Some(FinderEffect::Browse { directory, file }) => {
-                        action = Some(Action::Browse { directory, file });
+                    Some(FinderEffect::Browse { dir, file }) => {
+                        action = Some(Action::Browse { dir, file });
                     }
                     Some(FinderEffect::OpenVim(vim_args)) => {
                         let program = Box::new(Vim::new(vim_args));
@@ -248,8 +204,8 @@ impl Component<Props, Event<Response>, SystemEffect<Request>> for Insh {
                 let searcher = self.state.searcher.as_mut().unwrap();
                 let searcher_effect: Option<SearcherEffect> = searcher.handle(event);
                 match searcher_effect {
-                    Some(SearcherEffect::Goto { directory, file }) => {
-                        action = Some(Action::Browse { directory, file });
+                    Some(SearcherEffect::Goto { dir, file }) => {
+                        action = Some(Action::Browse { dir, file });
                     }
                     Some(SearcherEffect::Quit) => {
                         action = Some(Action::QuitSearcher);
@@ -299,13 +255,14 @@ struct State {
 
 impl From<Props> for State {
     fn from(props: Props) -> Self {
-        let directory: PathBuf = props
-            .directory()
-            .clone()
-            .unwrap_or_else(current_dir::current_dir);
+        let dir: PathBuf = props.dir().clone().unwrap_or_else(current_dir::current_dir);
         let size: Size = Size::from(terminal::size().unwrap());
 
-        let browser_props = BrowserProps::new(directory.clone(), size, None);
+        let browser_props = BrowserProps::builder()
+            .dir(dir.clone())
+            .size(size)
+            .pending_request(*props.pending_browser_request())
+            .build();
         let browser = Some(Browser::new(browser_props));
         match props.start() {
             Start::Browser => Self {
@@ -318,7 +275,7 @@ impl From<Props> for State {
             },
             Start::Finder { phrase } => {
                 let finder_props = FinderProps::builder()
-                    .dir(directory)
+                    .dir(dir)
                     .size(size)
                     .phrase(phrase.clone())
                     .build();
@@ -334,7 +291,7 @@ impl From<Props> for State {
             }
             Start::Searcher { phrase } => {
                 let searcher_props =
-                    SearcherProps::new(props.config().clone(), directory, size, phrase.clone());
+                    SearcherProps::new(props.config().clone(), dir, size, phrase.clone());
                 let searcher = Some(Searcher::new(searcher_props));
                 Self {
                     mode: Mode::Searcher,
@@ -358,38 +315,43 @@ impl From<Props> for State {
 }
 
 impl State {
-    fn browse(
-        &mut self,
-        directory: PathBuf,
-        file: Option<PathBuf>,
-    ) -> Option<SystemEffect<Request>> {
+    fn browse(&mut self, dir: PathBuf, file: Option<PathBuf>) -> Option<SystemEffect<Request>> {
+        // Create a request for getting the files in the dir.
+        let request = Request::builder()
+            .params(RequestParams::GetFiles(
+                GetFilesRequestParams::builder().dir(dir.clone()).build(),
+            ))
+            .build();
+
         self.mode = Mode::Browse;
         let size: Size = Size::from(terminal::size().unwrap());
-        let browser_props = BrowserProps::new(directory, size, file);
+        let browser_props = BrowserProps::builder()
+            .dir(dir)
+            .size(size)
+            .file(file)
+            .pending_request(Some(*request.uuid()))
+            .build();
         self.browser = Some(Browser::new(browser_props));
-        None
+
+        Some(SystemEffect::Request(request))
     }
 
-    fn create_file(
-        &mut self,
-        directory: PathBuf,
-        file_type: FileType,
-    ) -> Option<SystemEffect<Request>> {
+    fn create_file(&mut self, dir: PathBuf, file_type: FileType) -> Option<SystemEffect<Request>> {
         self.mode = Mode::FileCreator;
         let file_creator_props = FileCreatorProps::builder()
-            .directory(directory)
+            .dir(dir)
             .file_type(file_type)
             .build();
         self.file_creator = Some(FileCreator::new(file_creator_props));
         None
     }
 
-    fn find(&mut self, directory: PathBuf) -> Option<SystemEffect<Request>> {
+    fn find(&mut self, dir: PathBuf) -> Option<SystemEffect<Request>> {
         self.mode = Mode::Finder;
         let size: Size = Size::from(terminal::size().unwrap());
         let phrase = None;
         let finder_props = FinderProps::builder()
-            .dir(directory)
+            .dir(dir)
             .size(size)
             .phrase(phrase)
             .build();
@@ -397,11 +359,11 @@ impl State {
         None
     }
 
-    fn search(&mut self, directory: PathBuf) -> Option<SystemEffect<Request>> {
+    fn search(&mut self, dir: PathBuf) -> Option<SystemEffect<Request>> {
         self.mode = Mode::Searcher;
         let size: Size = Size::from(terminal::size().unwrap());
         let phrase = None;
-        let searcher_props = SearcherProps::new(self.config.clone(), directory, size, phrase);
+        let searcher_props = SearcherProps::new(self.config.clone(), dir, size, phrase);
         self.searcher = Some(Searcher::new(searcher_props));
         None
     }
@@ -429,13 +391,10 @@ impl State {
 impl Stateful<Action, SystemEffect<Request>> for State {
     fn perform(&mut self, action: Action) -> Option<SystemEffect<Request>> {
         match action {
-            Action::Browse { directory, file } => self.browse(directory, file),
-            Action::CreateFile {
-                directory,
-                file_type,
-            } => self.create_file(directory, file_type),
-            Action::Find { directory } => self.find(directory),
-            Action::Search { directory } => self.search(directory),
+            Action::Browse { dir, file } => self.browse(dir, file),
+            Action::CreateFile { dir, file_type } => self.create_file(dir, file_type),
+            Action::Find { dir } => self.find(dir),
+            Action::Search { dir } => self.search(dir),
             Action::QuitFinder => self.quit_finder(),
             Action::QuitSearcher => self.quit_searcher(),
             Action::Bell => self.bell(),
@@ -454,20 +413,10 @@ enum Mode {
 }
 
 enum Action {
-    Browse {
-        directory: PathBuf,
-        file: Option<PathBuf>,
-    },
-    CreateFile {
-        directory: PathBuf,
-        file_type: FileType,
-    },
-    Find {
-        directory: PathBuf,
-    },
-    Search {
-        directory: PathBuf,
-    },
+    Browse { dir: PathBuf, file: Option<PathBuf> },
+    CreateFile { dir: PathBuf, file_type: FileType },
+    Find { dir: PathBuf },
+    Search { dir: PathBuf },
     Bell,
     QuitFinder,
     QuitSearcher,

@@ -1,4 +1,4 @@
-use crate::programs::{Vim, VimArgs, VimArgsBuilder};
+use std::path::PathBuf;
 
 #[cfg(feature = "logging")]
 use common::args::ModuleLogLevelFilter;
@@ -6,7 +6,8 @@ use insh_api::Request;
 use term::{Key, KeyEvent, KeyMods, TermEvent};
 use til::SystemEffect;
 
-use std::path::PathBuf;
+use crate::current_dir;
+use crate::programs::{Vim, VimArgs, VimArgsBuilder};
 
 use clap::{Parser, Subcommand};
 #[cfg(feature = "logging")]
@@ -17,7 +18,7 @@ use flexi_logger::{LevelFilter as LogLevelFilter, LogSpecification};
 pub struct Args {
     /// Starting directory to run in
     #[clap(short, long, display_order = 0)]
-    directory: Option<PathBuf>,
+    dir: Option<PathBuf>,
 
     /// File to write logs to (can be a unix socket)
     #[cfg(feature = "logging")]
@@ -39,8 +40,41 @@ pub struct Args {
 }
 
 impl Args {
-    pub fn directory(&self) -> &Option<PathBuf> {
-        &self.directory
+    pub fn dir(&self) -> Option<PathBuf> {
+        let mut dir: Option<PathBuf> = self.dir.as_ref().map(|path| path.to_path_buf());
+
+        // If the directory was not passed as an argument, and we are editing a file and then
+        // browsing, then the directory should be the dir of the file (if a file was
+        // passed).
+        if dir.is_none() {
+            if let Some(Command::Edit {
+                browse,
+                file_line_column,
+            }) = &self.command
+            {
+                if *browse {
+                    if let Some(file_line_column) = file_line_column {
+                        if let Some(file) = file_line_column.file() {
+                            dir = match file.parent() {
+                                Some(parent) => Some(parent.to_path_buf()),
+                                None => Some(PathBuf::from("/")),
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // If the dir is relative, make it absolute.
+        if let Some(dir_) = &dir {
+            if dir_.is_relative() {
+                let mut absolute_dir = current_dir::current_dir();
+                absolute_dir.push(dir_);
+                dir = Some(absolute_dir);
+            }
+        }
+
+        dir
     }
 
     #[cfg(feature = "logging")]
@@ -66,6 +100,13 @@ impl Args {
 
     pub fn command(&self) -> &Option<Command> {
         &self.command
+    }
+
+    pub fn browse(&self) -> bool {
+        matches!(
+            &self.command,
+            Some(Command::Edit { browse: true, .. }) | Some(Command::Browse) | None
+        )
     }
 
     pub fn starting_effects(&self) -> Option<Vec<SystemEffect<Request>>> {

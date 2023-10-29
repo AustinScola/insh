@@ -26,6 +26,7 @@ common = { version = "0.1.0", path = "../common" }
 insh-api = { version = "0.1.0", path = "../insh-api" }
 path-finder = { version = "0.1.0", path = "../path-finder" }
 file-type = { version = "0.1.0", path = "../file-type" }
+file-info = { version = "0.1.0", path = "../file-info" }
 
 crossterm = "0.23.0"
 regex = "1.5.4"

@@ -7,16 +7,16 @@ mod props {
 
     pub struct Props {
         pub config: Config,
-        pub directory: PathBuf,
+        pub dir: PathBuf,
         pub size: Size,
         pub phrase: Option<String>,
     }
 
     impl Props {
-        pub fn new(config: Config, directory: PathBuf, size: Size, phrase: Option<String>) -> Self {
+        pub fn new(config: Config, dir: PathBuf, size: Size, phrase: Option<String>) -> Self {
             Self {
                 config,
-                directory,
+                dir,
                 size,
                 phrase,
             }
@@ -91,8 +91,8 @@ mod searcher {
                                 self.state.phrase.handle(PhraseEvent::Focus);
                                 Some(Action::FocusPhrase)
                             }
-                            Some(ContentsEffect::Goto { directory, file }) => {
-                                Some(Action::Goto { directory, file })
+                            Some(ContentsEffect::Goto { dir, file }) => {
+                                Some(Action::Goto { dir, file })
                             }
                             Some(ContentsEffect::OpenVim(vim_args)) => {
                                 Some(Action::OpenVim(vim_args))
@@ -120,14 +120,14 @@ mod searcher {
                 2 => {
                     let columns = size.columns;
                     let phrase_fabric = self.state.phrase().render(Size::new(1, columns));
-                    let directory_fabric = self.state.directory().render(Size::new(1, columns));
-                    directory_fabric.quilt_bottom(phrase_fabric)
+                    let dir_fabric = self.state.dir().render(Size::new(1, columns));
+                    dir_fabric.quilt_bottom(phrase_fabric)
                 }
                 rows => {
                     let columns = size.columns;
 
-                    let directory_fabric = self.state.directory().render(Size::new(1, columns));
-                    let mut fabric: Fabric = directory_fabric;
+                    let dir_fabric = self.state.dir().render(Size::new(1, columns));
+                    let mut fabric: Fabric = dir_fabric;
 
                     let phrase_fabric = self.state.phrase().render(Size::new(1, columns));
                     fabric = fabric.quilt_bottom(phrase_fabric);
@@ -148,10 +148,7 @@ mod effect {
     use std::path::PathBuf;
 
     pub enum Effect {
-        Goto {
-            directory: PathBuf,
-            file: Option<PathBuf>,
-        },
+        Goto { dir: PathBuf, file: Option<PathBuf> },
         OpenVim(VimArgs),
         Bell,
         Quit,
@@ -164,7 +161,7 @@ mod state {
     use super::{Action, Effect, Props};
     use crate::auto_completer::AutoCompleter;
     use crate::auto_completers::SearchCompleter;
-    use crate::components::common::{Directory, DirectoryProps, Phrase, PhraseEvent, PhraseProps};
+    use crate::components::common::{Dir, DirProps, Phrase, PhraseEvent, PhraseProps};
     use crate::programs::VimArgs;
     use crate::Stateful;
 
@@ -175,7 +172,7 @@ mod state {
 
     pub struct State {
         focus: Focus,
-        directory: Directory,
+        dir: Dir,
         pub phrase: Phrase,
         pub contents: Contents,
     }
@@ -184,8 +181,8 @@ mod state {
         pub fn focus(&self) -> &Focus {
             &self.focus
         }
-        pub fn directory(&self) -> &Directory {
-            &self.directory
+        pub fn dir(&self) -> &Dir {
+            &self.dir
         }
 
         pub fn phrase(&self) -> &Phrase {
@@ -206,8 +203,8 @@ mod state {
             None
         }
 
-        fn goto(&mut self, directory: PathBuf, file: Option<PathBuf>) -> Option<Effect> {
-            Some(Effect::Goto { directory, file })
+        fn goto(&mut self, dir: PathBuf, file: Option<PathBuf>) -> Option<Effect> {
+            Some(Effect::Goto { dir, file })
         }
 
         fn open_vim(&mut self, vim_args: VimArgs) -> Option<Effect> {
@@ -224,7 +221,7 @@ mod state {
             match action {
                 Action::FocusPhrase => self.focus_phrase(),
                 Action::FocusContents => self.focus_contents(),
-                Action::Goto { directory, file } => self.goto(directory, file),
+                Action::Goto { dir, file } => self.goto(dir, file),
                 Action::OpenVim(vim_args) => self.open_vim(vim_args),
                 Action::Quit => self.quit(),
             }
@@ -235,8 +232,8 @@ mod state {
         fn from(props: Props) -> Self {
             let focus = Focus::default();
 
-            let directory_props = DirectoryProps::new(props.directory.clone());
-            let directory = Directory::new(directory_props);
+            let dir_props = DirProps::new(props.dir.clone());
+            let dir = Dir::new(dir_props);
 
             let search_completer: Option<Box<dyn AutoCompleter<String, String>>> =
                 Some(Box::new(SearchCompleter::new()));
@@ -246,12 +243,12 @@ mod state {
             let phrase = Phrase::new(phrase_props);
 
             let contents_size = Size::new(props.size.rows.saturating_sub(2), props.size.columns);
-            let contents_props = ContentsProps::new(props.config, props.directory, contents_size);
+            let contents_props = ContentsProps::new(props.config, props.dir, contents_size);
             let contents = Contents::new(contents_props);
 
             let mut state = Self {
                 focus,
-                directory,
+                dir,
                 phrase,
                 contents,
             };
@@ -297,10 +294,7 @@ mod action {
     pub enum Action {
         FocusPhrase,
         FocusContents,
-        Goto {
-            directory: PathBuf,
-            file: Option<PathBuf>,
-        },
+        Goto { dir: PathBuf, file: Option<PathBuf> },
         OpenVim(VimArgs),
         Quit,
     }
