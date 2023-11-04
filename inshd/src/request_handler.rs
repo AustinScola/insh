@@ -7,18 +7,22 @@ use std::thread::{self, JoinHandle};
 use crossbeam::channel::{self, select, Receiver, Sender};
 use typed_builder::TypedBuilder;
 
+use db_client::{DbClient, Model, ObjectManager, DbClientHandle};
 use file_info::FileInfo;
 use file_type::FileType;
 use insh_api::{
     CreateFileError, CreateFileRequestParams, CreateFileResponseParams, CreateFileResult,
     FindFilesRequestParams, FindFilesResponseParams, GetFilesError, GetFilesRequestParams,
     GetFilesResponseParams, GetFilesResult, Request, RequestParams, Response, ResponseParams,
-    ResponseParamsAndLast,
+    ResponseParamsAndLast, SearchPhraseRequestParams, SearchPhraseResponseParams,
+    SuggestSearchPhraseRequestParams, SuggestSearchPhraseResponseParams,
 };
 use path_finder::Entry;
+use phrase_searcher::{FileHit, PhraseSearcher, PhraseSearcherOptions};
 
 use crate::file_finder::FindFilesResult;
 use crate::file_finder::{FileFinder, FileFinderOptions};
+use crate::models::Search;
 use crate::stop::Stop;
 
 /// Handles requests from clients.
@@ -33,6 +37,7 @@ pub struct RequestHandler {
     responses: Sender<Response>,
     /// A receiver for a stop sentinel.
     stop_rx: Receiver<Stop>,
+    context: RequestContext,
 }
 
 impl RequestHandler {
@@ -53,6 +58,8 @@ impl RequestHandler {
                         RequestParams::GetFiles(params) => Box::new(GetFiles::new(params)),
                         RequestParams::FindFiles(params) => Box::new(FindFiles::run(params)),
                         RequestParams::CreateFile(params) => Box::new(CreateFile::new(params)),
+                        RequestParams::SearchPhrase(params) => Box::new(SearchPhraseRequestHandler::new(self.context.db_client.handle(), params)),
+                        RequestParams::SuggestSearchPhrase(params) => Box::new(SearchSuggester::new(params)),
                     };
 
                     let mut sent_last: bool = false;
@@ -93,7 +100,9 @@ impl RequestHandler {
 
 /// Context for a request.
 #[derive(TypedBuilder)]
-pub struct Context {}
+pub struct RequestContext {
+    db_client: DbClient,
+}
 
 /// Handles a request to get files.
 struct GetFiles {
@@ -339,6 +348,156 @@ impl Iterator for CreateFile {
         Some(
             ResponseParamsAndLast::builder()
                 .response_params(response_params)
+                .last(true)
+                .build(),
+        )
+    }
+}
+
+struct SearchPhraseRequestHandler {
+    db_client_handle: DbClientHandle,
+    phrase: String,
+    phrase_searcher: PhraseSearcher,
+    started: bool,
+    done: bool,
+}
+
+impl SearchPhraseRequestHandler {
+    pub fn new(db_client_handle: DbClientHandle, params: &SearchPhraseRequestParams) -> Self {
+        let options = PhraseSearcherOptions::builder()
+            .dir(params.dir().to_path_buf())
+            .phrase(params.phrase().to_string())
+            .build();
+        let phrase_searcher = PhraseSearcher::new(options);
+
+        Self {
+            db_client_handle,
+            phrase: params.phrase().to_string(),
+            phrase_searcher,
+            started: false,
+            done: false,
+        }
+    }
+}
+
+impl Iterator for SearchPhraseRequestHandler {
+    type Item = ResponseParamsAndLast;
+
+    fn next(&mut self) -> Option<ResponseParamsAndLast> {
+        if self.done {
+            log::info!("Done searching.");
+            return None;
+        }
+
+        if !self.started {
+            log::info!("Searching...");
+            let manager = <Search as Model>::Objects::new(self.db_client_handle);
+            manager.creator().phrase(self.phrase.clone()).create();
+            self.started = true;
+        }
+
+        let file_hit: Option<FileHit> = self.phrase_searcher.next();
+
+        let file_hits: Vec<FileHit>;
+        let last: bool;
+        match file_hit {
+            Some(file_hit) => {
+                file_hits = vec![file_hit];
+                last = false;
+            }
+            None => {
+                file_hits = vec![];
+                last = true;
+                self.done = true;
+            }
+        }
+
+        Some(
+            ResponseParamsAndLast::builder()
+                .response_params(ResponseParams::SearchPhrase(
+                    SearchPhraseResponseParams::builder()
+                        .file_hits(file_hits)
+                        .build(),
+                ))
+                .last(last)
+                .build(),
+        )
+    }
+}
+
+struct SearchSuggester {
+    current: Option<String>,
+    dir: PathBuf,
+    done: bool,
+}
+
+impl SearchSuggester {
+    pub fn new(params: &SuggestSearchPhraseRequestParams) -> Self {
+        Self {
+            current: params.current().clone(),
+            dir: params.dir().to_path_buf(),
+            done: false,
+        }
+    }
+}
+
+impl Iterator for SearchSuggester {
+    type Item = ResponseParamsAndLast;
+
+    fn next(&mut self) -> Option<ResponseParamsAndLast> {
+        if self.done {
+            return None;
+        }
+
+        // For now, lets just get all searches and do the filtering in Rust instead of in the db.
+        let searches: Vec<Search> = <Search as Model>::Objects::all();
+        let mut result: Option<Search> = None;
+        match &self.current {
+            Some(current) => {
+                for candidate in searches {
+                    if candidate.phrase.starts_with(&current) {
+                        match &result {
+                            None => {
+                                result = Some(candidate);
+                            }
+                            Some(search) => {
+                                if candidate.timestamp > search.timestamp {
+                                    result = Some(candidate);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            None => {
+                for candidate in searches {
+                    match &result {
+                        None => {
+                            result = Some(candidate);
+                        }
+                        Some(search) => {
+                            if candidate.timestamp > search.timestamp {
+                                result = Some(candidate);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        let suggestion: Option<String> = match result {
+            Some(search) => Some(search.phrase.into()),
+            None => None,
+        };
+
+        self.done = true;
+        Some(
+            ResponseParamsAndLast::builder()
+                .response_params(ResponseParams::SuggestSearchPhrase(
+                    SuggestSearchPhraseResponseParams::builder()
+                        .suggestion(suggestion)
+                        .build(),
+                ))
                 .last(true)
                 .build(),
         )

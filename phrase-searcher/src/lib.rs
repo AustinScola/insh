@@ -6,6 +6,8 @@ use std::fs::File;
 use std::io::{BufRead, BufReader};
 use std::path::{Path, PathBuf};
 
+use serde::{Deserialize, Serialize};
+use typed_builder::TypedBuilder;
 use walkdir::{
     DirEntry as Entry, Error as WalkerEntryError, IntoIter as Walker, WalkDir as WalkerBuilder,
 };
@@ -18,12 +20,31 @@ pub struct PhraseSearcher {
     walker: Walker,
 }
 
+#[derive(TypedBuilder)]
+pub struct PhraseSearcherOptions {
+    phrase: String,
+    dir: PathBuf,
+}
+
+impl PhraseSearcherOptions {
+    pub fn phrase(&self) -> &str {
+        &self.phrase
+    }
+
+    pub fn dir(&self) -> &Path {
+        &self.dir
+    }
+}
+
 impl PhraseSearcher {
     /// Return a new phrase searcher.
-    pub fn new(directory: &Path, phrase: &str) -> Self {
-        let phrase: String = phrase.to_string();
-        let walker: Walker = WalkerBuilder::new(directory).min_depth(1).into_iter();
-        Self { phrase, walker }
+    pub fn new(options: PhraseSearcherOptions) -> Self {
+        let walker: Walker = WalkerBuilder::new(options.dir()).min_depth(1).into_iter();
+
+        Self {
+            phrase: options.phrase().to_string(),
+            walker,
+        }
     }
 }
 
@@ -82,7 +103,7 @@ impl Iterator for PhraseSearcher {
 }
 
 /// A file contains lines which have hits for a phrase.
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct FileHit {
     /// The path of the file.
     path: PathBuf,
@@ -109,7 +130,7 @@ impl FileHit {
 }
 
 /// Represents a line contains a hit for a phrase in a file.
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct LineHit {
     /// The line number in the file.
     line_number: usize,

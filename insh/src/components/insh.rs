@@ -217,6 +217,9 @@ impl Component<Props, Event<Response>, SystemEffect<Request>> for Insh {
                     Some(SearcherEffect::Bell) => {
                         action = Some(Action::Bell);
                     }
+                    Some(SearcherEffect::Request(request)) => {
+                        return Some(SystemEffect::Request(request));
+                    }
                     None => {}
                 }
             }

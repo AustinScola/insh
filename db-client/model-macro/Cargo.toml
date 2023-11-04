@@ -1,0 +1,14 @@
+[package]
+name = "model-macro"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+proc-macro = true
+
+[dependencies]
+db-api = { version = "0.1.0", path = "../../db-api" }
+
+syn = "2.0.39"
+quote = "1.0.33"
+convert_case = "0.6.0"

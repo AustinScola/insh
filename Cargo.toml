@@ -9,7 +9,11 @@ members = [
     "term",
     "rend",
     "path-finder",
+    "phrase-searcher",
     "size",
     "file-info",
     "file-type",
+    "db-client",
+    "db-client/model-macro",
+    "db-api",
 ]

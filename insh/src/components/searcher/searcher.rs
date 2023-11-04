@@ -63,11 +63,15 @@ mod searcher {
                             Some(PhraseEffect::Enter { phrase }) => {
                                 let contents_event = ContentsEvent::Search { phrase };
                                 let contents_effect = self.state.contents.handle(contents_event);
-                                if let Some(ContentsEffect::Unfocus) = contents_effect {
-                                    self.state.phrase.handle(PhraseEvent::Focus);
-                                    Some(Action::FocusPhrase)
-                                } else {
-                                    Some(Action::FocusContents)
+                                match contents_effect {
+                                    Some(ContentsEffect::Unfocus) => {
+                                        self.state.phrase.handle(PhraseEvent::Focus);
+                                        Some(Action::FocusPhrase)
+                                    }
+                                    Some(ContentsEffect::Request(request)) => {
+                                        return Some(Effect::Request(request));
+                                    }
+                                    _ => Some(Action::FocusContents),
                                 }
                             }
                             Some(PhraseEffect::Bell) => {
@@ -85,7 +89,8 @@ mod searcher {
                     }
                     Focus::Contents => {
                         let contents_event = ContentsEvent::TermEvent(event);
-                        let contents_effect = self.state.contents.handle(contents_event);
+                        let contents_effect: Option<ContentsEffect> =
+                            self.state.contents.handle(contents_event);
                         let action: Option<Action> = match contents_effect {
                             Some(ContentsEffect::Unfocus) => {
                                 self.state.phrase.handle(PhraseEvent::Focus);
@@ -99,6 +104,9 @@ mod searcher {
                             }
                             Some(ContentsEffect::Bell) => {
                                 return Some(Effect::Bell);
+                            }
+                            Some(ContentsEffect::Request(request)) => {
+                                return Some(Effect::Request(request));
                             }
                             None => None,
                         };
@@ -143,14 +151,17 @@ mod searcher {
 pub use searcher::Searcher;
 
 mod effect {
-    use crate::programs::VimArgs;
-
     use std::path::PathBuf;
+
+    use insh_api::Request;
+
+    use crate::programs::VimArgs;
 
     pub enum Effect {
         Goto { dir: PathBuf, file: Option<PathBuf> },
         OpenVim(VimArgs),
         Bell,
+        Request(Request),
         Quit,
     }
 }
@@ -159,8 +170,6 @@ pub use effect::Effect;
 mod state {
     use super::super::{Contents, ContentsEffect, ContentsEvent, ContentsProps};
     use super::{Action, Effect, Props};
-    use crate::auto_completer::AutoCompleter;
-    use crate::auto_completers::SearchCompleter;
     use crate::components::common::{Dir, DirProps, Phrase, PhraseEvent, PhraseProps};
     use crate::programs::VimArgs;
     use crate::Stateful;
@@ -235,11 +244,7 @@ mod state {
             let dir_props = DirProps::new(props.dir.clone());
             let dir = Dir::new(dir_props);
 
-            let search_completer: Option<Box<dyn AutoCompleter<String, String>>> =
-                Some(Box::new(SearchCompleter::new()));
-            let phrase_props = PhraseProps::builder()
-                .auto_completer(search_completer)
-                .build();
+            let phrase_props = PhraseProps::builder().build();
             let phrase = Phrase::new(phrase_props);
 
             let contents_size = Size::new(props.size.rows.saturating_sub(2), props.size.columns);

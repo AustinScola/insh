@@ -15,6 +15,7 @@ mod conn_handler;
 mod disconnected_client;
 mod file_finder;
 mod logging;
+mod models;
 mod paths;
 mod request_handler;
 mod request_handler_died;

@@ -1,6 +1,5 @@
 #![allow(clippy::needless_return)]
 
-use std::ffi::OsStr;
 use std::fmt::{Display, Error as FmtError, Formatter};
 use std::path::{Path, PathBuf};
 
@@ -11,6 +10,7 @@ use uuid::Uuid;
 use file_info::FileInfo;
 use file_type::FileType;
 use path_finder::Entry;
+use phrase_searcher::FileHit;
 
 #[derive(Debug, TypedBuilder, Serialize, Deserialize)]
 pub struct Request {
@@ -34,6 +34,8 @@ pub enum RequestParams {
     GetFiles(GetFilesRequestParams),
     FindFiles(FindFilesRequestParams),
     CreateFile(CreateFileRequestParams),
+    SearchPhrase(SearchPhraseRequestParams),
+    SuggestSearchPhrase(SuggestSearchPhraseRequestParams),
 }
 
 #[derive(Debug, TypedBuilder, Serialize, Deserialize)]
@@ -80,6 +82,38 @@ impl CreateFileRequestParams {
 }
 
 #[derive(Debug, TypedBuilder, Serialize, Deserialize)]
+pub struct SearchPhraseRequestParams {
+    phrase: String,
+    dir: PathBuf,
+}
+
+impl SearchPhraseRequestParams {
+    pub fn phrase(&self) -> &str {
+        &self.phrase
+    }
+
+    pub fn dir(&self) -> &Path {
+        &self.dir
+    }
+}
+
+#[derive(Debug, TypedBuilder, Serialize, Deserialize)]
+pub struct SuggestSearchPhraseRequestParams {
+    current: Option<String>,
+    dir: PathBuf,
+}
+
+impl SuggestSearchPhraseRequestParams {
+    pub fn current(&self) -> &Option<String> {
+        return &self.current;
+    }
+
+    pub fn dir(&self) -> &Path {
+        return &self.dir;
+    }
+}
+
+#[derive(Debug, TypedBuilder, Serialize, Deserialize)]
 pub struct Response {
     uuid: Uuid,
     #[builder(default)]
@@ -106,6 +140,8 @@ pub enum ResponseParams {
     GetFiles(GetFilesResponseParams),
     FindFiles(FindFilesResponseParams),
     CreateFile(CreateFileResponseParams),
+    SearchPhrase(SearchPhraseResponseParams),
+    SuggestSearchPhrase(SuggestSearchPhraseResponseParams),
 }
 
 #[derive(Debug, TypedBuilder)]
@@ -196,4 +232,14 @@ impl Display for CreateFileError {
             Self::Other(string) => write!(formatter, "{}", string),
         }
     }
+}
+
+#[derive(Debug, TypedBuilder, Serialize, Deserialize)]
+pub struct SearchPhraseResponseParams {
+    file_hits: Vec<FileHit>,
+}
+
+#[derive(Debug, TypedBuilder, Serialize, Deserialize)]
+pub struct SuggestSearchPhraseResponseParams {
+    suggestion: Option<String>,
 }

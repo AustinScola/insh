@@ -22,11 +22,11 @@ pub use props::Props;
 mod contents {
     use super::{Action, Effect, Event, Props, State};
     use crate::color::Color;
-    use crate::phrase_searcher::{FileHit, LineHit};
     use crate::string::DetabExt;
     use crate::Config;
     use crate::Stateful;
 
+    use phrase_searcher::{FileHit, LineHit};
     use rend::{Fabric, Size, Yarn};
     use term::{Key, KeyEvent, KeyMods, TermEvent};
     use til::Component;
@@ -49,10 +49,7 @@ mod contents {
 
         fn handle(&mut self, event: Event) -> Option<Effect> {
             let action: Option<Action> = match event {
-                Event::Search { phrase } => Some(Action::Search {
-                    phrase,
-                    max_history_length: self.config.searcher().history().length(),
-                }),
+                Event::Search { phrase } => Some(Action::Search { phrase }),
                 Event::TermEvent(TermEvent::Resize(size)) => Some(Action::Resize { size }),
                 Event::TermEvent(TermEvent::KeyEvent(key_event)) => match key_event {
                     KeyEvent {
@@ -87,9 +84,7 @@ mod contents {
                     KeyEvent {
                         key: Key::Char('r'),
                         mods: KeyMods::NONE,
-                    } => Some(Action::Refresh {
-                        max_history_length: self.config.searcher().history().length(),
-                    }),
+                    } => Some(Action::Refresh),
                     KeyEvent {
                         key: Key::Char('l'),
                         ..
@@ -121,107 +116,101 @@ mod contents {
             };
 
             if let Some(action) = action {
-                self.state.perform(action)
-            } else {
-                Some(Effect::Bell)
+                return self.state.perform(action);
             }
+
+            Some(Effect::Bell)
         }
 
         fn render(&self, size: Size) -> Fabric {
-            match self.state.searched() {
-                false => Fabric::new(size),
-                true => {
-                    let file_hits: &Vec<FileHit> = self.state.hits();
-                    if self.state.hits().is_empty() {
-                        Fabric::center("No matches.", size)
-                    } else {
-                        let rows = size.rows;
-                        let columns = size.columns;
-                        let mut yarns: Vec<Yarn> = Vec::new();
+            if self.state.waiting_for_response() {
+                return Fabric::new(size);
+            }
 
-                        let file_hits = file_hits.iter().enumerate().skip(self.state.file_offset());
-                        for (file_hit_number, file_hit) in file_hits {
-                            if yarns.len() == rows {
-                                break;
-                            }
+            let file_hits: &Vec<FileHit> = self.state.hits();
+            if self.state.hits().is_empty() {
+                return Fabric::center("No matches.", size);
+            }
 
-                            let first_hit = file_hit_number == self.state.file_offset();
-                            let file_hit_is_focused: bool =
-                                self.state.hit_number().unwrap() == file_hit_number;
+            let rows = size.rows;
+            let columns = size.columns;
+            let mut yarns: Vec<Yarn> = Vec::new();
 
-                            let draw_path = !(first_hit && self.state.line_offset().is_some());
-                            if draw_path {
-                                let mut path: String =
-                                    file_hit.path().to_string_lossy().to_string();
-                                let dir_string: String =
-                                    self.state.dir().to_string_lossy().to_string();
-                                path = path.strip_prefix(&dir_string).unwrap().to_string();
-                                if path.starts_with(PATH_SEPARATOR) {
-                                    path = path.strip_prefix(PATH_SEPARATOR).unwrap().to_string();
-                                }
+            let file_hits = file_hits.iter().enumerate().skip(self.state.file_offset());
+            for (file_hit_number, file_hit) in file_hits {
+                if yarns.len() == rows {
+                    break;
+                }
 
-                                let mut yarn = Yarn::from(path);
-                                yarn.resize(columns);
+                let first_hit = file_hit_number == self.state.file_offset();
+                let file_hit_is_focused: bool = self.state.hit_number().unwrap() == file_hit_number;
 
-                                if self.state.focussed()
-                                    && !self.state.is_line_selected()
-                                    && file_hit_is_focused
-                                {
-                                    yarn.background(Color::Highlight.into());
-                                    yarn.color(Color::InvertedText.into());
-                                }
+                let draw_path = !(first_hit && self.state.line_offset().is_some());
+                if draw_path {
+                    let mut path: String = file_hit.path().to_string_lossy().to_string();
+                    let dir_string: String = self.state.dir().to_string_lossy().to_string();
+                    path = path.strip_prefix(&dir_string).unwrap().to_string();
+                    if path.starts_with(PATH_SEPARATOR) {
+                        path = path.strip_prefix(PATH_SEPARATOR).unwrap().to_string();
+                    }
 
-                                yarns.push(yarn);
-                            }
+                    let mut yarn = Yarn::from(path);
+                    yarn.resize(columns);
 
-                            let mut line_hits: Vec<(usize, &LineHit)> =
-                                file_hit.line_hits().iter().enumerate().collect();
-                            if first_hit {
-                                if let Some(line_offset) = self.state.line_offset() {
-                                    line_hits = line_hits.into_iter().skip(line_offset).collect();
-                                }
-                            }
-                            for (line_hit_number, line_hit) in line_hits {
-                                if yarns.len() == rows {
-                                    break;
-                                }
+                    if self.state.focussed()
+                        && !self.state.is_line_selected()
+                        && file_hit_is_focused
+                    {
+                        yarn.background(Color::Highlight.into());
+                        yarn.color(Color::InvertedText.into());
+                    }
 
-                                let mut string: String = line_hit.line_number().to_string();
-                                string.push_str(": ");
-                                string.push_str(
-                                    &line_hit.line().detab(self.config.general().tab_width()),
-                                );
+                    yarns.push(yarn);
+                }
 
-                                let mut yarn = Yarn::from(string);
-                                yarn.resize(columns);
-                                if self.state.focussed()
-                                    && file_hit_is_focused
-                                    && self.state.is_line_selected()
-                                    && self.state.line_hit_number().unwrap() == line_hit_number
-                                {
-                                    yarn.background(Color::Highlight.into());
-                                    yarn.color(Color::InvertedText.into());
-                                }
-                                yarns.push(yarn);
-                            }
-
-                            if yarns.len() == rows {
-                                break;
-                            }
-                            let yarn = Yarn::blank(columns);
-                            yarns.push(yarn);
-                        }
-
-                        let mut fabric = Fabric::from(yarns);
-
-                        if fabric.size().rows < size.rows {
-                            fabric.pad_bottom(size.rows);
-                        }
-
-                        fabric
+                let mut line_hits: Vec<(usize, &LineHit)> =
+                    file_hit.line_hits().iter().enumerate().collect();
+                if first_hit {
+                    if let Some(line_offset) = self.state.line_offset() {
+                        line_hits = line_hits.into_iter().skip(line_offset).collect();
                     }
                 }
+                for (line_hit_number, line_hit) in line_hits {
+                    if yarns.len() == rows {
+                        break;
+                    }
+
+                    let mut string: String = line_hit.line_number().to_string();
+                    string.push_str(": ");
+                    string.push_str(&line_hit.line().detab(self.config.general().tab_width()));
+
+                    let mut yarn = Yarn::from(string);
+                    yarn.resize(columns);
+                    if self.state.focussed()
+                        && file_hit_is_focused
+                        && self.state.is_line_selected()
+                        && self.state.line_hit_number().unwrap() == line_hit_number
+                    {
+                        yarn.background(Color::Highlight.into());
+                        yarn.color(Color::InvertedText.into());
+                    }
+                    yarns.push(yarn);
+                }
+
+                if yarns.len() == rows {
+                    break;
+                }
+                let yarn = Yarn::blank(columns);
+                yarns.push(yarn);
             }
+
+            let mut fabric = Fabric::from(yarns);
+
+            if fabric.size().rows < size.rows {
+                fabric.pad_bottom(size.rows);
+            }
+
+            fabric
         }
     }
 }
@@ -230,6 +219,7 @@ pub use contents::Contents;
 mod event {
     use term::TermEvent;
 
+    #[derive(Debug)]
     pub enum Event {
         TermEvent(TermEvent),
         Search { phrase: String },
@@ -238,17 +228,19 @@ mod event {
 pub use event::Event;
 
 mod state {
-    use super::{Action, Effect, Props};
-    use crate::clipboard::Clipboard;
-    use crate::data::Data;
-    use crate::phrase_searcher::{FileHit, LineHit, PhraseSearcher};
-    use crate::programs::{VimArgs, VimArgsBuilder};
-    use crate::Stateful;
-
-    use rend::Size;
-
     use std::cmp::Ordering;
     use std::path::{Path, PathBuf, MAIN_SEPARATOR as PATH_SEPARATOR};
+
+    use uuid::Uuid;
+
+    use insh_api::{Request, RequestParams, SearchPhraseRequestParams};
+    use phrase_searcher::{FileHit, LineHit};
+    use rend::Size;
+
+    use super::{Action, Effect, Props};
+    use crate::clipboard::Clipboard;
+    use crate::programs::{VimArgs, VimArgsBuilder};
+    use crate::Stateful;
 
     #[derive(Debug, PartialEq, Eq, Default)]
     pub struct State {
@@ -256,7 +248,7 @@ mod state {
         dir: PathBuf,
         phrase: Option<String>,
         focussed: bool,
-        searched: bool,
+        pending_request: Option<Uuid>,
         hits: Vec<FileHit>,
         file_offset: usize,
         line_offset: Option<usize>,
@@ -273,7 +265,7 @@ mod state {
                 dir: props.dir.clone(),
                 phrase: None,
                 focussed: false,
-                searched: false,
+                pending_request: None,
                 hits: Vec::new(),
                 file_offset: 0,
                 line_offset: None,
@@ -293,8 +285,9 @@ mod state {
             self.focussed
         }
 
-        pub fn searched(&self) -> bool {
-            self.searched
+        /// Return if the searcher is waiting for a response to a search request.
+        pub fn waiting_for_response(&self) -> bool {
+            self.pending_request.is_some()
         }
 
         /// The number of the currently selected file hit.
@@ -412,33 +405,31 @@ mod state {
             Some(Effect::Unfocus)
         }
 
-        fn search(&mut self, phrase: &str, max_history_length: usize) -> Option<Effect> {
+        fn search(&mut self, phrase: &str) -> Option<Effect> {
+            #[cfg(feature = "logging")]
+            log::debug!("Searching for phrase \"{}\"...", phrase);
+
             self.focus();
             self.phrase = Some(phrase.to_string());
 
-            let phrase_searcher = PhraseSearcher::new(&self.dir, phrase);
-            self.hits = phrase_searcher.collect();
-            self.searched = true;
+            let request = Request::builder()
+                .params(RequestParams::SearchPhrase(
+                    SearchPhraseRequestParams::builder()
+                        .phrase(phrase.to_string())
+                        .dir(self.dir.clone())
+                        .build(),
+                ))
+                .build();
+            self.pending_request = Some(*request.uuid());
 
-            self.add_to_history(phrase, max_history_length);
+            self.hits = vec![];
 
             self.file_offset = 0;
             self.line_offset = None;
             self.file_selected = 0;
             self.line_selected = None;
 
-            if self.hits.is_empty() {
-                Some(Effect::Unfocus)
-            } else {
-                None
-            }
-        }
-
-        fn add_to_history(&self, phrase: &str, max_length: usize) {
-            let mut data: Data = Data::read();
-            data.searcher.add_to_history(phrase, max_length);
-            data.write();
-            data.release();
+            Some(Effect::Request(request))
         }
 
         fn down(&mut self) -> Option<Effect> {
@@ -645,9 +636,9 @@ mod state {
         }
 
         /// Refresh the hits by searching for the phrase again.
-        fn refresh(&mut self, max_history_length: usize) -> Option<Effect> {
+        fn refresh(&mut self) -> Option<Effect> {
             if let Some(phrase) = self.phrase.clone() {
-                return self.search(&phrase, max_history_length);
+                return self.search(&phrase);
             }
             None
         }
@@ -733,17 +724,14 @@ mod state {
             match action {
                 Action::Resize { size } => self.resize(size),
                 Action::Unfocus => self.unfocus(),
-                Action::Search {
-                    phrase,
-                    max_history_length,
-                } => self.search(&phrase, max_history_length),
+                Action::Search { phrase } => self.search(&phrase),
                 Action::Down => self.down(),
                 Action::ReallyDown => self.really_down(),
                 Action::ScrollDown => self.scroll_down(1),
                 Action::Up => self.up(),
                 Action::ReallyUp => self.really_up(),
                 Action::ScrollUp => self.scroll_up(1),
-                Action::Refresh { max_history_length } => self.refresh(max_history_length),
+                Action::Refresh => self.refresh(),
                 Action::Edit => self.edit(),
                 Action::Goto => self.goto(),
                 Action::ReallyGoto => self.really_goto(),
@@ -813,23 +801,16 @@ mod action {
     use rend::Size;
 
     pub enum Action {
-        Resize {
-            size: Size,
-        },
+        Resize { size: Size },
         Unfocus,
-        Search {
-            phrase: String,
-            max_history_length: usize,
-        },
+        Search { phrase: String },
         Down,
         ReallyDown,
         ScrollDown,
         Up,
         ReallyUp,
         ScrollUp,
-        Refresh {
-            max_history_length: usize,
-        },
+        Refresh,
         Edit,
         Goto,
         ReallyGoto,
@@ -840,14 +821,17 @@ mod action {
 use action::Action;
 
 mod effect {
-    use crate::programs::VimArgs;
-
     use std::path::PathBuf;
+
+    use insh_api::Request;
+
+    use crate::programs::VimArgs;
 
     pub enum Effect {
         Unfocus,
         Goto { dir: PathBuf, file: Option<PathBuf> },
         OpenVim(VimArgs),
+        Request(Request),
         Bell,
     }
 }

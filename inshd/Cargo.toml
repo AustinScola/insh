@@ -14,6 +14,9 @@ insh-api = { version = "0.1.0", path = "../insh-api" }
 path-finder = { version = "0.1.0", path = "../path-finder" }
 file-type = { version = "0.1.0", path = "../file-type" }
 file-info = { version = "0.1.0", path = "../file-info" }
+phrase-searcher = { version = "0.1.0", path = "../phrase-searcher" }
+db-client = { version = "0.1.0", path = "../db-client"}
+db-api = { version = "0.1.0", path = "../db-api"}
 
 # Used for command line argument parsing.
 clap = { version = "3.2.17", features = ["derive"] }

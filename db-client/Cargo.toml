@@ -1,0 +1,24 @@
+[package]
+name = "db-client"
+version = "0.1.0"
+edition = "2021"
+
+[features]
+default = ["logging"]
+logging = [
+    "dep:log",
+]
+
+[dependencies]
+db-api = { version = "0.1.0", path = "../db-api" }
+
+# Used for generating the builder pattern for structs.
+typed-builder = "0.14.0"
+
+model-macro = {version="0.1.0", path="./model-macro"}
+
+# Used for handling dates and times.
+time = {version="0.3.30", features=["local-offset"]}
+
+# Used for logging.
+log = { version = "0.4.17", optional = true }

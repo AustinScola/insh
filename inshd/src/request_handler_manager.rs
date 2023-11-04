@@ -2,13 +2,15 @@
 use std::thread;
 use std::thread::JoinHandle;
 
-use crate::request_handler::RequestHandler;
-use crate::request_handler_died::RequestHandlerDied;
-use crate::stop::Stop;
-use insh_api::{Request, Response};
-
 use crossbeam::channel::{self, select, Receiver, Sender};
 use typed_builder::TypedBuilder;
+
+use db_client::DbClient;
+use insh_api::{Request, Response};
+
+use crate::request_handler::{RequestContext, RequestHandler};
+use crate::request_handler_died::RequestHandlerDied;
+use crate::stop::Stop;
 
 #[derive(TypedBuilder)]
 /// Manages the request handler threads.
@@ -46,12 +48,17 @@ impl RequestHandlerManager {
             request_handler_stop_txs.push(request_handler_stop_tx);
             request_handler_stop_rxs.push(request_handler_stop_rx.clone());
 
+            // The request context.
+            let db_client = DbClient::builder().build();
+            let request_context = RequestContext::builder().db_client(db_client).build();
+
             // Create and spawn the request handler.
             let mut request_handler = RequestHandler::builder()
                 .number(request_handler_num)
                 .requests(requests_rx)
                 .responses(self.responses_tx.clone())
                 .stop_rx(request_handler_stop_rx)
+                .context(request_context)
                 .build();
             let name: String = format!("request-handler-{}", request_handler_num).to_string();
             let request_handler_handle: JoinHandle<()> = thread::Builder::new()
@@ -75,11 +82,17 @@ impl RequestHandlerManager {
                     let number: usize = request_handler_died.number;
                     log::info!("Restarting request handler {}...", number);
 
+                    let db_client = DbClient::builder().build();
+                    let request_context = RequestContext::builder()
+                        .db_client(db_client)
+                        .build();
+
                     let mut request_handler = RequestHandler::builder()
                         .number(number)
                         .requests(self.requests_rxs[number].clone())
                         .responses(self.responses_tx.clone())
                         .stop_rx(request_handler_stop_rxs[number].clone())
+                        .context(request_context)
                         .build();
                     let name: String = format!("request-handler-{}", number).to_string();
                     let request_handler_handle: JoinHandle<()> = thread::Builder::new()

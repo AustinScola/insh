@@ -27,6 +27,7 @@ insh-api = { version = "0.1.0", path = "../insh-api" }
 path-finder = { version = "0.1.0", path = "../path-finder" }
 file-type = { version = "0.1.0", path = "../file-type" }
 file-info = { version = "0.1.0", path = "../file-info" }
+phrase-searcher = { version = "0.1.0", path = "../phrase-searcher" }
 
 crossterm = "0.23.0"
 regex = "1.5.4"
@@ -34,7 +35,6 @@ clap = { version = "3.2.17", features = ["derive"] }
 dirs = "4.0.0"
 unicode-segmentation = "1.9.0"
 itertools = "0.10.3"
-walkdir = "2.3.2"
 
 # Used to manage the clipboard.
 copypasta = "0.8.1"
@@ -45,9 +45,6 @@ fslock = "0.2.1"
 # Used for serialization and deserialization of data structures.
 serde = { version = "1.0.144", features = ["derive"] }
 serde_yaml = "0.9.10"
-
-# Used for declaring lazily evaluated static values.
-lazy_static = "1.4.0"
 
 # Used for logging. (These dependencies are only included if the logging features is enabled.)
 log = { version = "0.4.17", optional = true }

@@ -1,12 +1,8 @@
 mod props {
-    use crate::auto_completer::AutoCompleter;
-
     use typed_builder::TypedBuilder;
 
     #[derive(TypedBuilder)]
     pub struct Props {
-        #[builder(default, setter(into))]
-        pub auto_completer: Option<Box<dyn AutoCompleter<String, String>>>,
         #[builder(default, setter(into))]
         pub value: Option<String>,
     }
@@ -15,7 +11,6 @@ pub use props::Props;
 
 mod phrase {
     use super::{Action, Effect, Event, Props, State};
-    use crate::auto_completer::AutoCompleter;
     use crate::color::Color;
     use crate::stateful::Stateful;
 
@@ -27,7 +22,6 @@ mod phrase {
     #[derive(Default)]
     pub struct Phrase {
         state: State,
-        auto_completer: Option<Box<dyn AutoCompleter<String, String>>>,
     }
 
     impl Component<Props, Event, Effect> for Phrase {
@@ -36,7 +30,6 @@ mod phrase {
                 state: State::builder()
                     .value(props.value.unwrap_or_default())
                     .build(),
-                auto_completer: props.auto_completer,
             }
         }
 
@@ -53,9 +46,7 @@ mod phrase {
                     }) => Some(Action::Quit),
                     TermEvent::KeyEvent(KeyEvent {
                         key: Key::Delete, ..
-                    }) => Some(Action::Pop {
-                        auto_completer: &mut self.auto_completer,
-                    }),
+                    }) => Some(Action::Pop),
                     TermEvent::KeyEvent(KeyEvent {
                         key: Key::HorizontalTab,
                         mods: KeyMods::NONE,
@@ -67,10 +58,7 @@ mod phrase {
                     TermEvent::KeyEvent(KeyEvent {
                         key: Key::Char(character),
                         mods: KeyMods::NONE | KeyMods::SHIFT,
-                    }) => Some(Action::Push {
-                        character,
-                        auto_completer: &mut self.auto_completer,
-                    }),
+                    }) => Some(Action::Push { character }),
                     _ => None,
                 },
             };
@@ -120,7 +108,6 @@ pub use event::Event;
 
 mod state {
     use super::{Action, Effect};
-    use crate::auto_completer::AutoCompleter;
     use crate::stateful::Stateful;
 
     use typed_builder::TypedBuilder;
@@ -173,35 +160,13 @@ mod state {
             None
         }
 
-        fn push(
-            &mut self,
-            character: char,
-            auto_completer: &mut Option<Box<dyn AutoCompleter<String, String>>>,
-        ) -> Option<Effect> {
+        fn push(&mut self, character: char) -> Option<Effect> {
             self.value.push(character);
-
-            if let Some(auto_completer) = auto_completer {
-                // TODO: Make auto completion non-blocking.
-                self.completion = auto_completer.complete(self.value.clone());
-            }
-
             None
         }
 
-        fn pop(
-            &mut self,
-            auto_completer: &mut Option<Box<dyn AutoCompleter<String, String>>>,
-        ) -> Option<Effect> {
+        fn pop(&mut self) -> Option<Effect> {
             self.value.pop();
-
-            if let Some(auto_completer) = auto_completer {
-                self.completion = match self.value.is_empty() {
-                    // TODO: Make auto completion non-blocking.
-                    false => auto_completer.complete(self.value.clone()),
-                    true => None,
-                };
-            }
-
             None
         }
 
@@ -225,17 +190,14 @@ mod state {
         }
     }
 
-    impl Stateful<Action<'_>, Effect> for State {
+    impl Stateful<Action, Effect> for State {
         fn perform(&mut self, action: Action) -> Option<Effect> {
             match action {
                 Action::Focus => self.focus(),
                 Action::Unfocus => self.unfocus(),
                 Action::Set { phrase } => self.set(phrase),
-                Action::Push {
-                    character,
-                    auto_completer,
-                } => self.push(character, auto_completer),
-                Action::Pop { auto_completer } => self.pop(auto_completer),
+                Action::Push { character } => self.push(character),
+                Action::Pop => self.pop(),
                 Action::Complete => self.complete(),
                 Action::Enter => self.find(),
                 Action::Quit => self.quit(),
@@ -246,21 +208,12 @@ mod state {
 pub use state::State;
 
 mod action {
-    use crate::auto_completer::AutoCompleter;
-
-    pub enum Action<'a> {
+    pub enum Action {
         Focus,
         Unfocus,
-        Set {
-            phrase: String,
-        },
-        Push {
-            character: char,
-            auto_completer: &'a mut Option<Box<dyn AutoCompleter<String, String>>>,
-        },
-        Pop {
-            auto_completer: &'a mut Option<Box<dyn AutoCompleter<String, String>>>,
-        },
+        Set { phrase: String },
+        Push { character: char },
+        Pop,
         Complete,
         Enter,
         Quit,

@@ -9,22 +9,15 @@ A graphical, interactive, terminal environment.
 #![allow(clippy::single_match)]
 #![allow(clippy::infallible_destructuring_match)]
 
-#[macro_use]
-extern crate lazy_static;
-
 mod ansi_escaped_text;
 mod args;
-mod auto_completer;
-mod auto_completers;
 mod clipboard;
 mod color;
 mod components;
 mod config;
 mod current_dir;
-mod data;
 #[cfg(feature = "logging")]
 mod logging;
-mod phrase_searcher;
 mod programs;
 mod requester;
 mod response_handler;

@@ -1,14 +1,9 @@
 [package]
-name = "insh-api"
+name = "db-api"
 version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-path-finder = { version = "0.1.0", path = "../path-finder" }
-file-type = { version = "0.1.0", path = "../file-type" }
-file-info = { version = "0.1.0", path = "../file-info" }
-phrase-searcher = { version = "0.1.0", path = "../phrase-searcher" }
-
 # Used for generating the builder pattern for structs.
 typed-builder = "0.14.0"
 
@@ -17,3 +12,4 @@ serde = { version = "1.0.144", features = ["derive"] }
 
 # Used for globally unique identifiers.
 uuid = { version = "1.3.1", features = ["v4", "fast-rng", "macro-diagnostics", "serde"] }
+

@@ -1,0 +1,13 @@
+[package]
+name = "phrase-searcher"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+walkdir = "2.3.2"
+
+# Used for generating the builder pattern for structs.
+typed-builder = "0.14.0"
+
+# Used for serialization and deserialization of data structures.
+serde = { version = "1.0.144", features = ["derive"] }
