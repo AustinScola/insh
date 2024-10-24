@@ -1,6 +1,5 @@
 #![allow(clippy::needless_return)]
 
-use std::ffi::OsStr;
 use std::fmt::{Display, Error as FmtError, Formatter};
 use std::path::{Path, PathBuf};
 

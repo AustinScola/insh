@@ -1,3 +1,6 @@
+# 0.4.7
+- Add support for Rust 1.80.0.
+
 # 0.4.6
 - Change the browser to use inshd to get files in a directory.
 

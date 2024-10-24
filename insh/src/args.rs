@@ -286,6 +286,7 @@ mod file_line_column {
             let mut line: Option<usize> = None;
             let mut column: Option<usize> = None;
 
+            #[allow(clippy::unnecessary_fallible_conversions)]
             match PathBuf::try_from(file_string) {
                 Ok(file_) => {
                     file = Some(file_);
