@@ -154,6 +154,7 @@ mod event {
     use insh_api::Response;
     use term::TermEvent;
 
+    #[allow(clippy::enum_variant_names)]
     pub enum Event {
         Find { phrase: String },
         Response(Response),

@@ -152,7 +152,7 @@ mod config {
         }
     }
 }
-pub use config::{Config, ConfigLoadError};
+pub use config::Config;
 
 /// Contains general configuration.
 mod general {

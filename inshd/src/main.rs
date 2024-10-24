@@ -321,6 +321,7 @@ mod pid_waiter {
     use typed_builder::TypedBuilder;
 
     /// Waits for a process with a pid to terminate.
+    #[allow(dead_code)]
     #[derive(TypedBuilder)]
     pub struct PidWaiter {
         /// The process id of the process to wait for.

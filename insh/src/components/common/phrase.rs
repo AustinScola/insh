@@ -109,6 +109,7 @@ pub use phrase::Phrase;
 mod event {
     use term::TermEvent;
 
+    #[allow(clippy::enum_variant_names)]
     pub enum Event {
         Focus,
         Unfocus,
