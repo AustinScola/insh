@@ -31,6 +31,7 @@ use crossterm::style::Print;
 use crossterm::terminal::{self, EnterAlternateScreen, LeaveAlternateScreen};
 use crossterm::terminal::{Clear as ClearTerminal, ClearType as TerminalClearType};
 use crossterm::{ExecutableCommand, QueueableCommand};
+use nix::libc;
 use nix::libc::{ioctl, setenv, winsize as WindowSize, TIOCSWINSZ};
 use nix::pty::{forkpty, ForkptyResult, Winsize};
 use nix::unistd::Pid;
@@ -135,7 +136,7 @@ impl App {
                     match effect {
                         SystemEffect::RunProgram { program } => {
                             let size_before = self.size;
-                            self.run_program::<Response>(program, &term_event_rx);
+                            self.run_program(program, &term_event_rx);
                             if self.size != size_before {
                                 // NOTE: We don't handle the effect if one is generated from the resize.
                                 let event = Event::TermEvent(TermEvent::Resize(self.size));
@@ -202,7 +203,7 @@ impl App {
                 match effect {
                     Some(SystemEffect::RunProgram { program }) => {
                         let size_before = self.size;
-                        self.run_program::<Response>(program, &term_event_rx);
+                        self.run_program(program, &term_event_rx);
                         if self.size != size_before {
                             // NOTE: We don't handle the effect if one is generated from the resize.
                             event = Event::TermEvent(TermEvent::Resize(self.size));
@@ -280,11 +281,7 @@ impl App {
 
     // NOTE: clippy gets confused by the fork and complains some code is unreachable b/c of it.
     #[allow(unreachable_code)]
-    fn run_program<Response>(
-        &mut self,
-        program: Box<dyn Program>,
-        term_event_rx: &Receiver<TermEvent>,
-    ) {
+    fn run_program(&mut self, program: Box<dyn Program>, term_event_rx: &Receiver<TermEvent>) {
         let program_uuid: Uuid = Uuid::new_v4();
 
         #[cfg(feature = "logging")]
@@ -383,7 +380,9 @@ impl App {
         let mut master_stdout: File;
         unsafe {
             master_stdin = File::from_raw_fd(master);
-            master_stdout = File::from_raw_fd(master);
+            // NOTE: We need to duplicate the fd so that we don't double close it with the file is
+            // dropped.
+            master_stdout = File::from_raw_fd(libc::dup(master));
         }
 
         // Spawn a thread to handle the stdout of the command.
@@ -512,10 +511,10 @@ impl App {
         log::debug!("Program monitor stopped.");
 
         #[cfg(feature = "logging")]
-        log::debug!("Waiting for output handler stop...");
+        log::debug!("Waiting for outputer stop...");
         outputer_handle.join().unwrap();
         #[cfg(feature = "logging")]
-        log::debug!("Output handler stopped.");
+        log::debug!("Outputer stopped.");
 
         self.cleanup_program(&program_uuid, cleanup);
 
