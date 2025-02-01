@@ -15,11 +15,7 @@ impl OutputForwarder {
         let mut stdout = io::stdout().lock();
 
         let mut buffer: [u8; 1] = [0; 1];
-        loop {
-            let length = match self.master_stdout.read(&mut buffer) {
-                Ok(length) => length,
-                Err(_) => break,
-            };
+        while let Ok(length) = self.master_stdout.read(&mut buffer) {
             if length == 0 {
                 // NOTE: On MacOS, it appears that reading from the master stdout does not return an
                 // error when the program terminates. Instead read returns 0 bytes.

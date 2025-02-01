@@ -19,7 +19,7 @@ use std::fs::remove_file;
 use std::io::Write;
 use std::os::unix::net::UnixListener;
 use std::panic;
-use std::panic::PanicInfo;
+use std::panic::PanicHookInfo;
 use std::process::exit;
 use std::thread;
 use std::thread::JoinHandle;
@@ -224,7 +224,7 @@ impl Server {
 
     /// Set the panic hook.
     fn set_panic_hook(died_tx: Sender<RequestHandlerDied>) {
-        panic::set_hook(Box::new(move |panic_info: &PanicInfo| {
+        panic::set_hook(Box::new(move |panic_info: &PanicHookInfo| {
             let thread_handle = thread::current();
             let thread_name: &str = match thread_handle.name() {
                 Some(thread_name) => thread_name,

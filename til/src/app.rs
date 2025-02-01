@@ -135,7 +135,7 @@ impl App {
                     match effect {
                         SystemEffect::RunProgram { program } => {
                             let size_before = self.size;
-                            self.run_program::<Response>(program, &term_event_rx);
+                            self.run_program(program, &term_event_rx);
                             if self.size != size_before {
                                 // NOTE: We don't handle the effect if one is generated from the resize.
                                 let event = Event::TermEvent(TermEvent::Resize(self.size));
@@ -202,7 +202,7 @@ impl App {
                 match effect {
                     Some(SystemEffect::RunProgram { program }) => {
                         let size_before = self.size;
-                        self.run_program::<Response>(program, &term_event_rx);
+                        self.run_program(program, &term_event_rx);
                         if self.size != size_before {
                             // NOTE: We don't handle the effect if one is generated from the resize.
                             event = Event::TermEvent(TermEvent::Resize(self.size));
@@ -280,11 +280,7 @@ impl App {
 
     // NOTE: clippy gets confused by the fork and complains some code is unreachable b/c of it.
     #[allow(unreachable_code)]
-    fn run_program<Response>(
-        &mut self,
-        program: Box<dyn Program>,
-        term_event_rx: &Receiver<TermEvent>,
-    ) {
+    fn run_program(&mut self, program: Box<dyn Program>, term_event_rx: &Receiver<TermEvent>) {
         let program_uuid: Uuid = Uuid::new_v4();
 
         #[cfg(feature = "logging")]

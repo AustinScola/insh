@@ -37,7 +37,7 @@ itertools = "0.10.3"
 walkdir = "2.3.2"
 
 # Used to manage the clipboard.
-copypasta = "0.8.1"
+copypasta = "0.10.1"
 
 # Used to control access to persistent data stored in the file system.
 fslock = "0.2.1"

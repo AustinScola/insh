@@ -20,7 +20,7 @@ impl From<StdFileType> for FileType {
         if std_file_type.is_symlink() {
             return Self::Symlink;
         }
-        return Self::Other;
+        Self::Other
     }
 }
 
