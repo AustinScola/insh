@@ -31,6 +31,7 @@ use crossterm::style::Print;
 use crossterm::terminal::{self, EnterAlternateScreen, LeaveAlternateScreen};
 use crossterm::terminal::{Clear as ClearTerminal, ClearType as TerminalClearType};
 use crossterm::{ExecutableCommand, QueueableCommand};
+use nix::libc;
 use nix::libc::{ioctl, setenv, winsize as WindowSize, TIOCSWINSZ};
 use nix::pty::{forkpty, ForkptyResult, Winsize};
 use nix::unistd::Pid;
@@ -379,7 +380,9 @@ impl App {
         let mut master_stdout: File;
         unsafe {
             master_stdin = File::from_raw_fd(master);
-            master_stdout = File::from_raw_fd(master);
+            // NOTE: We need to duplicate the fd so that we don't double close it with the file is
+            // dropped.
+            master_stdout = File::from_raw_fd(libc::dup(master));
         }
 
         // Spawn a thread to handle the stdout of the command.
@@ -508,10 +511,10 @@ impl App {
         log::debug!("Program monitor stopped.");
 
         #[cfg(feature = "logging")]
-        log::debug!("Waiting for output handler stop...");
+        log::debug!("Waiting for outputer stop...");
         outputer_handle.join().unwrap();
         #[cfg(feature = "logging")]
-        log::debug!("Output handler stopped.");
+        log::debug!("Outputer stopped.");
 
         self.cleanup_program(&program_uuid, cleanup);
 
