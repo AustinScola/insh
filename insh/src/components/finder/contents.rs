@@ -188,6 +188,7 @@ mod state {
         selected: Option<usize>,
         offset: usize,
         pending_request: Option<Uuid>,
+        received_first_resp: bool,
     }
 
     impl From<Props> for State {
@@ -202,6 +203,7 @@ mod state {
                 selected: None,
                 offset: 0,
                 pending_request: None,
+                received_first_resp: false,
             }
         }
     }
@@ -292,6 +294,7 @@ mod state {
             self.phrase = Some(phrase.to_string());
             let uuid: Uuid = Uuid::new_v4();
             self.pending_request = Some(uuid);
+            self.received_first_resp = false;
             Some(Effect::SendFindFilesRequest {
                 uuid,
                 dir: self.dir.clone(),
@@ -431,6 +434,14 @@ mod state {
                     return None;
                 }
             };
+
+            if !self.received_first_resp {
+                self.hits = None;
+                self.entries.clear();
+                self.selected = None;
+                self.offset = 0;
+            }
+            self.received_first_resp = true;
 
             if response.uuid() != &pending_request {
                 #[cfg(feature = "logging")]

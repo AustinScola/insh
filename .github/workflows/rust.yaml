@@ -257,5 +257,8 @@ jobs:
             ${{ env.cache-name }}-debug-
             ${{ env.cache-name }}-
 
+      - name: Install apt dependencies
+        run: sudo apt-get install libxcb1-dev
+
       - name: Test
         run: cargo test
