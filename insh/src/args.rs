@@ -181,7 +181,8 @@ pub enum Command {
 
         /// The file to edit
         ///
-        /// Of the form "<file>", "<file>:<line>" or "<file>:<line>,<column>".
+        /// Of the form "<file>", "<file>:<line>", "<file>:<line>,<column> or,
+        /// "<file>:<line>:<column>". (All forms also accept a trailing colon.)
         #[clap(name = "FILE")]
         file_line_column: Option<FileLineColumn>,
     },
@@ -246,15 +247,22 @@ mod file_line_column {
             if string.is_empty() {
                 return Ok(FileLineColumn::default());
             }
+
+            // Remove a trailing colon.
+            let mut sanitized = string;
+            if let Some(stripped) = string.strip_suffix(":") {
+                sanitized = stripped;
+            }
+
             let file_string: &str;
             let line_and_maybe_column_string: Option<&str>;
-            match string.rsplit_once(':') {
+            match sanitized.split_once(':') {
                 Some((file_, line_and_maybe_column_string_)) => {
                     file_string = file_;
                     line_and_maybe_column_string = Some(line_and_maybe_column_string_);
                 }
                 None => {
-                    file_string = string;
+                    file_string = sanitized;
                     line_and_maybe_column_string = None;
                 }
             }
@@ -262,16 +270,18 @@ mod file_line_column {
             let line_string: Option<&str>;
             let column_string: Option<&str>;
             match line_and_maybe_column_string {
-                Some(line_and_maybe_column_) => match line_and_maybe_column_.rsplit_once(',') {
-                    Some((line_, column_)) => {
-                        line_string = Some(line_);
-                        column_string = Some(column_);
+                Some(line_and_maybe_column_) => {
+                    match line_and_maybe_column_.rsplit_once(&[',', ':'][..]) {
+                        Some((line_, column_)) => {
+                            line_string = Some(line_);
+                            column_string = Some(column_);
+                        }
+                        None => {
+                            line_string = Some(line_and_maybe_column_);
+                            column_string = None;
+                        }
                     }
-                    None => {
-                        line_string = Some(line_and_maybe_column_);
-                        column_string = None;
-                    }
-                },
+                }
                 None => {
                     line_string = None;
                     column_string = None;
@@ -335,10 +345,14 @@ mod file_line_column {
 
         #[test_case("", Ok(FileLineColumn::new(None, None, None)); "when the string is empty")]
         #[test_case("foo.py", Ok(FileLineColumn::new(Some("foo.py".into()), None, None)); "file")]
+        #[test_case("foo.py:", Ok(FileLineColumn::new(Some("foo.py".into()), None, None)); "file colon")]
         #[test_case("foo.py:xx", Err(FileLineColumnParseError::from_bad_line("xx".into())); "file and bad line")]
         #[test_case("foo.py:42", Ok(FileLineColumn::new(Some("foo.py".into()), Some(42), None)); "file and line")]
+        #[test_case("foo.py:42:", Ok(FileLineColumn::new(Some("foo.py".into()), Some(42), None)); "file, colon, line, and colon")]
         #[test_case("foo.py:42,xx", Err(FileLineColumnParseError::from_bad_column("xx".into())); "file, line, and bad column")]
         #[test_case("foo.py:42,7", Ok(FileLineColumn::new(Some("foo.py".into()), Some(42), Some(7))); "file, line, and column")]
+        #[test_case("foo.py:42:7", Ok(FileLineColumn::new(Some("foo.py".into()), Some(42), Some(7))); "file, colon, line, colon, and column")]
+        #[test_case("foo.py:42:7", Ok(FileLineColumn::new(Some("foo.py".into()), Some(42), Some(7))); "file, colon, line, colon, column and colon")]
         #[test_case("foo.py:xx,yy", Err(FileLineColumnParseError::new(None, Some("xx".into()), Some("yy".into()))); "file, bad line, and column")]
         fn test_from_str(
             string: &str,
