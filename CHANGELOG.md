@@ -1,3 +1,7 @@
+# 0.4.8
+- Fix resetting the file finder.
+- Make the edit subcommand syntax more flexible.
+
 # 0.4.7
 - Add support for Rust 1.80.0.
 
