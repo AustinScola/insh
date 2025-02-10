@@ -45,3 +45,6 @@ subprocess = "0.2.9"
 
 # Used for concurrent programming.
 crossbeam = "0.8.2"
+
+[lints]
+workspace = true

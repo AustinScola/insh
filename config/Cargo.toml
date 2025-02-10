@@ -1,16 +1,14 @@
 [package]
-name = "file-info"
+name = "config"
 version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-file-type = { version = "0.1.0", path = "../file-type" }
-
-# Used for generating the builder pattern for structs.
-typed-builder = "0.14.0"
+dirs = "4.0.0"
 
 # Used for serialization and deserialization of data structures.
 serde = { version = "1.0.144", features = ["derive"] }
+serde_yaml = "0.9.10"
 
 [lints]
 workspace = true

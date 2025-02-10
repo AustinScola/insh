@@ -1,9 +1,8 @@
 mod props {
-    use crate::config::Config;
-
-    use rend::Size;
-
     use std::path::PathBuf;
+
+    use config::Config;
+    use rend::Size;
 
     pub struct Props {
         pub config: Config,

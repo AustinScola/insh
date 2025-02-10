@@ -33,6 +33,7 @@ pub enum RequestParams {
     GetFiles(GetFilesRequestParams),
     FindFiles(FindFilesRequestParams),
     CreateFile(CreateFileRequestParams),
+    AIChat(AIChatRequestParams),
 }
 
 #[derive(Debug, TypedBuilder, Serialize, Deserialize)]
@@ -79,6 +80,11 @@ impl CreateFileRequestParams {
 }
 
 #[derive(Debug, TypedBuilder, Serialize, Deserialize)]
+pub struct AIChatRequestParams {
+    input: String,
+}
+
+#[derive(Debug, TypedBuilder, Serialize, Deserialize)]
 pub struct Response {
     uuid: Uuid,
     #[builder(default)]
@@ -105,6 +111,7 @@ pub enum ResponseParams {
     GetFiles(GetFilesResponseParams),
     FindFiles(FindFilesResponseParams),
     CreateFile(CreateFileResponseParams),
+    AIChat(AIChatResponseParams),
 }
 
 #[derive(Debug, TypedBuilder)]
@@ -194,5 +201,17 @@ impl Display for CreateFileError {
 
             Self::Other(string) => write!(formatter, "{}", string),
         }
+    }
+}
+
+#[derive(Debug, TypedBuilder, Serialize, Deserialize)]
+pub struct AIChatResponseParams {
+    #[builder(default, setter(strip_option))]
+    text: Option<String>
+}
+
+impl AIChatResponseParams {
+    pub fn text(&self) -> Option<&str> {
+        self.text.as_deref()
     }
 }

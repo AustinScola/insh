@@ -167,6 +167,10 @@ impl Contents {
                             key: Key::Char('s'),
                             ..
                         } => Some(Action::OpenSearcher),
+                        KeyEvent {
+                            key: Key::Char('a'),
+                            ..
+                        } => Some(Action::OpenAI),
                         _ => None,
                     }
                 } else {
@@ -534,6 +538,10 @@ impl State {
         })
     }
 
+    fn open_ai(&self) -> Option<Effect> {
+        Some(Effect::OpenAI)
+    }
+
     fn handle_response(&mut self, response: Response) -> Option<Effect> {
         #[cfg(feature = "logging")]
         log::debug!("Handling response...");
@@ -626,6 +634,7 @@ impl Stateful<Action, Effect> for State {
             Action::OpenFinder => self.open_finder(),
             Action::OpenSearcher => self.open_searcher(),
             Action::RunBash => self.run_bash(),
+            Action::OpenAI => self.open_ai(),
             Action::HandleResponse(response) => self.handle_response(response),
         }
     }
@@ -646,6 +655,7 @@ enum Action {
     OpenFinder,
     OpenSearcher,
     RunBash,
+    OpenAI,
     HandleResponse(Response),
 }
 
@@ -675,6 +685,7 @@ pub enum Effect {
     RunBash {
         dir: PathBuf,
     },
+    OpenAI,
     Bell,
     Request(Request),
 }

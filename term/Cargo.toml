@@ -17,3 +17,6 @@ nix = "0.26.2"
 [[bin]]
 name = "print-event"
 path = "src/bin/print_event.rs"
+
+[lints]
+workspace = true

@@ -4,7 +4,7 @@ Configuration options loaded from the YAML file `~/.insh-config` if it exists.
 
 /// Configuration options.
 mod config {
-    use super::{GeneralConfig, SearcherConfig};
+    use super::{GeneralConfig, SearcherConfig, AIConfig};
 
     use std::fmt::{Display, Formatter, Result as FormatResult};
     use std::fs::File;
@@ -23,6 +23,9 @@ mod config {
         /// Configuration of the Searcher.
         #[serde(default)]
         searcher: SearcherConfig,
+        /// Configuration of AI.
+        #[serde(default)]
+        ai: AIConfig
     }
 
     impl Config {
@@ -77,6 +80,11 @@ mod config {
         /// Return the searcher configuration.
         pub fn searcher(&self) -> &SearcherConfig {
             &self.searcher
+        }
+
+        /// Return the AI configuration.
+        pub fn ai(&self) -> &AIConfig {
+            &self.ai
         }
     }
 
@@ -234,3 +242,22 @@ mod search {
     }
 }
 pub use search::SearcherConfig;
+
+/// Contains AI configuration.
+mod ai {
+    use serde::Deserialize;
+
+    #[derive(Deserialize, Debug, Default, Clone, Eq, PartialEq)]
+    pub struct AIConfig {
+        #[serde(default)]
+        token: Option<String>
+    }
+
+    impl AIConfig {
+        /// Return AI token 
+        pub fn token(&self) -> Option<&str> {
+            self.token.as_deref()
+        }
+    }
+}
+pub use ai::AIConfig;

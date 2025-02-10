@@ -13,3 +13,6 @@ lazy_static = "1.4.0"
 
 # Used for determining platform-specific directories.
 dirs = "4.0.0"
+
+[lints]
+workspace = true

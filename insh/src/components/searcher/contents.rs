@@ -1,7 +1,6 @@
 mod props {
-    use crate::config::Config;
-
     use rend::Size;
+    use config::Config;
 
     use std::path::PathBuf;
 

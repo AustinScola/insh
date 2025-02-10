@@ -1,6 +1,6 @@
 [package]
 name = "insh"
-version = "0.4.8"
+version = "0.4.9"
 edition = "2021"
 
 [[bin]]
@@ -27,6 +27,7 @@ insh-api = { version = "0.1.0", path = "../insh-api" }
 path-finder = { version = "0.1.0", path = "../path-finder" }
 file-type = { version = "0.1.0", path = "../file-type" }
 file-info = { version = "0.1.0", path = "../file-info" }
+config = { version = "0.1.0", path = "../config" }
 
 crossterm = "0.23.0"
 regex = "1.5.4"
@@ -70,3 +71,6 @@ crossbeam = "0.8.2"
 
 [dev-dependencies]
 test-case = "2.0.0"
+
+[lints]
+workspace = true

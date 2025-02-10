@@ -1,3 +1,6 @@
+# 0.4.9
+- Respect gitignore files. 
+
 # 0.4.8
 - Fix resetting the file finder.
 - Make the edit subcommand syntax more flexible.

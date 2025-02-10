@@ -88,6 +88,9 @@ impl Component<Props, Event, Effect> for Browser {
                                     Some(ContentsEffect::RunBash { dir }) => {
                                         effect = Some(Effect::RunBash { dir });
                                     }
+                                    Some(ContentsEffect::OpenAI) => {
+                                        effect = Some(Effect::OpenAI);
+                                    }
                                     Some(ContentsEffect::Bell) => {
                                         effect = Some(Effect::Bell);
                                     }
@@ -175,6 +178,7 @@ pub enum Effect {
     OpenSearcher { dir: PathBuf },
     OpenVim(VimArgs),
     RunBash { dir: PathBuf },
+    OpenAI,
     Bell,
     Request(Request),
 }

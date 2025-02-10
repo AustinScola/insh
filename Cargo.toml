@@ -12,4 +12,8 @@ members = [
     "size",
     "file-info",
     "file-type",
+    "config",
 ]
+
+[workspace.lints.clippy]
+module_inception = "allow"

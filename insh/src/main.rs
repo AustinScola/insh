@@ -19,7 +19,6 @@ mod auto_completers;
 mod clipboard;
 mod color;
 mod components;
-mod config;
 mod current_dir;
 mod data;
 #[cfg(feature = "logging")]
@@ -43,10 +42,10 @@ use common::paths::INSHD_SOCKET;
 use insh_api::{GetFilesRequestParams, Request, RequestParams, Response};
 use term::TermEvent;
 use til::{App, AppRunOptions, Component, Requester, ResponseHandler, Stopper, SystemEffect};
+use config::Config;
 
 use crate::args::Args;
 use crate::components::{Insh, InshProps};
-use crate::config::Config;
 #[cfg(feature = "logging")]
 use crate::logging::{configure_logging, ConfigureLoggingResult};
 use crate::requester::InshdRequester;

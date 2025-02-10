@@ -1,14 +1,15 @@
+use crate::components::ai::{AIEffect, AIEvent, AIProps, AI};
 use crate::components::browser::{Browser, BrowserEffect, BrowserEvent, BrowserProps};
 use crate::components::file_creator::{
     FileCreator, FileCreatorEffect, FileCreatorEvent, FileCreatorProps,
 };
 use crate::components::finder::{Finder, FinderEffect, FinderProps};
 use crate::components::searcher::{Searcher, SearcherEffect, SearcherProps};
-use crate::config::Config;
 use crate::current_dir;
 use crate::programs::{Bash, Vim};
 use crate::stateful::Stateful;
 
+use config::Config;
 use file_type::FileType;
 use insh_api::{FindFilesRequestParams, GetFilesRequestParams, Request, RequestParams, Response};
 use rend::{Fabric, Size};
@@ -25,8 +26,9 @@ mod props {
     use typed_builder::TypedBuilder;
     use uuid::Uuid;
 
+    use config::Config;
+
     use crate::args::Command;
-    use crate::config::Config;
 
     #[derive(TypedBuilder)]
     pub struct Props {
@@ -118,6 +120,9 @@ impl Component<Props, Event<Response>, SystemEffect<Request>> for Insh {
                     }
                     Some(BrowserEffect::OpenSearcher { dir }) => {
                         action = Some(Action::Search { dir });
+                    }
+                    Some(BrowserEffect::OpenAI) => {
+                        action = Some(Action::AI);
                     }
                     Some(BrowserEffect::OpenVim(vim_args)) => {
                         let program = Box::new(Vim::new(vim_args));
@@ -220,6 +225,27 @@ impl Component<Props, Event<Response>, SystemEffect<Request>> for Insh {
                     None => {}
                 }
             }
+            Mode::AI => {
+                let ai_event: AIEvent = match event {
+                    Event::TermEvent(term_event) => AIEvent::TermEvent(term_event),
+                    Event::Response(response) => AIEvent::Response(response),
+                };
+
+                let ai = self.state.ai.as_mut().unwrap();
+                let ai_effect: Option<AIEffect> = ai.handle(ai_event);
+                match ai_effect {
+                    Some(AIEffect::Request(request)) => {
+                        return Some(SystemEffect::Request(request));
+                    }
+                    Some(AIEffect::Bell) => {
+                        action = Some(Action::Bell);
+                    }
+                    Some(AIEffect::Quit) => {
+                        action = Some(Action::QuitAI);
+                    }
+                    None => {}
+                }
+            }
             Mode::Nothing => {
                 return Some(SystemEffect::Exit);
             }
@@ -239,6 +265,7 @@ impl Component<Props, Event<Response>, SystemEffect<Request>> for Insh {
             Mode::FileCreator => self.state.file_creator.as_ref().unwrap().render(size),
             Mode::Finder => self.state.finder.as_ref().unwrap().render(size),
             Mode::Searcher => self.state.searcher.as_ref().unwrap().render(size),
+            Mode::AI => self.state.ai.as_ref().unwrap().render(size),
             Mode::Nothing => Fabric::new(size),
         }
     }
@@ -250,6 +277,7 @@ struct State {
     file_creator: Option<FileCreator>,
     finder: Option<Finder>,
     searcher: Option<Searcher>,
+    ai: Option<AI>,
     config: Config,
 }
 
@@ -271,6 +299,7 @@ impl From<Props> for State {
                 file_creator: None,
                 finder: None,
                 searcher: None,
+                ai: None,
                 config: props.config().clone(),
             },
             Start::Finder { phrase } => {
@@ -286,6 +315,7 @@ impl From<Props> for State {
                     file_creator: None,
                     finder,
                     searcher: None,
+                    ai: None,
                     config: props.config().clone(),
                 }
             }
@@ -299,6 +329,7 @@ impl From<Props> for State {
                     file_creator: None,
                     finder: None,
                     searcher,
+                    ai: None,
                     config: props.config().clone(),
                 }
             }
@@ -308,6 +339,7 @@ impl From<Props> for State {
                 file_creator: None,
                 finder: None,
                 searcher: None,
+                ai: None,
                 config: props.config().clone(),
             },
         }
@@ -368,12 +400,24 @@ impl State {
         None
     }
 
+    fn ai(&mut self) -> Option<SystemEffect<Request>> {
+        self.mode = Mode::AI;
+        let ai_props = AIProps::builder().build();
+        self.ai = Some(AI::new(ai_props));
+        None
+    }
+
     fn quit_finder(&mut self) -> Option<SystemEffect<Request>> {
         self.mode = Mode::Browse;
         None
     }
 
     fn quit_searcher(&mut self) -> Option<SystemEffect<Request>> {
+        self.mode = Mode::Browse;
+        None
+    }
+
+    fn quit_ai(&mut self) -> Option<SystemEffect<Request>> {
         self.mode = Mode::Browse;
         None
     }
@@ -395,8 +439,10 @@ impl Stateful<Action, SystemEffect<Request>> for State {
             Action::CreateFile { dir, file_type } => self.create_file(dir, file_type),
             Action::Find { dir } => self.find(dir),
             Action::Search { dir } => self.search(dir),
+            Action::AI => self.ai(),
             Action::QuitFinder => self.quit_finder(),
             Action::QuitSearcher => self.quit_searcher(),
+            Action::QuitAI => self.quit_ai(),
             Action::Bell => self.bell(),
         }
     }
@@ -409,6 +455,7 @@ enum Mode {
     FileCreator,
     Finder,
     Searcher,
+    AI,
     Nothing,
 }
 
@@ -417,7 +464,9 @@ enum Action {
     CreateFile { dir: PathBuf, file_type: FileType },
     Find { dir: PathBuf },
     Search { dir: PathBuf },
-    Bell,
+    AI,
     QuitFinder,
     QuitSearcher,
+    QuitAI,
+    Bell,
 }

@@ -6,6 +6,7 @@ use crate::request_handler::RequestHandler;
 use crate::request_handler_died::RequestHandlerDied;
 use crate::stop::Stop;
 use insh_api::{Request, Response};
+use config::Config;
 
 use crossbeam::channel::{self, select, Receiver, Sender};
 use typed_builder::TypedBuilder;
@@ -15,6 +16,8 @@ use typed_builder::TypedBuilder;
 pub struct RequestHandlerManager {
     /// The number of request handlers.
     num_request_handlers: usize,
+    /// Configuration. 
+    config: Config,
     /// A receiver of request handler dying information.
     died_rx: Receiver<RequestHandlerDied>,
     /// Receivers of requests for each request handler.
@@ -49,6 +52,7 @@ impl RequestHandlerManager {
             // Create and spawn the request handler.
             let mut request_handler = RequestHandler::builder()
                 .number(request_handler_num)
+                .config(self.config.clone())
                 .requests(requests_rx)
                 .responses(self.responses_tx.clone())
                 .stop_rx(request_handler_stop_rx)
@@ -77,6 +81,7 @@ impl RequestHandlerManager {
 
                     let mut request_handler = RequestHandler::builder()
                         .number(number)
+                        .config(self.config.clone())
                         .requests(self.requests_rxs[number].clone())
                         .responses(self.responses_tx.clone())
                         .stop_rx(request_handler_stop_rxs[number].clone())

@@ -12,3 +12,6 @@ ignore = "0.4.23"
 
 # Used for serialization and deserialization of data structures.
 serde = { version = "1.0.144", features = ["derive"] }
+
+[lints]
+workspace = true

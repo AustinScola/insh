@@ -14,6 +14,7 @@ use crate::stop::Stop;
 use crate::INSHD_PID_FILE;
 use common::paths::INSHD_SOCKET;
 use insh_api::{Request, Response};
+use config::Config;
 
 use std::fs::remove_file;
 use std::io::Write;
@@ -74,6 +75,15 @@ impl Server {
             .spawn(move || signal_handler.run())
             .unwrap();
 
+        // Load configuration.
+        let config: Config = match Config::load() {
+            Ok(config) => config,
+            Err(error) => {
+                log::error!("Failed to load config: {}.", error);
+                exit(1);
+            }
+        };
+
         // Crate and spawn a response handler thread.
         let (responses_tx, responses_rx): (Sender<Response>, Receiver<Response>) =
             channel::unbounded();
@@ -120,6 +130,7 @@ impl Server {
         ) = channel::unbounded();
         let mut request_handler_manager = RequestHandlerManager::builder()
             .num_request_handlers(num_request_handlers)
+            .config(config)
             .died_rx(died_rx)
             .requests_rxs(requests_rxs)
             .responses_tx(responses_tx.clone())
