@@ -7,8 +7,8 @@ edition = "2021"
 # Used for pattern matching.
 regex = "1.5.4"
 
-# Used for walking directories.
-walkdir = "2.3.2"
+# Used for walking directories and selectively ignore files.
+ignore = "0.4.23"
 
 # Used for serialization and deserialization of data structures.
 serde = { version = "1.0.144", features = ["derive"] }

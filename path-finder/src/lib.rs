@@ -6,20 +6,17 @@ use std::ffi::OsStr;
 use std::fmt::{Display, Error as FmtError, Formatter};
 use std::path::{Path, PathBuf};
 
+use ignore::{DirEntry as WalkdirEntry, Error as WalkEntryError, Walk};
 use regex::Error as RegexError;
 use regex::Regex;
 use serde::{Deserialize, Serialize};
-use walkdir::{
-    DirEntry as WalkdirEntry, Error as WalkerEntryError, IntoIter as Walker,
-    WalkDir as WalkerBuilder,
-};
 
 /// Used to find files with file names matching a pattern.
 pub struct PathFinder {
     /// The pattern to match file names against.
     regex: Regex,
     /// An iterator over the files in a given directory (recursive).
-    walker: Walker,
+    walk: Walk,
 }
 
 impl PathFinder {
@@ -30,9 +27,9 @@ impl PathFinder {
             Ok(regex) => regex,
             Err(error) => return Err(NewPathFinderError::RegexError(error)),
         };
-        let walker = WalkerBuilder::new(directory).min_depth(1).into_iter();
+        let walk = Walk::new(directory).into_iter();
 
-        Ok(PathFinder { regex, walker })
+        Ok(PathFinder { regex, walk })
     }
 }
 
@@ -55,7 +52,7 @@ impl Iterator for PathFinder {
 
     fn next(&mut self) -> Option<Entry> {
         loop {
-            let entry: Option<Result<WalkdirEntry, WalkerEntryError>> = self.walker.next();
+            let entry: Option<Result<WalkdirEntry, WalkEntryError>> = self.walk.next();
 
             match entry {
                 None => {
@@ -79,11 +76,11 @@ impl Iterator for PathFinder {
     }
 }
 
-impl From<Walker> for PathFinder {
-    fn from(walker: Walker) -> Self {
+impl From<Walk> for PathFinder {
+    fn from(walk: Walk) -> Self {
         PathFinder {
             regex: Regex::new(".*").unwrap(),
-            walker,
+            walk,
         }
     }
 }
