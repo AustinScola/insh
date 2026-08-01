@@ -27,7 +27,7 @@ impl PathFinder {
             Ok(regex) => regex,
             Err(error) => return Err(NewPathFinderError::RegexError(error)),
         };
-        let walk = Walk::new(directory).into_iter();
+        let walk = Walk::new(directory);
 
         Ok(PathFinder { regex, walk })
     }
