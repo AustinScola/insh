@@ -1,3 +1,6 @@
+# 0.4.10
+- Fix the error message when creating files/directories that already exist.
+
 # 0.4.9
 - Respect gitignore files. 
 
