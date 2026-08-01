@@ -170,17 +170,17 @@ impl Yarn {
     }
 
     /// Change the color of all text after (and including) the given position.
+    ///
+    /// The text before the position keeps the color it already has (if it has one).
     pub fn color_after(&mut self, color: CrosstermColor, position: usize) {
         let num_chars: usize = self.characters.len();
+
         if self.colors.len() < num_chars {
-            for index in position..self.colors.len() {
-                self.colors[index] = Some(color);
-            }
-            self.colors.resize(num_chars, Some(color));
-        } else {
-            for index in position..num_chars {
-                self.colors[index] = Some(color);
-            }
+            self.colors.resize(num_chars, None);
+        }
+
+        for index in position..num_chars {
+            self.colors[index] = Some(color);
         }
     }
 
@@ -239,6 +239,36 @@ mod tests {
     use super::*;
 
     use test_case::test_case;
+
+    /// The color which is used for testing.
+    const COLOR: CrosstermColor = CrosstermColor::Red;
+
+    /// Another color which is used for testing.
+    const OTHER_COLOR: CrosstermColor = CrosstermColor::Blue;
+
+    /// Return a yarn with the text before the position colored the other color.
+    fn colored_before(string: &str, position: usize) -> Yarn {
+        let mut yarn: Yarn = Yarn::from(string);
+        yarn.color_before(OTHER_COLOR, position);
+        yarn
+    }
+
+    #[test_case(Yarn::from("foobar"), 3, vec![None, None, None, Some(COLOR), Some(COLOR), Some(COLOR)]; "text which is not colored")]
+    #[test_case(colored_before("foobar", 3), 3, vec![Some(OTHER_COLOR), Some(OTHER_COLOR), Some(OTHER_COLOR), Some(COLOR), Some(COLOR), Some(COLOR)]; "text which is colored before the position")]
+    #[test_case(colored_before("foobar", 6), 3, vec![Some(OTHER_COLOR), Some(OTHER_COLOR), Some(OTHER_COLOR), Some(COLOR), Some(COLOR), Some(COLOR)]; "text which is colored after the position")]
+    #[test_case(Yarn::from("foobar"), 0, vec![Some(COLOR); 6]; "the position of the first character")]
+    #[test_case(Yarn::from("foobar"), 6, vec![None; 6]; "the position after the last character")]
+    #[test_case(Yarn::from("foobar"), 9, vec![None; 6]; "a position past the end of the text")]
+    #[test_case(Yarn::new(), 0, vec![]; "an empty yarn")]
+    fn test_color_after(
+        mut yarn: Yarn,
+        position: usize,
+        expected_colors: Vec<Option<CrosstermColor>>,
+    ) {
+        yarn.color_after(COLOR, position);
+
+        assert_eq!(yarn.colors, expected_colors);
+    }
 
     #[test_case("", 0, Yarn::new(); "an empty string and no length")]
     #[test_case("", 3, Yarn::from("   "); "an empty string and some length")]

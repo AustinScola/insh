@@ -1,4 +1,6 @@
 # 0.4.10
+- Add the ability to show metadata in the browser.
+- Fix the browser to maintain selection and position when refreshing.
 - Add browser file sorting.
 - Fix the error message when creating files/directories that already exist.
 

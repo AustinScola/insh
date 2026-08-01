@@ -211,6 +211,10 @@ mod browser {
         /// How the files shown in the Browser are sorted, or `None` if they are not sorted.
         #[serde(default = "default_sort")]
         sort: Option<BrowserSortConfig>,
+
+        /// Whether or not the metadata of the files is shown in the Browser.
+        #[serde(default)]
+        metadata: bool,
     }
 
     /// Return how the files shown in the Browser are sorted by default.
@@ -222,6 +226,7 @@ mod browser {
         fn default() -> Self {
             Self {
                 sort: default_sort(),
+                metadata: false,
             }
         }
     }
@@ -230,6 +235,11 @@ mod browser {
         /// Return how the files shown in the Browser are sorted, or `None` if they are not sorted.
         pub fn sort(&self) -> Option<&BrowserSortConfig> {
             self.sort.as_ref()
+        }
+
+        /// Return whether or not the metadata of the files is shown in the Browser.
+        pub fn metadata(&self) -> bool {
+            self.metadata
         }
     }
 

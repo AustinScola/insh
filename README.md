@@ -36,6 +36,7 @@ below. The currently selected entry is highlighed in yellow.
 | `C`                  | Open the file creator for creating a directory.                                                                                                                                    |
 | `f`                  | Open the file finder.                                                                                                                                                              |
 | `s`                  | Open the file contents searcher.                                                                                                                                                   |
+| `m`                  | Toggle showing the metadata of the entries.                                                                                                                                        |
 | `y`                  | Yank the selected entry. (Copy the file name of the selection to the clipboard.)                                                                                                   |
 | `Y`                  | Really yank the selected entry. (Copy the absolute path of the selected entry to the clipboard.)                                                                                   |
 
@@ -119,5 +120,7 @@ Insh can be configured by the file `~/.insh-config.yaml`.
 `browser.sort.case_insensitive` (bool): Whether or not the filename case is ignored when sorting files (default=`true`).
 
 `browser.sort.hidden` (`first`|`last`|`mixed`): How hidden files (files with a leading `.`) are sorted. If `mixed`, then the leading `.` is ignored when sorting files (default=`last`).
+
+`browser.metadata` (bool): Whether or not to show metadata (default=`false`).
 
 `searcher.history.length` (usize): The number of searches to store (default=`1000`).

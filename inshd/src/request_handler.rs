@@ -1,14 +1,16 @@
 //! Handles requests from clients.
 use std::ffi::OsStr;
-use std::fs::{self, DirBuilder, DirEntry, File, ReadDir};
+use std::fs::{self, DirBuilder, DirEntry, File, Metadata, ReadDir};
 use std::io::{Error as IOError, ErrorKind as IOErrorKind};
+use std::os::unix::fs::MetadataExt;
 use std::path::PathBuf;
 use std::thread::{self, JoinHandle};
 
 use crossbeam::channel::{self, select, Receiver, Sender};
+use nix::unistd::{Gid, Group, Uid, User};
 use typed_builder::TypedBuilder;
 
-use file_info::FileInfo;
+use file_info::{FileInfo, FileMetadata};
 use file_type::FileType;
 use insh_api::{
     CreateFileError, CreateFileRequestParams, CreateFileResponseParams, CreateFileResult,
@@ -18,6 +20,7 @@ use insh_api::{
 };
 use path_finder::Entry;
 
+use crate::cache::Cache;
 use crate::file_finder::FindFilesResult;
 use crate::file_finder::{FileFinder, FileFinderOptions};
 use crate::stop::Stop;
@@ -102,6 +105,8 @@ struct GetFiles {
     dir: PathBuf,
     /// How the files should be sorted, or `None` if they should not be sorted.
     sort: Option<FileSortOptions>,
+    /// Whether or not the metadata of the files should be included.
+    metadata: bool,
     /// If getting files is done.
     done: bool,
 }
@@ -112,8 +117,63 @@ impl GetFiles {
         Self {
             dir: params.dir().to_path_buf(),
             sort: params.sort(),
+            metadata: params.metadata(),
             done: false,
         }
+    }
+
+    /// Return the metadata of a file, or `None` if it could not be read.
+    fn metadata(
+        dir_entry: &DirEntry,
+        file_type: &Result<FileType, String>,
+        users: &mut Cache<u32, Option<String>>,
+        groups: &mut Cache<u32, Option<String>>,
+    ) -> Option<FileMetadata> {
+        // NOTE: The metadata of a dir entry is *not* followed through symlinks which is what `ls`
+        // does when listing files too.
+        let metadata: Metadata = match dir_entry.metadata() {
+            Ok(metadata) => metadata,
+            Err(error) => {
+                log::warn!(
+                    "Error reading the metadata of {:?}: {}",
+                    dir_entry.path(),
+                    error
+                );
+                return None;
+            }
+        };
+
+        let link_target: Option<PathBuf> = match file_type {
+            Ok(FileType::Symlink) => fs::read_link(dir_entry.path()).ok(),
+            _ => None,
+        };
+
+        let uid: u32 = metadata.uid();
+        let gid: u32 = metadata.gid();
+
+        Some(
+            FileMetadata::builder()
+                .mode(metadata.mode())
+                .hard_links(metadata.nlink())
+                .uid(uid)
+                .user(users.get(uid, |uid| {
+                    User::from_uid(Uid::from_raw(*uid))
+                        .ok()
+                        .flatten()
+                        .map(|user| user.name)
+                }))
+                .gid(gid)
+                .group(groups.get(gid, |gid| {
+                    Group::from_gid(Gid::from_raw(*gid))
+                        .ok()
+                        .flatten()
+                        .map(|group| group.name)
+                }))
+                .size(metadata.size())
+                .modified(metadata.mtime())
+                .link_target(link_target)
+                .build(),
+        )
     }
 
     /// Sort the files by name.
@@ -161,6 +221,10 @@ impl Iterator for GetFiles {
             Ok(dir_entries) => {
                 let mut file_infos: Vec<FileInfo> = Vec::new();
 
+                // Names are looked up once per user/group instead of once per file.
+                let mut users: Cache<u32, Option<String>> = Cache::new();
+                let mut groups: Cache<u32, Option<String>> = Cache::new();
+
                 for dir_entry in dir_entries {
                     let dir_entry: DirEntry = match dir_entry {
                         Ok(dir_entry) => dir_entry,
@@ -175,9 +239,15 @@ impl Iterator for GetFiles {
                         Err(io_error) => Err(io_error.to_string()),
                     };
 
+                    let metadata: Option<FileMetadata> = match self.metadata {
+                        true => Self::metadata(&dir_entry, &file_type, &mut users, &mut groups),
+                        false => None,
+                    };
+
                     let file_info: FileInfo = FileInfo::builder()
                         .path(dir_entry.path().to_path_buf())
                         .r#type(file_type)
+                        .metadata(metadata)
                         .build();
                     file_infos.push(file_info);
                 }

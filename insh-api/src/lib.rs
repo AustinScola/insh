@@ -41,6 +41,9 @@ pub struct GetFilesRequestParams {
     /// How the files should be sorted, or `None` if they should not be sorted.
     #[builder(default)]
     sort: Option<FileSortOptions>,
+    /// Whether or not the metadata of the files should be included.
+    #[builder(default)]
+    metadata: bool,
 }
 
 impl GetFilesRequestParams {
@@ -50,6 +53,11 @@ impl GetFilesRequestParams {
 
     pub fn sort(&self) -> Option<FileSortOptions> {
         self.sort
+    }
+
+    /// Return whether or not the metadata of the files should be included.
+    pub fn metadata(&self) -> bool {
+        self.metadata
     }
 }
 
