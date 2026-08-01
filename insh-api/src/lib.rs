@@ -183,8 +183,8 @@ impl Display for CreateFileError {
         match self {
             Self::AlreadyExists(filepath) => write!(
                 formatter,
-                "The file {:?} already exists.",
-                filepath.file_name()
+                "The file {} already exists.",
+                filepath.file_name().unwrap().to_string_lossy()
             ),
             Self::UnsupportedFileType(file_type) => write!(
                 formatter,
