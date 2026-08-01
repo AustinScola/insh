@@ -1,4 +1,5 @@
 //! Handles requests from clients.
+use std::ffi::OsStr;
 use std::fs::{self, DirBuilder, DirEntry, File, ReadDir};
 use std::io::{Error as IOError, ErrorKind as IOErrorKind};
 use std::path::PathBuf;
@@ -11,9 +12,9 @@ use file_info::FileInfo;
 use file_type::FileType;
 use insh_api::{
     CreateFileError, CreateFileRequestParams, CreateFileResponseParams, CreateFileResult,
-    FindFilesRequestParams, FindFilesResponseParams, GetFilesError, GetFilesRequestParams,
-    GetFilesResponseParams, GetFilesResult, Request, RequestParams, Response, ResponseParams,
-    ResponseParamsAndLast,
+    FileSortOptions, FindFilesRequestParams, FindFilesResponseParams, GetFilesError,
+    GetFilesRequestParams, GetFilesResponseParams, GetFilesResult, HiddenFileSort, Request,
+    RequestParams, Response, ResponseParams, ResponseParamsAndLast,
 };
 use path_finder::Entry;
 
@@ -99,6 +100,8 @@ pub struct Context {}
 struct GetFiles {
     /// The directory to get files for.
     dir: PathBuf,
+    /// How the files should be sorted, or `None` if they should not be sorted.
+    sort: Option<FileSortOptions>,
     /// If getting files is done.
     done: bool,
 }
@@ -108,8 +111,40 @@ impl GetFiles {
     pub fn new(params: &GetFilesRequestParams) -> Self {
         Self {
             dir: params.dir().to_path_buf(),
+            sort: params.sort(),
             done: false,
         }
+    }
+
+    /// Sort the files by name.
+    fn sort(file_infos: &mut [FileInfo], options: FileSortOptions) {
+        file_infos.sort_by_cached_key(|file_info| {
+            let name: &OsStr = file_info.name().unwrap_or_else(|| OsStr::new(""));
+            let mut key: String = name.to_string_lossy().to_string();
+
+            // Group the hidden files before or after the other files (if they are not mixed in
+            // with them).
+            let hidden: bool = key.starts_with('.');
+            let group: u8 = match options.hidden() {
+                HiddenFileSort::First => !hidden as u8,
+                HiddenFileSort::Last => hidden as u8,
+                HiddenFileSort::Mixed => {
+                    // Sort hidden files as if they were not hidden.
+                    if let Some(stripped) = key.strip_prefix('.') {
+                        key = stripped.to_string();
+                    }
+                    0
+                }
+            };
+
+            if options.case_insensitive() {
+                key = key.to_lowercase();
+            }
+
+            // Fall back on the name itself so that the order of files with the same key is
+            // deterministic.
+            (group, key, name.to_os_string())
+        });
     }
 }
 
@@ -146,6 +181,12 @@ impl Iterator for GetFiles {
                         .build();
                     file_infos.push(file_info);
                 }
+
+                // Sort the files alphabetically.
+                if let Some(options) = self.sort {
+                    Self::sort(&mut file_infos, options);
+                }
+
                 Ok(file_infos)
             }
             Err(error) => match error.kind() {

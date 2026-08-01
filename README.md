@@ -112,6 +112,12 @@ Insh can be configured by the file `~/.insh-config.yaml`.
 
 `general.tab_width` (usize): The width of the `<Tab>` character (default=`4`).
 
-`general.bell` (bool): Whether the bell sound should be made or not (default=`true`).
+`general.bell` (bool): Whether or not the bell sound should be made (default=`true`).
+
+`browser.sort` (map): How files are sorted alphabetically. If `null`, then files are not sorted (default=`{}`).
+
+`browser.sort.case_insensitive` (bool): Whether or not the filename case is ignored when sorting files (default=`true`).
+
+`browser.sort.hidden` (`first`|`last`|`mixed`): How hidden files (files with a leading `.`) are sorted. If `mixed`, then the leading `.` is ignored when sorting files (default=`last`).
 
 `searcher.history.length` (usize): The number of searches to store (default=`1000`).

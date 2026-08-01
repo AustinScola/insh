@@ -12,11 +12,13 @@ use til::Component;
 
 use super::{Contents, ContentsEffect, ContentsEvent, ContentsProps};
 use crate::components::common::{Dir, DirEvent, DirProps};
+use crate::config::Config;
 use crate::programs::VimArgs;
 use crate::stateful::Stateful;
 
 #[derive(TypedBuilder)]
 pub struct Props {
+    config: Config,
     dir: PathBuf,
     size: Size,
     #[builder(default)]
@@ -133,6 +135,7 @@ impl From<Props> for State {
 
         let contents_size = Size::new(props.size.rows - 1, props.size.columns);
         let contents_props = ContentsProps::builder()
+            .config(props.config)
             .dir(props.dir)
             .size(contents_size)
             .file(props.file)

@@ -4,13 +4,16 @@ use crate::components::file_creator::{
 };
 use crate::components::finder::{Finder, FinderEffect, FinderProps};
 use crate::components::searcher::{Searcher, SearcherEffect, SearcherProps};
-use crate::config::Config;
+use crate::config::{BrowserSortHiddenConfig, Config};
 use crate::current_dir;
 use crate::programs::{Bash, Vim};
 use crate::stateful::Stateful;
 
 use file_type::FileType;
-use insh_api::{FindFilesRequestParams, GetFilesRequestParams, Request, RequestParams, Response};
+use insh_api::{
+    FileSortOptions, FindFilesRequestParams, GetFilesRequestParams, HiddenFileSort, Request,
+    RequestParams, Response,
+};
 use rend::{Fabric, Size};
 use term::{Key, KeyEvent, KeyMods, TermEvent};
 use til::{Component, Event, SystemEffect};
@@ -259,6 +262,7 @@ impl From<Props> for State {
         let size: Size = Size::from(terminal::size().unwrap());
 
         let browser_props = BrowserProps::builder()
+            .config(props.config().clone())
             .dir(dir.clone())
             .size(size)
             .pending_request(*props.pending_browser_request())
@@ -317,15 +321,30 @@ impl From<Props> for State {
 impl State {
     fn browse(&mut self, dir: PathBuf, file: Option<PathBuf>) -> Option<SystemEffect<Request>> {
         // Create a request for getting the files in the dir.
+        let sort: Option<FileSortOptions> = self.config.browser().sort().map(|sort| {
+            FileSortOptions::builder()
+                .case_insensitive(sort.case_insensitive())
+                .hidden(match sort.hidden() {
+                    BrowserSortHiddenConfig::First => HiddenFileSort::First,
+                    BrowserSortHiddenConfig::Last => HiddenFileSort::Last,
+                    BrowserSortHiddenConfig::Mixed => HiddenFileSort::Mixed,
+                })
+                .build()
+        });
+
         let request = Request::builder()
             .params(RequestParams::GetFiles(
-                GetFilesRequestParams::builder().dir(dir.clone()).build(),
+                GetFilesRequestParams::builder()
+                    .dir(dir.clone())
+                    .sort(sort)
+                    .build(),
             ))
             .build();
 
         self.mode = Mode::Browse;
         let size: Size = Size::from(terminal::size().unwrap());
         let browser_props = BrowserProps::builder()
+            .config(self.config.clone())
             .dir(dir)
             .size(size)
             .file(file)

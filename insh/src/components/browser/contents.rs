@@ -7,8 +7,8 @@ use uuid::Uuid;
 use file_info::FileInfo;
 use file_type::FileType;
 use insh_api::{
-    GetFilesRequestParams, GetFilesResponseParams, GetFilesResult, Request, RequestParams,
-    Response, ResponseParams,
+    FileSortOptions, GetFilesRequestParams, GetFilesResponseParams, GetFilesResult, HiddenFileSort,
+    Request, RequestParams, Response, ResponseParams,
 };
 use rend::{Fabric, Size, Yarn};
 use term::{Key, KeyEvent, KeyMods, TermEvent};
@@ -16,11 +16,13 @@ use til::Component;
 
 use crate::clipboard::Clipboard;
 use crate::color::Color;
+use crate::config::{BrowserSortHiddenConfig, Config};
 use crate::programs::{VimArgs, VimArgsBuilder};
 use crate::stateful::Stateful;
 
 #[derive(TypedBuilder)]
 pub struct Props {
+    config: Config,
     dir: PathBuf,
     size: Size,
     file: Option<PathBuf>,
@@ -184,6 +186,7 @@ pub enum Event {
 }
 
 struct State {
+    config: Config,
     size: Size,
     dir: PathBuf,
 
@@ -203,6 +206,7 @@ impl From<Props> for State {
         let dir: PathBuf = props.dir;
 
         State {
+            config: props.config,
             size,
             dir,
             starting_file: props.file,
@@ -263,6 +267,29 @@ impl State {
             },
             None => None,
         }
+    }
+
+    /// Return a request for getting the files of the current directory.
+    fn get_files_request(&self) -> Request {
+        let sort: Option<FileSortOptions> = self.config.browser().sort().map(|sort| {
+            FileSortOptions::builder()
+                .case_insensitive(sort.case_insensitive())
+                .hidden(match sort.hidden() {
+                    BrowserSortHiddenConfig::First => HiddenFileSort::First,
+                    BrowserSortHiddenConfig::Last => HiddenFileSort::Last,
+                    BrowserSortHiddenConfig::Mixed => HiddenFileSort::Mixed,
+                })
+                .build()
+        });
+
+        Request::builder()
+            .params(RequestParams::GetFiles(
+                GetFilesRequestParams::builder()
+                    .dir(self.dir.clone())
+                    .sort(sort)
+                    .build(),
+            ))
+            .build()
     }
 
     fn set_dir(&mut self, dir: &Path) -> Option<Effect> {
@@ -403,13 +430,7 @@ impl State {
 
         self.reset_file_infos();
 
-        let request = Request::builder()
-            .params(RequestParams::GetFiles(
-                GetFilesRequestParams::builder()
-                    .dir(self.dir.clone())
-                    .build(),
-            ))
-            .build();
+        let request = self.get_files_request();
         self.pending_request = Some(*request.uuid());
         Some(Effect::Request(request))
     }
@@ -420,13 +441,7 @@ impl State {
             if path.is_dir() {
                 self.set_dir(&path);
 
-                let request = Request::builder()
-                    .params(RequestParams::GetFiles(
-                        GetFilesRequestParams::builder()
-                            .dir(self.dir.clone())
-                            .build(),
-                    ))
-                    .build();
+                let request = self.get_files_request();
                 self.pending_request = Some(*request.uuid());
 
                 return Some(Effect::SetDir {
@@ -448,13 +463,7 @@ impl State {
         if popped {
             self.reset_file_infos();
 
-            let request = Request::builder()
-                .params(RequestParams::GetFiles(
-                    GetFilesRequestParams::builder()
-                        .dir(self.dir.clone())
-                        .build(),
-                ))
-                .build();
+            let request = self.get_files_request();
             self.pending_request = Some(*request.uuid());
 
             return Some(Effect::PopDir {

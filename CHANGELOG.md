@@ -1,4 +1,5 @@
 # 0.4.10
+- Add browser file sorting.
 - Fix the error message when creating files/directories that already exist.
 
 # 0.4.9

@@ -40,13 +40,15 @@ use flexi_logger::LoggerHandle;
 use uuid::Uuid;
 
 use common::paths::INSHD_SOCKET;
-use insh_api::{GetFilesRequestParams, Request, RequestParams, Response};
+use insh_api::{
+    FileSortOptions, GetFilesRequestParams, HiddenFileSort, Request, RequestParams, Response,
+};
 use term::TermEvent;
 use til::{App, AppRunOptions, Component, Requester, ResponseHandler, Stopper, SystemEffect};
 
 use crate::args::Args;
 use crate::components::{Insh, InshProps};
-use crate::config::Config;
+use crate::config::{BrowserSortHiddenConfig, Config};
 #[cfg(feature = "logging")]
 use crate::logging::{configure_logging, ConfigureLoggingResult};
 use crate::requester::InshdRequester;
@@ -71,13 +73,33 @@ fn main() {
         }
     }
 
+    let config: Config = match Config::load() {
+        Ok(config) => config,
+        Err(error) => {
+            println!("{}", error);
+            exit(1);
+        }
+    };
+
     // Determine the starting effects.
     let mut starting_effects: Option<Vec<SystemEffect<Request>>> = args.starting_effects();
     let pending_browser_request: Option<Uuid> = if args.browse() {
+        let sort: Option<FileSortOptions> = config.browser().sort().map(|sort| {
+            FileSortOptions::builder()
+                .case_insensitive(sort.case_insensitive())
+                .hidden(match sort.hidden() {
+                    BrowserSortHiddenConfig::First => HiddenFileSort::First,
+                    BrowserSortHiddenConfig::Last => HiddenFileSort::Last,
+                    BrowserSortHiddenConfig::Mixed => HiddenFileSort::Mixed,
+                })
+                .build()
+        });
+
         let request = Request::builder()
             .params(RequestParams::GetFiles(
                 GetFilesRequestParams::builder()
                     .dir(args.dir().clone().unwrap_or_else(current_dir::current_dir))
+                    .sort(sort)
                     .build(),
             ))
             .build();
@@ -99,14 +121,6 @@ fn main() {
 
     // Determine the starting term events.
     let starting_term_events: Option<Vec<TermEvent>> = args.starting_term_events();
-
-    let config: Config = match Config::load() {
-        Ok(config) => config,
-        Err(error) => {
-            println!("{}", error);
-            exit(1);
-        }
-    };
 
     let mut app: App = App::builder().build();
 
