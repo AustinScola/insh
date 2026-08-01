@@ -12,4 +12,5 @@ members = [
     "size",
     "file-info",
     "file-type",
+    "human-friendly",
 ]

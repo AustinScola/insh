@@ -38,12 +38,60 @@ pub enum RequestParams {
 #[derive(Debug, TypedBuilder, Serialize, Deserialize)]
 pub struct GetFilesRequestParams {
     dir: PathBuf,
+    /// How the files should be sorted, or `None` if they should not be sorted.
+    #[builder(default)]
+    sort: Option<FileSortOptions>,
+    /// Whether or not the metadata of the files should be included.
+    #[builder(default)]
+    metadata: bool,
 }
 
 impl GetFilesRequestParams {
     pub fn dir(&self) -> &Path {
         &self.dir
     }
+
+    pub fn sort(&self) -> Option<FileSortOptions> {
+        self.sort
+    }
+
+    /// Return whether or not the metadata of the files should be included.
+    pub fn metadata(&self) -> bool {
+        self.metadata
+    }
+}
+
+/// How files should be sorted.
+#[derive(Debug, Clone, Copy, TypedBuilder, Serialize, Deserialize)]
+pub struct FileSortOptions {
+    /// Whether or not the case of filenames should be ignored.
+    #[builder(default)]
+    case_insensitive: bool,
+    /// How hidden files should be sorted.
+    #[builder(default)]
+    hidden: HiddenFileSort,
+}
+
+impl FileSortOptions {
+    pub fn case_insensitive(&self) -> bool {
+        self.case_insensitive
+    }
+
+    pub fn hidden(&self) -> HiddenFileSort {
+        self.hidden
+    }
+}
+
+/// How hidden files should be sorted.
+#[derive(Debug, Clone, Copy, Default, Serialize, Deserialize)]
+pub enum HiddenFileSort {
+    /// Hidden files should be sorted before all of the other files.
+    First,
+    /// Hidden files should be sorted after all of the other files.
+    #[default]
+    Last,
+    /// Hidden files should be sorted among the other files as if they were not hidden.
+    Mixed,
 }
 
 #[derive(Debug, TypedBuilder, Serialize, Deserialize)]

@@ -6,6 +6,7 @@ The insh daemon.
 #![allow(clippy::needless_return)]
 
 mod args;
+mod cache;
 mod client;
 mod client_handler;
 mod client_handler_handle;

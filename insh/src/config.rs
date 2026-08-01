@@ -4,7 +4,7 @@ Configuration options loaded from the YAML file `~/.insh-config` if it exists.
 
 /// Configuration options.
 mod config {
-    use super::{GeneralConfig, SearcherConfig};
+    use super::{BrowserConfig, GeneralConfig, SearcherConfig};
 
     use std::fmt::{Display, Formatter, Result as FormatResult};
     use std::fs::File;
@@ -20,6 +20,9 @@ mod config {
         /// General configuration.
         #[serde(default)]
         general: GeneralConfig,
+        /// Configuration of the Browser.
+        #[serde(default)]
+        browser: BrowserConfig,
         /// Configuration of the Searcher.
         #[serde(default)]
         searcher: SearcherConfig,
@@ -72,6 +75,11 @@ mod config {
         /// Return the general configuration.
         pub fn general(&self) -> &GeneralConfig {
             &self.general
+        }
+
+        /// Return the browser configuration.
+        pub fn browser(&self) -> &BrowserConfig {
+            &self.browser
         }
 
         /// Return the searcher configuration.
@@ -165,7 +173,7 @@ mod general {
         #[serde(default)]
         tab_width: usize,
 
-        /// Whether the bell sound should be made or not.
+        /// Whether or not the bell sound should be made.
         #[serde(default)]
         bell: bool,
     }
@@ -185,13 +193,108 @@ mod general {
             self.tab_width
         }
 
-        /// Return whether the bell sound should be made or not.
+        /// Return whether or not the bell sound should be made.
         pub fn bell(&self) -> bool {
             self.bell
         }
     }
 }
 pub use general::GeneralConfig;
+
+/// Contains browser configuration.
+mod browser {
+    use serde::Deserialize;
+
+    /// Configuration for the Browser.
+    #[derive(Deserialize, Debug, Clone, Eq, PartialEq)]
+    pub struct BrowserConfig {
+        /// How the files shown in the Browser are sorted, or `None` if they are not sorted.
+        #[serde(default = "default_sort")]
+        sort: Option<BrowserSortConfig>,
+
+        /// Whether or not the metadata of the files is shown in the Browser.
+        #[serde(default)]
+        metadata: bool,
+    }
+
+    /// Return how the files shown in the Browser are sorted by default.
+    fn default_sort() -> Option<BrowserSortConfig> {
+        Some(BrowserSortConfig::default())
+    }
+
+    impl Default for BrowserConfig {
+        fn default() -> Self {
+            Self {
+                sort: default_sort(),
+                metadata: false,
+            }
+        }
+    }
+
+    impl BrowserConfig {
+        /// Return how the files shown in the Browser are sorted, or `None` if they are not sorted.
+        pub fn sort(&self) -> Option<&BrowserSortConfig> {
+            self.sort.as_ref()
+        }
+
+        /// Return whether or not the metadata of the files is shown in the Browser.
+        pub fn metadata(&self) -> bool {
+            self.metadata
+        }
+    }
+
+    /// Configuration for how the files shown in the Browser are sorted.
+    #[derive(Deserialize, Debug, Clone, Eq, PartialEq)]
+    pub struct BrowserSortConfig {
+        /// Whether or not the case of filenames is ignored.
+        #[serde(default = "enabled")]
+        case_insensitive: bool,
+
+        /// How hidden files are sorted.
+        #[serde(default)]
+        hidden: BrowserSortHiddenConfig,
+    }
+
+    /// Return that an option is enabled by default.
+    fn enabled() -> bool {
+        true
+    }
+
+    impl Default for BrowserSortConfig {
+        fn default() -> Self {
+            Self {
+                case_insensitive: enabled(),
+                hidden: BrowserSortHiddenConfig::default(),
+            }
+        }
+    }
+
+    impl BrowserSortConfig {
+        /// Return whether or not the case of filenames is ignored.
+        pub fn case_insensitive(&self) -> bool {
+            self.case_insensitive
+        }
+
+        /// Return how hidden files are sorted.
+        pub fn hidden(&self) -> BrowserSortHiddenConfig {
+            self.hidden
+        }
+    }
+
+    /// How hidden files are sorted.
+    #[derive(Deserialize, Debug, Default, Clone, Copy, Eq, PartialEq)]
+    #[serde(rename_all = "lowercase")]
+    pub enum BrowserSortHiddenConfig {
+        /// Hidden files are sorted before all of the other files.
+        First,
+        /// Hidden files are sorted after all of the other files.
+        #[default]
+        Last,
+        /// Hidden files are sorted among the other files as if they were not hidden.
+        Mixed,
+    }
+}
+pub use browser::{BrowserConfig, BrowserSortHiddenConfig};
 
 /// Contains search configuration.
 mod search {

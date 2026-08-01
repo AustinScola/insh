@@ -30,6 +30,7 @@ mod requester;
 mod response_handler;
 mod stateful;
 mod string;
+mod utils;
 
 use std::os::unix::net::UnixStream;
 use std::process::exit;
@@ -40,7 +41,7 @@ use flexi_logger::LoggerHandle;
 use uuid::Uuid;
 
 use common::paths::INSHD_SOCKET;
-use insh_api::{GetFilesRequestParams, Request, RequestParams, Response};
+use insh_api::{Request, Response};
 use term::TermEvent;
 use til::{App, AppRunOptions, Component, Requester, ResponseHandler, Stopper, SystemEffect};
 
@@ -52,6 +53,7 @@ use crate::logging::{configure_logging, ConfigureLoggingResult};
 use crate::requester::InshdRequester;
 use crate::response_handler::{InshdResponseHandler, InshdResponseHandlerStopper};
 use crate::stateful::Stateful;
+use crate::utils::get_files_request;
 
 fn main() {
     let args: Args = Args::parse();
@@ -71,16 +73,22 @@ fn main() {
         }
     }
 
+    let config: Config = match Config::load() {
+        Ok(config) => config,
+        Err(error) => {
+            println!("{}", error);
+            exit(1);
+        }
+    };
+
     // Determine the starting effects.
     let mut starting_effects: Option<Vec<SystemEffect<Request>>> = args.starting_effects();
     let pending_browser_request: Option<Uuid> = if args.browse() {
-        let request = Request::builder()
-            .params(RequestParams::GetFiles(
-                GetFilesRequestParams::builder()
-                    .dir(args.dir().clone().unwrap_or_else(current_dir::current_dir))
-                    .build(),
-            ))
-            .build();
+        let request = get_files_request(
+            args.dir().clone().unwrap_or_else(current_dir::current_dir),
+            &config,
+            config.browser().metadata(),
+        );
 
         let request_uuid: Uuid = *request.uuid();
         let effect = SystemEffect::Request(request);
@@ -99,14 +107,6 @@ fn main() {
 
     // Determine the starting term events.
     let starting_term_events: Option<Vec<TermEvent>> = args.starting_term_events();
-
-    let config: Config = match Config::load() {
-        Ok(config) => config,
-        Err(error) => {
-            println!("{}", error);
-            exit(1);
-        }
-    };
 
     let mut app: App = App::builder().build();
 

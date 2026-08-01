@@ -1,0 +1,12 @@
+[package]
+name = "human-friendly"
+version = "0.1.0"
+edition = "2021"
+description = "Renders information about files the way that people are used to reading it."
+
+[dependencies]
+# Used for formatting the times that files were modified in the local time zone.
+chrono = { version = "0.4.26", default-features = false, features = ["clock"] }
+
+[dev-dependencies]
+test-case = "2.0.0"

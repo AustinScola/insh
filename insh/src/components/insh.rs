@@ -8,9 +8,10 @@ use crate::config::Config;
 use crate::current_dir;
 use crate::programs::{Bash, Vim};
 use crate::stateful::Stateful;
+use crate::utils::get_files_request;
 
 use file_type::FileType;
-use insh_api::{FindFilesRequestParams, GetFilesRequestParams, Request, RequestParams, Response};
+use insh_api::{FindFilesRequestParams, Request, RequestParams, Response};
 use rend::{Fabric, Size};
 use term::{Key, KeyEvent, KeyMods, TermEvent};
 use til::{Component, Event, SystemEffect};
@@ -259,6 +260,7 @@ impl From<Props> for State {
         let size: Size = Size::from(terminal::size().unwrap());
 
         let browser_props = BrowserProps::builder()
+            .config(props.config().clone())
             .dir(dir.clone())
             .size(size)
             .pending_request(*props.pending_browser_request())
@@ -317,15 +319,13 @@ impl From<Props> for State {
 impl State {
     fn browse(&mut self, dir: PathBuf, file: Option<PathBuf>) -> Option<SystemEffect<Request>> {
         // Create a request for getting the files in the dir.
-        let request = Request::builder()
-            .params(RequestParams::GetFiles(
-                GetFilesRequestParams::builder().dir(dir.clone()).build(),
-            ))
-            .build();
+        let request =
+            get_files_request(dir.clone(), &self.config, self.config.browser().metadata());
 
         self.mode = Mode::Browse;
         let size: Size = Size::from(terminal::size().unwrap());
         let browser_props = BrowserProps::builder()
+            .config(self.config.clone())
             .dir(dir)
             .size(size)
             .file(file)
