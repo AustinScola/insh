@@ -7,7 +7,7 @@ edition = "2021"
 file-type = { version = "0.1.0", path = "../file-type" }
 
 # Used for generating the builder pattern for structs.
-typed-builder = "0.14.0"
+typed-builder = { workspace = true }
 
 # Used for serialization and deserialization of data structures.
-serde = { version = "1.0.144", features = ["derive"] }
+serde = { workspace = true }

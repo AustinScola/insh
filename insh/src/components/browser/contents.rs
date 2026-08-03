@@ -16,8 +16,8 @@ use crate::clipboard::Clipboard;
 use crate::color::Color;
 use crate::config::Config;
 use crate::programs::{VimArgs, VimArgsBuilder};
+use crate::request_builders::get_files_request;
 use crate::stateful::Stateful;
-use crate::utils::get_files_request;
 
 /// Contains functionality for rendering the entries of a directory.
 mod entry {

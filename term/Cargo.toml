@@ -12,7 +12,7 @@ termios = "0.3.3"
 #
 # Used for:
 #   - detecting terminal size changes (via  the SIGWINCH signal).
-nix = "0.26.2"
+nix = { workspace = true }
 
 [[bin]]
 name = "print-event"

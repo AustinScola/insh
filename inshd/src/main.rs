@@ -12,14 +12,18 @@ mod client_handler;
 mod client_handler_handle;
 mod client_handler_monitor;
 mod client_request;
+mod config;
 mod conn_handler;
+mod data;
 mod disconnected_client;
 mod file_finder;
+mod file_searcher;
 mod logging;
 mod paths;
 mod request_handler;
 mod request_handler_died;
 mod request_handler_manager;
+mod request_handlers;
 mod response_handler;
 mod scheduler;
 mod server;
@@ -27,6 +31,7 @@ mod signal_handler;
 mod stop;
 
 use crate::args::{Args, Command};
+use crate::config::Config;
 use crate::logging::configure_logging;
 use crate::paths::INSHD_PID_FILE;
 use crate::server::{RunOptions, Server};
@@ -132,8 +137,10 @@ fn start(options: &mut StartOptions) -> Result<(), StartError> {
         }
     }
 
+    let config: Config = Config::load();
+
     let server = Server::new();
-    let run_options: RunOptions = RunOptions::default();
+    let run_options: RunOptions = RunOptions::builder().config(config).build();
     if let Err(error) = server.run(run_options) {
         let error = StartError::FailedToRunServer(error);
         log::error!("{}", error);

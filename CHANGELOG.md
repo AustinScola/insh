@@ -1,3 +1,8 @@
+# 0.4.11
+- Change the searcher to use inshd to search for phrases and get search suggestions.
+- Add a configuration file for inshd (`~/.inshd-config.yaml`) and move the search history length to
+it.
+
 # 0.4.10
 - Add the ability to show metadata in the browser.
 - Fix the browser to maintain selection and position when refreshing.

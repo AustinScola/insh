@@ -1,5 +1,6 @@
 /*!
-Miscellaneous functionality which is shared between the components and the entry point.
+Functionality for building `insh_api::Request`s which is shared between the components and the
+entry point.
 */
 
 /// Contains functionality for building requests for getting the files of a directory.
@@ -37,3 +38,23 @@ mod get_files {
     }
 }
 pub use get_files::get_files_request;
+
+/// Contains functionality for building requests for searching files for a phrase.
+mod search_phrase {
+    use std::path::PathBuf;
+
+    use insh_api::{Request, RequestParams, SearchPhraseRequestParams};
+
+    /// Return a request for searching the files of the directory for the phrase.
+    pub fn search_phrase_request(dir: PathBuf, phrase: String) -> Request {
+        Request::builder()
+            .params(RequestParams::SearchPhrase(
+                SearchPhraseRequestParams::builder()
+                    .dir(dir)
+                    .phrase(phrase)
+                    .build(),
+            ))
+            .build()
+    }
+}
+pub use search_phrase::search_phrase_request;

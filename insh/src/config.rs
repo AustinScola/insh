@@ -4,7 +4,7 @@ Configuration options loaded from the YAML file `~/.insh-config` if it exists.
 
 /// Configuration options.
 mod config {
-    use super::{BrowserConfig, GeneralConfig, SearcherConfig};
+    use super::{BrowserConfig, GeneralConfig};
 
     use std::fmt::{Display, Formatter, Result as FormatResult};
     use std::fs::File;
@@ -23,9 +23,6 @@ mod config {
         /// Configuration of the Browser.
         #[serde(default)]
         browser: BrowserConfig,
-        /// Configuration of the Searcher.
-        #[serde(default)]
-        searcher: SearcherConfig,
     }
 
     impl Config {
@@ -80,11 +77,6 @@ mod config {
         /// Return the browser configuration.
         pub fn browser(&self) -> &BrowserConfig {
             &self.browser
-        }
-
-        /// Return the searcher configuration.
-        pub fn searcher(&self) -> &SearcherConfig {
-            &self.searcher
         }
     }
 
@@ -295,45 +287,3 @@ mod browser {
     }
 }
 pub use browser::{BrowserConfig, BrowserSortHiddenConfig};
-
-/// Contains search configuration.
-mod search {
-    use serde::Deserialize;
-
-    /// Configuration for the Searcher.
-    #[derive(Deserialize, Debug, Default, Clone, Eq, PartialEq)]
-    pub struct SearcherConfig {
-        /// Configuration for the Searcher history.
-        #[serde(default)]
-        history: SearcherHistoryConfig,
-    }
-
-    impl SearcherConfig {
-        /// Return the searcher history configuration.
-        pub fn history(&self) -> &SearcherHistoryConfig {
-            &self.history
-        }
-    }
-
-    /// Configuration for the Searcher history.
-    #[derive(Deserialize, Debug, Clone, Eq, PartialEq)]
-    pub struct SearcherHistoryConfig {
-        /// The maximum length of the searcher history.
-        #[serde(default)]
-        length: usize,
-    }
-
-    impl Default for SearcherHistoryConfig {
-        fn default() -> Self {
-            Self { length: 1000 }
-        }
-    }
-
-    impl SearcherHistoryConfig {
-        /// Return the maximum length of the searcher history.
-        pub fn length(&self) -> usize {
-            self.length
-        }
-    }
-}
-pub use search::SearcherConfig;

@@ -9,28 +9,21 @@ A graphical, interactive, terminal environment.
 #![allow(clippy::single_match)]
 #![allow(clippy::infallible_destructuring_match)]
 
-#[macro_use]
-extern crate lazy_static;
-
 mod ansi_escaped_text;
 mod args;
-mod auto_completer;
-mod auto_completers;
 mod clipboard;
 mod color;
 mod components;
 mod config;
 mod current_dir;
-mod data;
 #[cfg(feature = "logging")]
 mod logging;
-mod phrase_searcher;
 mod programs;
+mod request_builders;
 mod requester;
 mod response_handler;
 mod stateful;
 mod string;
-mod utils;
 
 use std::os::unix::net::UnixStream;
 use std::process::exit;
@@ -45,15 +38,15 @@ use insh_api::{Request, Response};
 use term::TermEvent;
 use til::{App, AppRunOptions, Component, Requester, ResponseHandler, Stopper, SystemEffect};
 
-use crate::args::Args;
+use crate::args::{Args, Command};
 use crate::components::{Insh, InshProps};
 use crate::config::Config;
 #[cfg(feature = "logging")]
 use crate::logging::{configure_logging, ConfigureLoggingResult};
+use crate::request_builders::{get_files_request, search_phrase_request};
 use crate::requester::InshdRequester;
 use crate::response_handler::{InshdResponseHandler, InshdResponseHandlerStopper};
 use crate::stateful::Stateful;
-use crate::utils::get_files_request;
 
 fn main() {
     let args: Args = Args::parse();
@@ -102,8 +95,28 @@ fn main() {
     } else {
         None
     };
-    #[cfg(feature = "logging")]
-    log::info!("{:?}", pending_browser_request);
+
+    let pending_search_request: Option<Uuid> = if let Some(Command::Search {
+        phrase: Some(phrase),
+    }) = args.command()
+    {
+        let request = search_phrase_request(
+            args.dir().clone().unwrap_or_else(current_dir::current_dir),
+            phrase.clone(),
+        );
+
+        let request_uuid: Uuid = *request.uuid();
+        let effect = SystemEffect::Request(request);
+        if let Some(ref mut starting_effects) = starting_effects {
+            starting_effects.push(effect);
+        } else {
+            starting_effects = Some(vec![effect]);
+        }
+
+        Some(request_uuid)
+    } else {
+        None
+    };
 
     // Determine the starting term events.
     let starting_term_events: Option<Vec<TermEvent>> = args.starting_term_events();
@@ -114,6 +127,7 @@ fn main() {
         .dir(args.dir().clone())
         .start(args.command().clone().into())
         .pending_browser_request(pending_browser_request)
+        .pending_search_request(pending_search_request)
         .config(config)
         .build();
     let root = Insh::new(insh_props);

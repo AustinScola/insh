@@ -2,6 +2,7 @@ mod props {
     use crate::config::Config;
 
     use rend::Size;
+    use uuid::Uuid;
 
     use std::path::PathBuf;
 
@@ -9,11 +10,25 @@ mod props {
         pub config: Config,
         pub dir: PathBuf,
         pub size: Size,
+        pub phrase: Option<String>,
+        pub pending_request: Option<Uuid>,
     }
 
     impl Props {
-        pub fn new(config: Config, dir: PathBuf, size: Size) -> Self {
-            Self { config, dir, size }
+        pub fn new(
+            config: Config,
+            dir: PathBuf,
+            size: Size,
+            phrase: Option<String>,
+            pending_request: Option<Uuid>,
+        ) -> Self {
+            Self {
+                config,
+                dir,
+                size,
+                phrase,
+                pending_request,
+            }
         }
     }
 }
@@ -22,11 +37,11 @@ pub use props::Props;
 mod contents {
     use super::{Action, Effect, Event, Props, State};
     use crate::color::Color;
-    use crate::phrase_searcher::{FileHit, LineHit};
     use crate::string::DetabExt;
     use crate::Config;
     use crate::Stateful;
 
+    use phrase_searcher::{FileHit, LineHit};
     use rend::{Fabric, Size, Yarn};
     use term::{Key, KeyEvent, KeyMods, TermEvent};
     use til::Component;
@@ -49,10 +64,8 @@ mod contents {
 
         fn handle(&mut self, event: Event) -> Option<Effect> {
             let action: Option<Action> = match event {
-                Event::Search { phrase } => Some(Action::Search {
-                    phrase,
-                    max_history_length: self.config.searcher().history().length(),
-                }),
+                Event::Search { phrase } => Some(Action::Search { phrase }),
+                Event::Response(response) => Some(Action::HandleResponse(response)),
                 Event::TermEvent(TermEvent::Resize(size)) => Some(Action::Resize { size }),
                 Event::TermEvent(TermEvent::KeyEvent(key_event)) => match key_event {
                     KeyEvent {
@@ -87,9 +100,7 @@ mod contents {
                     KeyEvent {
                         key: Key::Char('r'),
                         mods: KeyMods::NONE,
-                    } => Some(Action::Refresh {
-                        max_history_length: self.config.searcher().history().length(),
-                    }),
+                    } => Some(Action::Refresh),
                     KeyEvent {
                         key: Key::Char('l'),
                         ..
@@ -131,10 +142,14 @@ mod contents {
             match self.state.searched() {
                 false => Fabric::new(size),
                 true => {
-                    let file_hits: &Vec<FileHit> = self.state.hits();
                     if self.state.hits().is_empty() {
-                        Fabric::center("No matches.", size)
+                        if self.state.is_pending() {
+                            Fabric::new(size)
+                        } else {
+                            Fabric::center("No matches.", size)
+                        }
                     } else {
+                        let file_hits: &Vec<FileHit> = self.state.hits();
                         let rows = size.rows;
                         let columns = size.columns;
                         let mut yarns: Vec<Yarn> = Vec::new();
@@ -228,11 +243,13 @@ mod contents {
 pub use contents::Contents;
 
 mod event {
+    use insh_api::Response;
     use term::TermEvent;
 
     pub enum Event {
         TermEvent(TermEvent),
         Search { phrase: String },
+        Response(Response),
     }
 }
 pub use event::Event;
@@ -240,12 +257,14 @@ pub use event::Event;
 mod state {
     use super::{Action, Effect, Props};
     use crate::clipboard::Clipboard;
-    use crate::data::Data;
-    use crate::phrase_searcher::{FileHit, LineHit, PhraseSearcher};
     use crate::programs::{VimArgs, VimArgsBuilder};
+    use crate::request_builders::search_phrase_request;
     use crate::Stateful;
 
+    use insh_api::{Request, Response, ResponseParams, SearchPhraseResponseParams};
+    use phrase_searcher::{FileHit, LineHit};
     use rend::Size;
+    use uuid::Uuid;
 
     use std::cmp::Ordering;
     use std::path::{Path, PathBuf, MAIN_SEPARATOR as PATH_SEPARATOR};
@@ -262,6 +281,7 @@ mod state {
         line_offset: Option<usize>,
         file_selected: usize,
         line_selected: Option<usize>,
+        pending_request: Option<Uuid>,
     }
 
     impl From<&Props> for State {
@@ -271,14 +291,15 @@ mod state {
                 // Would be nice to not have to clone this. Maybe use the builder pattern instead
                 // of using From &Props?
                 dir: props.dir.clone(),
-                phrase: None,
-                focussed: false,
-                searched: false,
+                phrase: props.phrase.clone(),
+                focussed: props.pending_request.is_some(),
+                searched: props.pending_request.is_some(),
                 hits: Vec::new(),
                 file_offset: 0,
                 line_offset: None,
                 file_selected: 0,
                 line_selected: None,
+                pending_request: props.pending_request,
             }
         }
     }
@@ -295,6 +316,11 @@ mod state {
 
         pub fn searched(&self) -> bool {
             self.searched
+        }
+
+        /// Return if a search request is pending.
+        pub fn is_pending(&self) -> bool {
+            self.pending_request.is_some()
         }
 
         /// The number of the currently selected file hit.
@@ -412,33 +438,23 @@ mod state {
             Some(Effect::Unfocus)
         }
 
-        fn search(&mut self, phrase: &str, max_history_length: usize) -> Option<Effect> {
+        fn search(&mut self, phrase: &str) -> Option<Effect> {
             self.focus();
             self.phrase = Some(phrase.to_string());
-
-            let phrase_searcher = PhraseSearcher::new(&self.dir, phrase);
-            self.hits = phrase_searcher.collect();
             self.searched = true;
 
-            self.add_to_history(phrase, max_history_length);
-
+            // Clear the previous search's hits immediately rather than leaving them displayed
+            // until the new search's first response arrives.
+            self.hits.clear();
             self.file_offset = 0;
             self.line_offset = None;
             self.file_selected = 0;
             self.line_selected = None;
 
-            if self.hits.is_empty() {
-                Some(Effect::Unfocus)
-            } else {
-                None
-            }
-        }
+            let request: Request = search_phrase_request(self.dir.clone(), phrase.to_string());
+            self.pending_request = Some(*request.uuid());
 
-        fn add_to_history(&self, phrase: &str, max_length: usize) {
-            let mut data: Data = Data::read();
-            data.searcher.add_to_history(phrase, max_length);
-            data.write();
-            data.release();
+            Some(Effect::Request(request))
         }
 
         fn down(&mut self) -> Option<Effect> {
@@ -478,7 +494,7 @@ mod state {
             {
                 let last_file_hit: &FileHit = self.hits.last().unwrap();
                 let number_of_line_hits: usize = last_file_hit.line_hits().len();
-                up_adjustment = self.size.rows - (number_of_line_hits + 1);
+                up_adjustment = self.size.rows.saturating_sub(number_of_line_hits + 1);
             }
             // For now, scroll up one line at a time b/c there seems to be a bug w/ scrolling too
             // many lines at a time
@@ -645,9 +661,9 @@ mod state {
         }
 
         /// Refresh the hits by searching for the phrase again.
-        fn refresh(&mut self, max_history_length: usize) -> Option<Effect> {
+        fn refresh(&mut self) -> Option<Effect> {
             if let Some(phrase) = self.phrase.clone() {
-                return self.search(&phrase, max_history_length);
+                return self.search(&phrase);
             }
             None
         }
@@ -726,6 +742,47 @@ mod state {
             }
             None
         }
+
+        fn handle_response(&mut self, response: Response) -> Option<Effect> {
+            #[cfg(feature = "logging")]
+            log::debug!("Handling response...");
+
+            let pending_request: Uuid = match self.pending_request {
+                Some(pending_request) => pending_request,
+                None => {
+                    #[cfg(feature = "logging")]
+                    log::debug!("There is no pending request.");
+                    return None;
+                }
+            };
+
+            if response.uuid() != &pending_request {
+                #[cfg(feature = "logging")]
+                log::debug!("The response is not for the pending request.");
+                return None;
+            }
+
+            let params: &SearchPhraseResponseParams = match response.params() {
+                ResponseParams::SearchPhrase(params) => params,
+                _ => {
+                    #[cfg(feature = "logging")]
+                    log::error!("Unexpected response parameters.");
+                    return None;
+                }
+            };
+
+            self.hits.extend_from_slice(params.hits());
+
+            if response.last() {
+                self.pending_request = None;
+            }
+
+            if self.hits.is_empty() && !self.is_pending() {
+                return Some(Effect::Unfocus);
+            }
+
+            None
+        }
     }
 
     impl Stateful<Action, Effect> for State {
@@ -733,22 +790,20 @@ mod state {
             match action {
                 Action::Resize { size } => self.resize(size),
                 Action::Unfocus => self.unfocus(),
-                Action::Search {
-                    phrase,
-                    max_history_length,
-                } => self.search(&phrase, max_history_length),
+                Action::Search { phrase } => self.search(&phrase),
                 Action::Down => self.down(),
                 Action::ReallyDown => self.really_down(),
                 Action::ScrollDown => self.scroll_down(1),
                 Action::Up => self.up(),
                 Action::ReallyUp => self.really_up(),
                 Action::ScrollUp => self.scroll_up(1),
-                Action::Refresh { max_history_length } => self.refresh(max_history_length),
+                Action::Refresh => self.refresh(),
                 Action::Edit => self.edit(),
                 Action::Goto => self.goto(),
                 Action::ReallyGoto => self.really_goto(),
                 Action::Yank => self.yank(),
                 Action::ReallyYank => self.really_yank(),
+                Action::HandleResponse(response) => self.handle_response(response),
             }
         }
     }
@@ -810,37 +865,34 @@ mod state {
 use state::State;
 
 mod action {
+    use insh_api::Response;
     use rend::Size;
 
     pub enum Action {
-        Resize {
-            size: Size,
-        },
+        Resize { size: Size },
         Unfocus,
-        Search {
-            phrase: String,
-            max_history_length: usize,
-        },
+        Search { phrase: String },
         Down,
         ReallyDown,
         ScrollDown,
         Up,
         ReallyUp,
         ScrollUp,
-        Refresh {
-            max_history_length: usize,
-        },
+        Refresh,
         Edit,
         Goto,
         ReallyGoto,
         Yank,
         ReallyYank,
+        HandleResponse(Response),
     }
 }
 use action::Action;
 
 mod effect {
     use crate::programs::VimArgs;
+
+    use insh_api::Request;
 
     use std::path::PathBuf;
 
@@ -849,6 +901,7 @@ mod effect {
         Goto { dir: PathBuf, file: Option<PathBuf> },
         OpenVim(VimArgs),
         Bell,
+        Request(Request),
     }
 }
 pub use effect::Effect;

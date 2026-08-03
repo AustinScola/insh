@@ -9,8 +9,26 @@ members = [
     "term",
     "rend",
     "path-finder",
+    "phrase-searcher",
     "size",
     "file-info",
     "file-type",
     "human-friendly",
 ]
+
+[workspace.dependencies]
+bincode = "1.3.3"
+clap = { version = "3.2.17", features = ["derive"] }
+crossbeam = "0.8.2"
+crossterm = "0.23.0"
+dirs = "4.0.0"
+flexi_logger = "0.25.6"
+itertools = "0.10.3"
+lazy_static = "1.4.0"
+log = "0.4.17"
+nix = "0.26.2"
+regex = "1.5.4"
+serde = { version = "1.0.144", features = ["derive"] }
+serde_yaml = "0.9.10"
+typed-builder = "0.14.0"
+uuid = { version = "1.3.1", features = ["v4", "fast-rng", "macro-diagnostics"] }

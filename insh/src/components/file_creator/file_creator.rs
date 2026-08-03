@@ -57,6 +57,13 @@ mod file_creator {
                         Some(PhraseEffect::Bell) => {
                             action = Some(Action::Bell);
                         }
+                        // The phrase here is never completable, so this is never emitted.
+                        Some(PhraseEffect::RequestCompletion { .. }) => {
+                            #[cfg(feature = "logging")]
+                            log::warn!(
+                                "The phrase is not completable but a completion was requested."
+                            );
+                        }
                         Some(PhraseEffect::Quit) => {
                             action = Some(Action::Quit);
                         }

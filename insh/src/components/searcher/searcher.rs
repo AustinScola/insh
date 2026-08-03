@@ -2,6 +2,7 @@ mod props {
     use crate::config::Config;
 
     use rend::Size;
+    use uuid::Uuid;
 
     use std::path::PathBuf;
 
@@ -10,15 +11,23 @@ mod props {
         pub dir: PathBuf,
         pub size: Size,
         pub phrase: Option<String>,
+        pub pending_request: Option<Uuid>,
     }
 
     impl Props {
-        pub fn new(config: Config, dir: PathBuf, size: Size, phrase: Option<String>) -> Self {
+        pub fn new(
+            config: Config,
+            dir: PathBuf,
+            size: Size,
+            phrase: Option<String>,
+            pending_request: Option<Uuid>,
+        ) -> Self {
             Self {
                 config,
                 dir,
                 size,
                 phrase,
+                pending_request,
             }
         }
     }
@@ -32,23 +41,26 @@ mod searcher {
     use crate::components::common::{PhraseEffect, PhraseEvent};
     use crate::Stateful;
 
+    use insh_api::{
+        Request, RequestParams, Response, ResponseParams, SuggestSearchPhraseRequestParams,
+    };
     use rend::{Fabric, Size};
     use term::TermEvent;
-    use til::Component;
+    use til::{Component, Event};
 
     pub struct Searcher {
         state: State,
     }
 
-    impl Component<Props, TermEvent, Effect> for Searcher {
+    impl Component<Props, Event<Response>, Effect> for Searcher {
         fn new(props: Props) -> Self {
             let state = State::from(props);
             Self { state }
         }
 
-        fn handle(&mut self, event: TermEvent) -> Option<Effect> {
+        fn handle(&mut self, event: Event<Response>) -> Option<Effect> {
             match event {
-                TermEvent::Resize(size) => {
+                Event::TermEvent(TermEvent::Resize(size)) => {
                     let contents_size = Size::new(size.rows.saturating_sub(2), size.columns);
                     self.state
                         .contents
@@ -57,39 +69,65 @@ mod searcher {
                 }
                 _ => match self.state.focus() {
                     Focus::Phrase => {
-                        let phrase_event = PhraseEvent::TermEvent(event);
-                        let phrase_effect = self.state.phrase.handle(phrase_event);
-                        let action: Option<Action> = match phrase_effect {
-                            Some(PhraseEffect::Enter { phrase }) => {
-                                let contents_event = ContentsEvent::Search { phrase };
-                                let contents_effect = self.state.contents.handle(contents_event);
-                                if let Some(ContentsEffect::Unfocus) = contents_effect {
-                                    self.state.phrase.handle(PhraseEvent::Focus);
-                                    Some(Action::FocusPhrase)
-                                } else {
-                                    Some(Action::FocusContents)
+                        let phrase_event = match event {
+                            Event::TermEvent(term_event) => PhraseEvent::TermEvent(term_event),
+                            Event::Response(response) => {
+                                let suggestion = match response.params() {
+                                    ResponseParams::SuggestSearchPhrase(params) => {
+                                        params.suggestion().clone()
+                                    }
+                                    _ => {
+                                        #[cfg(feature = "logging")]
+                                        log::error!("Unexpected response parameters.");
+                                        return None;
+                                    }
+                                };
+                                PhraseEvent::Completion {
+                                    uuid: *response.uuid(),
+                                    completion: suggestion,
                                 }
                             }
-                            Some(PhraseEffect::Bell) => {
-                                return Some(Effect::Bell);
-                            }
-                            Some(PhraseEffect::Quit) => Some(Action::Quit),
-                            None => None,
                         };
-
-                        if let Some(action) = action {
-                            self.state.perform(action)
-                        } else {
-                            None
+                        let phrase_effect = self.state.phrase.handle(phrase_event);
+                        match phrase_effect {
+                            Some(PhraseEffect::Enter { phrase }) => {
+                                self.state.perform(Action::FocusContents);
+                                let contents_effect =
+                                    self.state.contents.handle(ContentsEvent::Search { phrase });
+                                match contents_effect {
+                                    Some(ContentsEffect::Request(request)) => {
+                                        Some(Effect::Request(request))
+                                    }
+                                    _ => None,
+                                }
+                            }
+                            Some(PhraseEffect::Bell) => Some(Effect::Bell),
+                            Some(PhraseEffect::RequestCompletion { uuid, partial }) => {
+                                let params = RequestParams::SuggestSearchPhrase(
+                                    SuggestSearchPhraseRequestParams::builder()
+                                        .partial(partial)
+                                        .build(),
+                                );
+                                let request = Request::builder().uuid(uuid).params(params).build();
+                                Some(Effect::Request(request))
+                            }
+                            Some(PhraseEffect::Quit) => self.state.perform(Action::Quit),
+                            None => None,
                         }
                     }
                     Focus::Contents => {
-                        let contents_event = ContentsEvent::TermEvent(event);
+                        let contents_event = match event {
+                            Event::Response(response) => ContentsEvent::Response(response),
+                            Event::TermEvent(term_event) => ContentsEvent::TermEvent(term_event),
+                        };
                         let contents_effect = self.state.contents.handle(contents_event);
                         let action: Option<Action> = match contents_effect {
                             Some(ContentsEffect::Unfocus) => {
                                 self.state.phrase.handle(PhraseEvent::Focus);
                                 Some(Action::FocusPhrase)
+                            }
+                            Some(ContentsEffect::Request(request)) => {
+                                return Some(Effect::Request(request));
                             }
                             Some(ContentsEffect::Goto { dir, file }) => {
                                 Some(Action::Goto { dir, file })
@@ -145,22 +183,23 @@ pub use searcher::Searcher;
 mod effect {
     use crate::programs::VimArgs;
 
+    use insh_api::Request;
+
     use std::path::PathBuf;
 
     pub enum Effect {
         Goto { dir: PathBuf, file: Option<PathBuf> },
         OpenVim(VimArgs),
         Bell,
+        Request(Request),
         Quit,
     }
 }
 pub use effect::Effect;
 
 mod state {
-    use super::super::{Contents, ContentsEffect, ContentsEvent, ContentsProps};
+    use super::super::{Contents, ContentsProps};
     use super::{Action, Effect, Props};
-    use crate::auto_completer::AutoCompleter;
-    use crate::auto_completers::SearchCompleter;
     use crate::components::common::{Dir, DirProps, Phrase, PhraseEvent, PhraseProps};
     use crate::programs::VimArgs;
     use crate::Stateful;
@@ -230,46 +269,38 @@ mod state {
 
     impl From<Props> for State {
         fn from(props: Props) -> Self {
-            let focus = Focus::default();
-
             let dir_props = DirProps::new(props.dir.clone());
             let dir = Dir::new(dir_props);
 
-            let search_completer: Option<Box<dyn AutoCompleter<String, String>>> =
-                Some(Box::new(SearchCompleter::new()));
             let phrase_props = PhraseProps::builder()
-                .auto_completer(search_completer)
+                .completable(true)
+                .value(props.phrase.clone())
                 .build();
-            let phrase = Phrase::new(phrase_props);
+            let mut phrase = Phrase::new(phrase_props);
 
             let contents_size = Size::new(props.size.rows.saturating_sub(2), props.size.columns);
-            let contents_props = ContentsProps::new(props.config, props.dir, contents_size);
+            let contents_props = ContentsProps::new(
+                props.config,
+                props.dir,
+                contents_size,
+                props.phrase.clone(),
+                props.pending_request,
+            );
             let contents = Contents::new(contents_props);
 
-            let mut state = Self {
+            let focus = if props.phrase.is_some() {
+                phrase.handle(PhraseEvent::Unfocus);
+                Focus::Contents
+            } else {
+                Focus::default()
+            };
+
+            Self {
                 focus,
                 dir,
                 phrase,
                 contents,
-            };
-
-            if let Some(phrase) = props.phrase {
-                state.phrase.handle(PhraseEvent::Set {
-                    phrase: phrase.clone(),
-                });
-
-                let contents_event = ContentsEvent::Search { phrase };
-                let contents_effect = state.contents.handle(contents_event);
-                if let Some(ContentsEffect::Unfocus) = contents_effect {
-                    state.phrase.handle(PhraseEvent::Focus);
-                    state.focus = Focus::Phrase;
-                } else {
-                    state.phrase.handle(PhraseEvent::Unfocus);
-                    state.focus = Focus::Contents;
-                }
             }
-
-            state
         }
     }
 

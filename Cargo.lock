@@ -577,14 +577,13 @@ dependencies = [
  "file-info",
  "file-type",
  "flexi_logger",
- "fslock",
  "human-friendly",
  "insh-api",
  "itertools",
- "lazy_static",
  "log",
  "nom",
  "path-finder",
+ "phrase-searcher",
  "regex",
  "rend",
  "serde",
@@ -595,7 +594,6 @@ dependencies = [
  "typed-builder",
  "unicode-segmentation",
  "uuid",
- "walkdir",
 ]
 
 [[package]]
@@ -605,6 +603,7 @@ dependencies = [
  "file-info",
  "file-type",
  "path-finder",
+ "phrase-searcher",
  "serde",
  "typed-builder",
  "uuid",
@@ -622,12 +621,16 @@ dependencies = [
  "file-info",
  "file-type",
  "flexi_logger",
+ "fslock",
  "insh-api",
  "lazy_static",
  "log",
  "nix",
  "os_pipe",
  "path-finder",
+ "phrase-searcher",
+ "serde",
+ "serde_yaml",
  "signal-hook",
  "typed-builder",
  "uuid",
@@ -937,6 +940,15 @@ dependencies = [
  "ignore",
  "regex",
  "serde",
+]
+
+[[package]]
+name = "phrase-searcher"
+version = "0.1.0"
+dependencies = [
+ "log",
+ "serde",
+ "walkdir",
 ]
 
 [[package]]

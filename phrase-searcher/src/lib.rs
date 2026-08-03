@@ -1,11 +1,12 @@
 /*!
-This module contains the struct [`PhraseSearcher`] which can be used to search for a given phrase in
+This crate contains the struct [`PhraseSearcher`] which can be used to search for a given phrase in
 the files in a directory (and all sub-directories).
 */
 use std::fs::File;
 use std::io::{BufRead, BufReader};
 use std::path::{Path, PathBuf};
 
+use serde::{Deserialize, Serialize};
 use walkdir::{
     DirEntry as Entry, Error as WalkerEntryError, IntoIter as Walker, WalkDir as WalkerBuilder,
 };
@@ -46,7 +47,13 @@ impl Iterator for PhraseSearcher {
                             continue;
                         }
 
-                        let file = File::open(path).unwrap();
+                        let file = match File::open(path) {
+                            Ok(file) => file,
+                            Err(error) => {
+                                log::warn!("Failed to open {:?}: {}", path, error);
+                                continue;
+                            }
+                        };
                         let reader = BufReader::new(file);
 
                         let mut failed_to_read_line: bool = false;
@@ -82,7 +89,7 @@ impl Iterator for PhraseSearcher {
 }
 
 /// A file contains lines which have hits for a phrase.
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct FileHit {
     /// The path of the file.
     path: PathBuf,
@@ -109,7 +116,7 @@ impl FileHit {
 }
 
 /// Represents a line contains a hit for a phrase in a file.
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct LineHit {
     /// The line number in the file.
     line_number: usize,
