@@ -2,6 +2,7 @@
 use std::thread;
 use std::thread::JoinHandle;
 
+use crate::config::Config;
 use crate::request_handler::RequestHandler;
 use crate::request_handler_died::RequestHandlerDied;
 use crate::stop::Stop;
@@ -23,6 +24,8 @@ pub struct RequestHandlerManager {
     responses_tx: Sender<Response>,
     /// A receiver of a stop sentinel.
     stop_rx: Receiver<Stop>,
+    /// The configuration for inshd.
+    config: Config,
 }
 
 impl RequestHandlerManager {
@@ -52,6 +55,7 @@ impl RequestHandlerManager {
                 .requests(requests_rx)
                 .responses(self.responses_tx.clone())
                 .stop_rx(request_handler_stop_rx)
+                .config(self.config.clone())
                 .build();
             let name: String = format!("request-handler-{}", request_handler_num).to_string();
             let request_handler_handle: JoinHandle<()> = thread::Builder::new()
@@ -80,6 +84,7 @@ impl RequestHandlerManager {
                         .requests(self.requests_rxs[number].clone())
                         .responses(self.responses_tx.clone())
                         .stop_rx(request_handler_stop_rxs[number].clone())
+                        .config(self.config.clone())
                         .build();
                     let name: String = format!("request-handler-{}", number).to_string();
                     let request_handler_handle: JoinHandle<()> = thread::Builder::new()

@@ -44,6 +44,7 @@ impl Server {
         log::info!("Running...");
         let RunOptions {
             num_request_handlers,
+            config,
         } = options;
 
         let (died_tx, died_rx): (Sender<RequestHandlerDied>, Receiver<RequestHandlerDied>) =
@@ -124,6 +125,7 @@ impl Server {
             .requests_rxs(requests_rxs)
             .responses_tx(responses_tx.clone())
             .stop_rx(request_handler_manager_stop_rx)
+            .config(config)
             .build();
         let request_handler_manager_handle: JoinHandle<()> = thread::Builder::new()
             .name("request-handler-monitor".to_string())
@@ -276,6 +278,8 @@ impl Server {
 mod run_options {
     //! Options for running inshd.
 
+    use crate::config::Config;
+
     use typed_builder::TypedBuilder;
 
     /// The number of request handlers.
@@ -287,14 +291,8 @@ mod run_options {
         /// The number of request handlers.
         #[builder(default = DEFAULT_NUM_REQUEST_HANDLERS)]
         pub num_request_handlers: usize,
-    }
-
-    impl Default for RunOptions {
-        fn default() -> Self {
-            Self {
-                num_request_handlers: DEFAULT_NUM_REQUEST_HANDLERS,
-            }
-        }
+        /// The configuration for inshd.
+        pub config: Config,
     }
 }
 pub use run_options::RunOptions;

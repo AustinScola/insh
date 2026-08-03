@@ -72,10 +72,11 @@ mistakes here — plain `cargo check` will not.
 
 ### Crate roles (workspace members)
 
-- **`insh`** — the TUI client. UI components, config, clipboard, persistent data, and the client
-  side of the daemon protocol.
+- **`insh`** — the TUI client. UI components, config, clipboard, and the client side of the daemon
+  protocol.
 - **`inshd`** — the daemon. Multi-threaded server over a unix socket that performs file
-  finding/getting/creating.
+  finding/getting/creating, contents searching, search suggestions, and owns persistent data
+  (`data.yaml`) and its own config (`~/.inshd-config.yaml`).
 - **`insh-api`** — the wire protocol shared by both: `Request`/`RequestParams` and
   `Response`/`ResponseParams`, bincode-serialized.
 - **`til`** — the TUI application framework ("terminal interface library"). `App`, the `Component`
@@ -84,9 +85,10 @@ mistakes here — plain `cargo check` will not.
   stacked with `quilt_bottom`), and `Renderer` (diffs and writes to the terminal).
 - **`term`** — raw terminal control (termios, SIGWINCH-based resize detection) and the `TermEvent` /
   `Key` types. Also builds a `print-event` debug binary.
-- **`size`**, **`file-type`**, **`file-info`**, **`path-finder`**, **`common`** — small shared leaf
-  crates. `path-finder` does regex-matched, gitignore-respecting directory walking; `common` holds
-  the `~/.insh` path constants used by both binaries.
+- **`size`**, **`file-type`**, **`file-info`**, **`path-finder`**, **`phrase-searcher`**, **`common`**
+  — small shared leaf crates. `path-finder` does regex-matched, gitignore-respecting directory
+  walking; `phrase-searcher` walks a directory tree matching file contents against a phrase;
+  `common` holds the `~/.insh` path constants used by both binaries.
 
 ### Client/daemon split
 
@@ -104,8 +106,10 @@ socket) and `ResponseHandler` (reads the socket into a response channel) — imp
 `RequestHandlerManager` pool for work, and a `ResponseHandler` writing back, all wired with
 `crossbeam` channels.
 
-Not everything goes through the daemon: contents searching still runs in-process in the client
-(`insh/src/phrase_searcher.rs`). Browsing, finding, and file creation go through `inshd`.
+Browsing, finding, file creation, contents searching, and search suggestions all go through
+`inshd`. The `phrase-searcher` crate holds the shared, serializable hit types (`FileHit`/`LineHit`)
+and the walking/matching logic; `inshd/src/file_searcher.rs` runs it on a worker thread per search,
+mirroring how `path-finder`/`inshd/src/file_finder.rs` back file finding.
 
 ### Component model (`til`)
 
@@ -155,8 +159,14 @@ own state. Nesting follows the same shape all the way down (e.g. `Browser` → `
 ### Persistent state
 
 `~/.insh/` (mode 0700) holds `data.yaml` (searcher history, guarded by an `fslock` lock file at
-`data.lock`) and `daemon/` (socket, pid file, logs). `insh/src/data.rs` is the only writer.
-Configuration is read-only from `~/.insh-config.yaml` via `insh/src/config.rs`.
+`data.lock`) and `daemon/` (socket, pid file, logs). `inshd` owns `data.yaml` exclusively —
+`inshd/src/data.rs` is the only reader/writer; `insh` never touches it directly, instead going
+through the daemon (e.g. `SearchPhrase`/`SuggestSearchPhrase` requests).
+
+Configuration is split by binary and read-only for each: `insh` reads `~/.insh-config.yaml` via
+`insh/src/config.rs`; `inshd` separately reads `~/.inshd-config.yaml` via `inshd/src/config.rs`
+(currently just `searcher.history.length`, which governs the search history `inshd` writes to
+`data.yaml`).
 
 ## Releasing
 

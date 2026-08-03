@@ -1,8 +1,14 @@
 [package]
-name = "file-type"
+name = "phrase-searcher"
 version = "0.1.0"
 edition = "2021"
 
 [dependencies]
+# Used for walking directories.
+walkdir = "2.3.2"
+
 # Used for serialization and deserialization of data structures.
 serde = { workspace = true }
+
+# Used for logging.
+log = { workspace = true }

@@ -1,12 +1,11 @@
 mod props {
-    use crate::auto_completer::AutoCompleter;
-
     use typed_builder::TypedBuilder;
 
     #[derive(TypedBuilder)]
     pub struct Props {
-        #[builder(default, setter(into))]
-        pub auto_completer: Option<Box<dyn AutoCompleter<String, String>>>,
+        /// Whether or not completions should be requested for the phrase as it is typed.
+        #[builder(default)]
+        pub completable: bool,
         #[builder(default, setter(into))]
         pub value: Option<String>,
     }
@@ -15,7 +14,6 @@ pub use props::Props;
 
 mod phrase {
     use super::{Action, Effect, Event, Props, State};
-    use crate::auto_completer::AutoCompleter;
     use crate::color::Color;
     use crate::stateful::Stateful;
 
@@ -27,7 +25,6 @@ mod phrase {
     #[derive(Default)]
     pub struct Phrase {
         state: State,
-        auto_completer: Option<Box<dyn AutoCompleter<String, String>>>,
     }
 
     impl Component<Props, Event, Effect> for Phrase {
@@ -35,8 +32,8 @@ mod phrase {
             Self {
                 state: State::builder()
                     .value(props.value.unwrap_or_default())
+                    .completable(props.completable)
                     .build(),
-                auto_completer: props.auto_completer,
             }
         }
 
@@ -44,7 +41,6 @@ mod phrase {
             let action: Option<Action> = match event {
                 Event::Focus => Some(Action::Focus),
                 Event::Unfocus => Some(Action::Unfocus),
-                Event::Set { phrase } => Some(Action::Set { phrase }),
                 Event::TermEvent(key_event) => match key_event {
                     TermEvent::KeyEvent(KeyEvent {
                         key: Key::Char('q'),
@@ -53,9 +49,7 @@ mod phrase {
                     }) => Some(Action::Quit),
                     TermEvent::KeyEvent(KeyEvent {
                         key: Key::Delete, ..
-                    }) => Some(Action::Pop {
-                        auto_completer: &mut self.auto_completer,
-                    }),
+                    }) => Some(Action::Pop),
                     TermEvent::KeyEvent(KeyEvent {
                         key: Key::HorizontalTab,
                         mods: KeyMods::NONE,
@@ -67,12 +61,12 @@ mod phrase {
                     TermEvent::KeyEvent(KeyEvent {
                         key: Key::Char(character),
                         mods: KeyMods::NONE | KeyMods::SHIFT,
-                    }) => Some(Action::Push {
-                        character,
-                        auto_completer: &mut self.auto_completer,
-                    }),
+                    }) => Some(Action::Push { character }),
                     _ => None,
                 },
+                Event::Completion { uuid, completion } => {
+                    Some(Action::SetCompletion { uuid, completion })
+                }
             };
 
             if let Some(action) = action {
@@ -108,23 +102,28 @@ pub use phrase::Phrase;
 
 mod event {
     use term::TermEvent;
+    use uuid::Uuid;
 
     #[allow(clippy::enum_variant_names)]
     pub enum Event {
         Focus,
         Unfocus,
-        Set { phrase: String },
         TermEvent(TermEvent),
+        /// A completion (or lack thereof) requested via `Effect::RequestCompletion` has arrived.
+        Completion {
+            uuid: Uuid,
+            completion: Option<String>,
+        },
     }
 }
 pub use event::Event;
 
 mod state {
     use super::{Action, Effect};
-    use crate::auto_completer::AutoCompleter;
     use crate::stateful::Stateful;
 
     use typed_builder::TypedBuilder;
+    use uuid::Uuid;
 
     #[derive(TypedBuilder)]
     pub struct State {
@@ -134,6 +133,10 @@ mod state {
         completion: Option<String>,
         #[builder(default = true, setter(into))]
         focus: bool,
+        #[builder(default)]
+        completable: bool,
+        #[builder(default)]
+        pending_completion_request: Option<Uuid>,
     }
 
     impl Default for State {
@@ -142,6 +145,8 @@ mod state {
                 value: String::new(),
                 completion: None,
                 focus: true,
+                completable: false,
+                pending_completion_request: None,
             }
         }
     }
@@ -169,39 +174,44 @@ mod state {
             None
         }
 
-        pub fn set(&mut self, value: String) -> Option<Effect> {
-            self.value = value;
-            None
-        }
-
-        fn push(
-            &mut self,
-            character: char,
-            auto_completer: &mut Option<Box<dyn AutoCompleter<String, String>>>,
-        ) -> Option<Effect> {
-            self.value.push(character);
-
-            if let Some(auto_completer) = auto_completer {
-                // TODO: Make auto completion non-blocking.
-                self.completion = auto_completer.complete(self.value.clone());
+        /// If completable, request a completion for the current value.
+        fn request_completion(&mut self) -> Option<Effect> {
+            if !self.completable {
+                return None;
             }
 
-            None
+            let uuid: Uuid = Uuid::new_v4();
+            self.pending_completion_request = Some(uuid);
+            Some(Effect::RequestCompletion {
+                uuid,
+                partial: self.value.clone(),
+            })
         }
 
-        fn pop(
-            &mut self,
-            auto_completer: &mut Option<Box<dyn AutoCompleter<String, String>>>,
-        ) -> Option<Effect> {
+        fn push(&mut self, character: char) -> Option<Effect> {
+            self.value.push(character);
+            self.request_completion()
+        }
+
+        fn pop(&mut self) -> Option<Effect> {
             self.value.pop();
 
-            if let Some(auto_completer) = auto_completer {
-                self.completion = match self.value.is_empty() {
-                    // TODO: Make auto completion non-blocking.
-                    false => auto_completer.complete(self.value.clone()),
-                    true => None,
-                };
+            if self.value.is_empty() {
+                self.completion = None;
+                self.pending_completion_request = None;
+                return None;
             }
+
+            self.request_completion()
+        }
+
+        fn set_completion(&mut self, uuid: Uuid, completion: Option<String>) -> Option<Effect> {
+            if self.pending_completion_request != Some(uuid) {
+                return None;
+            }
+
+            self.completion = completion;
+            self.pending_completion_request = None;
 
             None
         }
@@ -226,17 +236,14 @@ mod state {
         }
     }
 
-    impl Stateful<Action<'_>, Effect> for State {
+    impl Stateful<Action, Effect> for State {
         fn perform(&mut self, action: Action) -> Option<Effect> {
             match action {
                 Action::Focus => self.focus(),
                 Action::Unfocus => self.unfocus(),
-                Action::Set { phrase } => self.set(phrase),
-                Action::Push {
-                    character,
-                    auto_completer,
-                } => self.push(character, auto_completer),
-                Action::Pop { auto_completer } => self.pop(auto_completer),
+                Action::Push { character } => self.push(character),
+                Action::Pop => self.pop(),
+                Action::SetCompletion { uuid, completion } => self.set_completion(uuid, completion),
                 Action::Complete => self.complete(),
                 Action::Enter => self.find(),
                 Action::Quit => self.quit(),
@@ -247,20 +254,18 @@ mod state {
 pub use state::State;
 
 mod action {
-    use crate::auto_completer::AutoCompleter;
+    use uuid::Uuid;
 
-    pub enum Action<'a> {
+    pub enum Action {
         Focus,
         Unfocus,
-        Set {
-            phrase: String,
-        },
         Push {
             character: char,
-            auto_completer: &'a mut Option<Box<dyn AutoCompleter<String, String>>>,
         },
-        Pop {
-            auto_completer: &'a mut Option<Box<dyn AutoCompleter<String, String>>>,
+        Pop,
+        SetCompletion {
+            uuid: Uuid,
+            completion: Option<String>,
         },
         Complete,
         Enter,
@@ -270,7 +275,10 @@ mod action {
 pub use action::Action;
 
 mod effect {
+    use uuid::Uuid;
+
     pub enum Effect {
+        RequestCompletion { uuid: Uuid, partial: String },
         Enter { phrase: String },
         Bell,
         Quit,

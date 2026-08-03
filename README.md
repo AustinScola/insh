@@ -102,14 +102,14 @@ The commands for the input bar are the same as those for the Finder.
 | `g`              | Go to the hit in the file browser.                                                                                                                                                                 |
 | `G`              | Go to the hit in the file browser and select it.                                                                                                                                                   |
 | `y`              | Yank the hit. If the file path of a hit is selected, yank the file path. Else, if an occurence of the string is selected, yank that line.                                                          |
-| `Y`              | Really yank the hit. If the file path of a hit is selected, yank the absolute file path. Else, if an occurence of the string is selected, yank that line.                                      |
+| `Y`              | Really yank the hit. If the file path of a hit is selected, yank the absolute file path. Else, if an occurence of the string is selected, yank that line.                                          |
 
 
 ## Configuration
 
-Insh can be configured by the file `~/.insh-config.yaml`.
+### Insh Configuration
 
-### Options
+Insh can be configured by the file `~/.insh-config.yaml`.
 
 `general.tab_width` (usize): The width of the `<Tab>` character (default=`4`).
 
@@ -122,5 +122,9 @@ Insh can be configured by the file `~/.insh-config.yaml`.
 `browser.sort.hidden` (`first`|`last`|`mixed`): How hidden files (files with a leading `.`) are sorted. If `mixed`, then the leading `.` is ignored when sorting files (default=`last`).
 
 `browser.metadata` (bool): Whether or not to show metadata (default=`false`).
+
+### Inshd Configuration
+
+Inshd can be configured by the file `~/.inshd-config.yaml`.
 
 `searcher.history.length` (usize): The number of searches to store (default=`1000`).

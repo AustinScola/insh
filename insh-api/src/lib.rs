@@ -10,6 +10,7 @@ use uuid::Uuid;
 use file_info::FileInfo;
 use file_type::FileType;
 use path_finder::Entry;
+use phrase_searcher::FileHit;
 
 #[derive(Debug, TypedBuilder, Serialize, Deserialize)]
 pub struct Request {
@@ -33,6 +34,8 @@ pub enum RequestParams {
     GetFiles(GetFilesRequestParams),
     FindFiles(FindFilesRequestParams),
     CreateFile(CreateFileRequestParams),
+    SearchPhrase(SearchPhraseRequestParams),
+    SuggestSearchPhrase(SuggestSearchPhraseRequestParams),
 }
 
 #[derive(Debug, TypedBuilder, Serialize, Deserialize)]
@@ -127,6 +130,33 @@ impl CreateFileRequestParams {
 }
 
 #[derive(Debug, TypedBuilder, Serialize, Deserialize)]
+pub struct SearchPhraseRequestParams {
+    dir: PathBuf,
+    phrase: String,
+}
+
+impl SearchPhraseRequestParams {
+    pub fn dir(&self) -> &Path {
+        &self.dir
+    }
+
+    pub fn phrase(&self) -> &str {
+        &self.phrase
+    }
+}
+
+#[derive(Debug, TypedBuilder, Serialize, Deserialize)]
+pub struct SuggestSearchPhraseRequestParams {
+    partial: String,
+}
+
+impl SuggestSearchPhraseRequestParams {
+    pub fn partial(&self) -> &str {
+        &self.partial
+    }
+}
+
+#[derive(Debug, TypedBuilder, Serialize, Deserialize)]
 pub struct Response {
     uuid: Uuid,
     #[builder(default)]
@@ -153,6 +183,8 @@ pub enum ResponseParams {
     GetFiles(GetFilesResponseParams),
     FindFiles(FindFilesResponseParams),
     CreateFile(CreateFileResponseParams),
+    SearchPhrase(SearchPhraseResponseParams),
+    SuggestSearchPhrase(SuggestSearchPhraseResponseParams),
 }
 
 #[derive(Debug, TypedBuilder)]
@@ -242,5 +274,31 @@ impl Display for CreateFileError {
 
             Self::Other(string) => write!(formatter, "{}", string),
         }
+    }
+}
+
+#[derive(Debug, TypedBuilder, Serialize, Deserialize)]
+pub struct SearchPhraseResponseParams {
+    hits: Vec<FileHit>,
+}
+
+impl SearchPhraseResponseParams {
+    pub fn hits(&self) -> &Vec<FileHit> {
+        &self.hits
+    }
+
+    pub fn is_empty(&self) -> bool {
+        return self.hits.is_empty();
+    }
+}
+
+#[derive(Debug, TypedBuilder, Serialize, Deserialize)]
+pub struct SuggestSearchPhraseResponseParams {
+    suggestion: Option<String>,
+}
+
+impl SuggestSearchPhraseResponseParams {
+    pub fn suggestion(&self) -> &Option<String> {
+        &self.suggestion
     }
 }

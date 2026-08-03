@@ -85,6 +85,13 @@ mod finder {
                             Some(PhraseEffect::Bell) => {
                                 return Some(Effect::Bell);
                             }
+                            // The phrase here is never completable, so this is never emitted.
+                            Some(PhraseEffect::RequestCompletion { .. }) => {
+                                #[cfg(feature = "logging")]
+                                log::warn!(
+                                    "The phrase is not completable but a completion was requested."
+                                );
+                            }
                             Some(PhraseEffect::Quit) => {
                                 action = Some(Action::Quit);
                             }

@@ -7,8 +7,8 @@ use crate::components::searcher::{Searcher, SearcherEffect, SearcherProps};
 use crate::config::Config;
 use crate::current_dir;
 use crate::programs::{Bash, Vim};
+use crate::request_builders::get_files_request;
 use crate::stateful::Stateful;
-use crate::utils::get_files_request;
 
 use file_type::FileType;
 use insh_api::{FindFilesRequestParams, Request, RequestParams, Response};
@@ -35,6 +35,8 @@ mod props {
         dir: Option<PathBuf>,
         #[builder(default)]
         pending_browser_request: Option<Uuid>,
+        #[builder(default)]
+        pending_search_request: Option<Uuid>,
         config: Config,
     }
 
@@ -49,6 +51,10 @@ mod props {
 
         pub fn pending_browser_request(&self) -> &Option<Uuid> {
             &self.pending_browser_request
+        }
+
+        pub fn pending_search_request(&self) -> &Option<Uuid> {
+            &self.pending_search_request
         }
 
         pub fn config(&self) -> &Config {
@@ -193,23 +199,11 @@ impl Component<Props, Event<Response>, SystemEffect<Request>> for Insh {
                 }
             }
             Mode::Searcher => {
-                let event = match event {
-                    Event::TermEvent(event) => event,
-                    Event::Response(_) => {
-                        #[cfg(feature = "logging")]
-                        log::warn!("Searcher doesn't handle responses yet.");
-                        return None;
-                    }
-                };
-
                 let searcher = self.state.searcher.as_mut().unwrap();
                 let searcher_effect: Option<SearcherEffect> = searcher.handle(event);
                 match searcher_effect {
                     Some(SearcherEffect::Goto { dir, file }) => {
                         action = Some(Action::Browse { dir, file });
-                    }
-                    Some(SearcherEffect::Quit) => {
-                        action = Some(Action::QuitSearcher);
                     }
                     Some(SearcherEffect::OpenVim(vim_args)) => {
                         let program = Box::new(Vim::new(vim_args));
@@ -217,6 +211,12 @@ impl Component<Props, Event<Response>, SystemEffect<Request>> for Insh {
                     }
                     Some(SearcherEffect::Bell) => {
                         action = Some(Action::Bell);
+                    }
+                    Some(SearcherEffect::Request(request)) => {
+                        return Some(SystemEffect::Request(request));
+                    }
+                    Some(SearcherEffect::Quit) => {
+                        action = Some(Action::QuitSearcher);
                     }
                     None => {}
                 }
@@ -292,8 +292,13 @@ impl From<Props> for State {
                 }
             }
             Start::Searcher { phrase } => {
-                let searcher_props =
-                    SearcherProps::new(props.config().clone(), dir, size, phrase.clone());
+                let searcher_props = SearcherProps::new(
+                    props.config().clone(),
+                    dir,
+                    size,
+                    phrase.clone(),
+                    *props.pending_search_request(),
+                );
                 let searcher = Some(Searcher::new(searcher_props));
                 Self {
                     mode: Mode::Searcher,
@@ -363,7 +368,7 @@ impl State {
         self.mode = Mode::Searcher;
         let size: Size = Size::from(terminal::size().unwrap());
         let phrase = None;
-        let searcher_props = SearcherProps::new(self.config.clone(), dir, size, phrase);
+        let searcher_props = SearcherProps::new(self.config.clone(), dir, size, phrase, None);
         self.searcher = Some(Searcher::new(searcher_props));
         None
     }
