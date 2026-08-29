@@ -3,8 +3,8 @@ use crate::client::Client;
 use crate::client_handler::ClientHandler;
 use crate::client_handler_handle::ClientHandlerHandle;
 use crate::client_request::ClientRequest;
+use crate::contexted_request::ContextedRequest;
 use crate::disconnected_client::DisconnectedClient;
-use insh_api::Request;
 
 use std::io::Result as IOResult;
 use std::os::fd::AsRawFd;
@@ -29,8 +29,8 @@ pub struct ConnHandler {
     /// A sender of information about a client.
     new_clients_tx: Sender<Client>,
     /// A sender of incoming requests (from clients).
-    incoming_requests_tx: Sender<Request>,
-    /// A Sender of client requests.
+    contexted_requests_tx: Sender<ContextedRequest>,
+    /// A sender of client requests.
     client_requests_tx: Sender<ClientRequest>,
     /// Senders of disconnected client uuids.
     disconnected_clients_txs: Vec<Sender<DisconnectedClient>>,
@@ -85,11 +85,12 @@ impl ConnHandler {
 
                 let client: Client = Client::builder().stream(stream).build();
                 log::info!("New client {}.", client.uuid());
-                let requests: Sender<Request> = self.incoming_requests_tx.clone();
+                let contexted_requests_tx: Sender<ContextedRequest> =
+                    self.contexted_requests_tx.clone();
                 let (stop_rx, stop_tx) = os_pipe::pipe().unwrap();
                 let mut client_handler: ClientHandler = ClientHandler::builder()
                     .client(client.try_clone().unwrap())
-                    .requests(requests)
+                    .contexted_requests_tx(contexted_requests_tx)
                     .client_requests_tx(self.client_requests_tx.clone())
                     .disconnected_clients_txs(self.disconnected_clients_txs.clone())
                     .stop_rx(stop_rx)

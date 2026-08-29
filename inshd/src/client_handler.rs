@@ -1,6 +1,7 @@
 //! Handles a client.
 use crate::client::Client;
 use crate::client_request::ClientRequest;
+use crate::contexted_request::ContextedRequest;
 use crate::disconnected_client::DisconnectedClient;
 
 use insh_api::Request;
@@ -22,7 +23,7 @@ pub struct ClientHandler {
     /// Information about the client.
     client: Client,
     /// A sender for requests the from the client.
-    requests: Sender<Request>,
+    contexted_requests_tx: Sender<ContextedRequest>,
     /// A sender of information about requests from the client.
     client_requests_tx: Sender<ClientRequest>,
     /// Senders of information about the client disconnecting.
@@ -111,7 +112,11 @@ impl ClientHandler {
             log::debug!("Received request {:?}.", request_uuid);
 
             // Send the request to the scheduler.
-            self.requests.send(request).unwrap();
+            let contexted_request: ContextedRequest = ContextedRequest::builder()
+                .client_uuid(client_uuid)
+                .request(request)
+                .build();
+            self.contexted_requests_tx.send(contexted_request).unwrap();
 
             num_requests += 1;
 

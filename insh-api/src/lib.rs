@@ -36,6 +36,7 @@ pub enum RequestParams {
     CreateFile(CreateFileRequestParams),
     SearchPhrase(SearchPhraseRequestParams),
     SuggestSearchPhrase(SuggestSearchPhraseRequestParams),
+    StreamLogs(StreamLogsRequestParams),
 }
 
 #[derive(Debug, TypedBuilder, Serialize, Deserialize)]
@@ -156,6 +157,10 @@ impl SuggestSearchPhraseRequestParams {
     }
 }
 
+/// Request parameters for streaming logs.
+#[derive(Debug, TypedBuilder, Serialize, Deserialize)]
+pub struct StreamLogsRequestParams {}
+
 #[derive(Debug, TypedBuilder, Serialize, Deserialize)]
 pub struct Response {
     uuid: Uuid,
@@ -185,6 +190,7 @@ pub enum ResponseParams {
     CreateFile(CreateFileResponseParams),
     SearchPhrase(SearchPhraseResponseParams),
     SuggestSearchPhrase(SuggestSearchPhraseResponseParams),
+    StreamLogs(StreamLogsResponseParams),
 }
 
 #[derive(Debug, TypedBuilder)]
@@ -300,5 +306,17 @@ pub struct SuggestSearchPhraseResponseParams {
 impl SuggestSearchPhraseResponseParams {
     pub fn suggestion(&self) -> &Option<String> {
         &self.suggestion
+    }
+}
+
+/// Response parameters for streaming logs.
+#[derive(Debug, TypedBuilder, Serialize, Deserialize)]
+pub struct StreamLogsResponseParams {
+    records: Vec<String>,
+}
+
+impl StreamLogsResponseParams {
+    pub fn records(&self) -> &Vec<String> {
+        &self.records
     }
 }
