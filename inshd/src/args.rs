@@ -46,6 +46,7 @@ impl Args {
             .level(self.log_level_filter)
             .log_spec(self.log_spec())
             .log_file_path(self.log_file_path.clone())
+            .stdout_only(matches!(self.command, Command::Logs))
             .build()
     }
 
@@ -77,6 +78,8 @@ pub enum Command {
     Restart(RestartArgs),
     /// Check the status of the daemon.
     Status,
+    /// Stream the logs of the daemon.
+    Logs,
 }
 
 /// Arguments for starting the daemon.

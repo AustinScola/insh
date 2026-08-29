@@ -1,3 +1,6 @@
+# 0.4.12
+- Add `inshd logs` command for streaming logs.
+
 # 0.4.11
 - Change the searcher to use inshd to search for phrases and get search suggestions.
 - Add a configuration file for inshd (`~/.inshd-config.yaml`) and move the search history length to

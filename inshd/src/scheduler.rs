@@ -1,6 +1,6 @@
 //! Schedules requests.
+use crate::contexted_request::ContextedRequest;
 use crate::stop::Stop;
-use insh_api::Request;
 
 use crossbeam::channel::{Receiver, Sender};
 use crossbeam::select;
@@ -12,9 +12,9 @@ pub struct Scheduler {
     /// The number of request handlers.
     num_request_handlers: usize,
     /// Channels for sending requests to each request handler.
-    requests_txs: Vec<Sender<Request>>,
+    contexted_requests_txs: Vec<Sender<ContextedRequest>>,
     /// Incoming requests from client handlers.
-    incoming_requests_rx: Receiver<Request>,
+    contexted_requests_rx: Receiver<ContextedRequest>,
     /// A receiver for a stop sentinel.
     stop: Receiver<Stop>,
 }
@@ -32,8 +32,8 @@ impl Scheduler {
                     log::debug!("Recieved stop.");
                     break;
                 }
-                recv(self.incoming_requests_rx) -> request => {
-                    let request: Request = match request {
+                recv(self.contexted_requests_rx) -> request => {
+                    let request: ContextedRequest = match request {
                         Ok(request) => request,
                         Err(_) => {
                             log::warn!("Error receiving incoming request.");
@@ -45,8 +45,8 @@ impl Scheduler {
                         "Scheduling request with request handler {}.",
                         current_request_handler
                     );
-                    let requests_tx: &Sender<Request> = &self.requests_txs[current_request_handler];
-                    requests_tx.send(request).unwrap();
+                    let contexted_requests_tx: &Sender<ContextedRequest> = &self.contexted_requests_txs[current_request_handler];
+                    contexted_requests_tx.send(request).unwrap();
                     current_request_handler = (current_request_handler + 1) % self.num_request_handlers;
                 }
             }

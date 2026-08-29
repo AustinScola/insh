@@ -14,10 +14,14 @@ mod client_handler_monitor;
 mod client_request;
 mod config;
 mod conn_handler;
+mod contexted_request;
+mod contexted_response;
 mod data;
 mod disconnected_client;
 mod file_finder;
 mod file_searcher;
+mod log_forwarder;
+mod log_subscription;
 mod logging;
 mod paths;
 mod request_handler;
@@ -32,17 +36,24 @@ mod stop;
 
 use crate::args::{Args, Command};
 use crate::config::Config;
-use crate::logging::configure_logging;
+use crate::logging::{configure_logging, ConfiguredLogging};
 use crate::paths::INSHD_PID_FILE;
 use crate::server::{RunOptions, Server};
 
+use common::paths::INSHD_SOCKET;
+use insh_api::{
+    Request, RequestParams, Response, ResponseParams, StreamLogsRequestParams,
+    StreamLogsResponseParams,
+};
+
 use std::fs::File;
 use std::io::{Read, Write};
+use std::os::unix::net::UnixStream;
 use std::thread::{self, JoinHandle};
 
 use clap::Parser;
 use daemonize::{Daemonize, Outcome as DaemonizeOutcome};
-use flexi_logger::{Duplicate as LogDuplicate, LoggerHandle};
+use flexi_logger::Duplicate as LogDuplicate;
 use nix::sys::signal::{self, Signal};
 use nix::unistd::Pid;
 
@@ -55,11 +66,15 @@ fn main() {
 
     // Configure a basic stdout logger. The logger configured for the inshd process can be more
     // sophistiacted, but for commands like start, stop, etc. we just want logging to go to stdout.
-    let mut logger_handle: LoggerHandle = configure_logging(&args.log_options());
+    let ConfiguredLogging {
+        mut logger_handle,
+        records_rx,
+    } = configure_logging(&args.log_options());
 
     let exit_code: i32 = match args.command() {
         Command::Start(start_args) => {
-            let mut options: StartOptions = StartOptions::new(&mut logger_handle, start_args);
+            let mut options: StartOptions =
+                StartOptions::new(&mut logger_handle, records_rx, start_args);
             if start(&mut options).is_err() {
                 1
             } else {
@@ -75,7 +90,8 @@ fn main() {
             }
         }
         Command::Restart(restart_args) => {
-            let mut options: RestartOptions = RestartOptions::new(&mut logger_handle, restart_args);
+            let mut options: RestartOptions =
+                RestartOptions::new(&mut logger_handle, records_rx, restart_args);
             if restart(&mut options).is_err() {
                 1
             } else {
@@ -87,6 +103,13 @@ fn main() {
                 log::info!("{}", status);
                 0
             }
+            Err(error) => {
+                log::error!("{}", error);
+                1
+            }
+        },
+        Command::Logs => match logs() {
+            Ok(_) => 0,
             Err(error) => {
                 log::error!("{}", error);
                 1
@@ -140,7 +163,10 @@ fn start(options: &mut StartOptions) -> Result<(), StartError> {
     let config: Config = Config::load();
 
     let server = Server::new();
-    let run_options: RunOptions = RunOptions::builder().config(config).build();
+    let run_options: RunOptions = RunOptions::builder()
+        .config(config)
+        .log_records_rx(options.log_records_rx.clone())
+        .build();
     if let Err(error) = server.run(run_options) {
         let error = StartError::FailedToRunServer(error);
         log::error!("{}", error);
@@ -157,6 +183,7 @@ mod start_options {
 
     use crate::args::StartArgs;
 
+    use crossbeam::channel::Receiver;
     use flexi_logger::LoggerHandle;
 
     /// Options for starting inshd.
@@ -165,14 +192,21 @@ mod start_options {
         pub force: bool,
         /// The basic logger handle.
         pub logger_handle: &'a mut LoggerHandle,
+        /// A receiver of the log records which have been emitted.
+        pub log_records_rx: Receiver<String>,
     }
 
     impl<'a> StartOptions<'a> {
         /// Return new start options.
-        pub fn new(logger_handle: &'a mut LoggerHandle, start_args: &StartArgs) -> Self {
+        pub fn new(
+            logger_handle: &'a mut LoggerHandle,
+            log_records_rx: Receiver<String>,
+            start_args: &StartArgs,
+        ) -> Self {
             StartOptions {
                 force: start_args.force,
                 logger_handle,
+                log_records_rx,
             }
         }
     }
@@ -584,6 +618,7 @@ mod restart_options {
     use super::{StartOptions, StopOptions};
     use crate::args::RestartArgs;
 
+    use crossbeam::channel::Receiver;
     use flexi_logger::LoggerHandle;
 
     /// Options for restarting inshd.
@@ -596,11 +631,16 @@ mod restart_options {
 
     impl<'a> RestartOptions<'a> {
         /// Return new restart options.
-        pub fn new(logger_handle: &'a mut LoggerHandle, restart_args: &RestartArgs) -> Self {
+        pub fn new(
+            logger_handle: &'a mut LoggerHandle,
+            log_records_rx: Receiver<String>,
+            restart_args: &RestartArgs,
+        ) -> Self {
             Self {
                 start_options: StartOptions {
                     force: restart_args.force,
                     logger_handle,
+                    log_records_rx,
                 },
                 stop_options: StopOptions {
                     force: restart_args.force,
@@ -713,6 +753,124 @@ mod status_error {
     }
 }
 use status_error::StatusError;
+
+/// Stream the logs of inshd.
+///
+/// Only the log records which are emitted from this point onwards are streamed.
+fn logs() -> Result<(), LogsError> {
+    let mut socket: UnixStream = match UnixStream::connect(&*INSHD_SOCKET) {
+        Ok(socket) => socket,
+        Err(error) => {
+            return Err(LogsError::FailedToConnect(error));
+        }
+    };
+
+    // Send a request to stream the logs.
+    let request: Request = Request::builder()
+        .params(RequestParams::StreamLogs(
+            StreamLogsRequestParams::builder().build(),
+        ))
+        .build();
+    let bytes: Vec<u8> = bincode::serialize(&request).unwrap();
+    let length: u64 = bytes.len().try_into().unwrap();
+    if let Err(error) = socket.write_all(&length.to_be_bytes()) {
+        return Err(LogsError::FailedToSendRequest(error));
+    }
+    if let Err(error) = socket.write_all(&bytes) {
+        return Err(LogsError::FailedToSendRequest(error));
+    }
+
+    // Print the log records as they are received.
+    let mut length_buffer: [u8; 8] = [0; 8];
+    let mut response_buffer: Vec<u8> = vec![];
+    loop {
+        if let Err(error) = socket.read_exact(&mut length_buffer) {
+            if error.kind() == std::io::ErrorKind::UnexpectedEof {
+                return Err(LogsError::Disconnected);
+            }
+            return Err(LogsError::FailedToReadResponse(error));
+        }
+        let length: usize = u64::from_be_bytes(length_buffer).try_into().unwrap();
+
+        if response_buffer.len() < length {
+            response_buffer.resize(length, 0);
+        }
+        if let Err(error) = socket.read_exact(&mut response_buffer[..length]) {
+            if error.kind() == std::io::ErrorKind::UnexpectedEof {
+                return Err(LogsError::Disconnected);
+            }
+            return Err(LogsError::FailedToReadResponse(error));
+        }
+
+        let response: Response = match bincode::deserialize(&response_buffer[..length]) {
+            Ok(response) => response,
+            Err(error) => {
+                return Err(LogsError::FailedToDeserializeResponse(error));
+            }
+        };
+
+        let params: &StreamLogsResponseParams = match response.params() {
+            ResponseParams::StreamLogs(params) => params,
+            _ => {
+                continue;
+            }
+        };
+
+        for record in params.records() {
+            println!("{}", record);
+        }
+    }
+}
+
+mod logs_error {
+    //! An error streaming the logs of inshd.
+
+    use std::fmt::{Display, Error as FmtError, Formatter};
+    use std::io::Error as IOError;
+
+    use bincode::Error as BincodeError;
+
+    /// An error streaming the logs of inshd.
+    pub enum LogsError {
+        /// Failed to connect to the daemon.
+        FailedToConnect(IOError),
+        /// Failed to send the request to stream the logs.
+        FailedToSendRequest(IOError),
+        /// Failed to read a response.
+        FailedToReadResponse(IOError),
+        /// Failed to deserialize a response.
+        FailedToDeserializeResponse(BincodeError),
+        /// The daemon disconnected.
+        Disconnected,
+    }
+
+    impl Display for LogsError {
+        fn fmt(&self, formatter: &mut Formatter<'_>) -> Result<(), FmtError> {
+            match self {
+                Self::FailedToConnect(error) => {
+                    write!(
+                        formatter,
+                        "Failed to connect to the daemon (is it running?): {}",
+                        error
+                    )
+                }
+                Self::FailedToSendRequest(error) => {
+                    write!(formatter, "Failed to request the logs: {}", error)
+                }
+                Self::FailedToReadResponse(error) => {
+                    write!(formatter, "Failed to read a response: {}", error)
+                }
+                Self::FailedToDeserializeResponse(error) => {
+                    write!(formatter, "Failed to deserialize a response: {}", error)
+                }
+                Self::Disconnected => {
+                    write!(formatter, "Disconnected from the daemon.")
+                }
+            }
+        }
+    }
+}
+use logs_error::LogsError;
 
 /// Return the result of getting the pid of inshd.
 fn _get_inshd_pid() -> Result<u64, GetPidError> {

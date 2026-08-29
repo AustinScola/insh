@@ -3,10 +3,12 @@ use std::thread;
 use std::thread::JoinHandle;
 
 use crate::config::Config;
+use crate::contexted_request::ContextedRequest;
+use crate::contexted_response::ContextedResponse;
+use crate::log_subscription::LogSubscription;
 use crate::request_handler::RequestHandler;
 use crate::request_handler_died::RequestHandlerDied;
 use crate::stop::Stop;
-use insh_api::{Request, Response};
 
 use crossbeam::channel::{self, select, Receiver, Sender};
 use typed_builder::TypedBuilder;
@@ -19,9 +21,11 @@ pub struct RequestHandlerManager {
     /// A receiver of request handler dying information.
     died_rx: Receiver<RequestHandlerDied>,
     /// Receivers of requests for each request handler.
-    requests_rxs: Vec<Receiver<Request>>,
+    contexted_requests_rxs: Vec<Receiver<ContextedRequest>>,
     /// A senders of responses.
-    responses_tx: Sender<Response>,
+    contexted_responses_tx: Sender<ContextedResponse>,
+    /// A sender of log streaming subscriptions.
+    log_subscriptions_tx: Sender<LogSubscription>,
     /// A receiver of a stop sentinel.
     stop_rx: Receiver<Stop>,
     /// The configuration for inshd.
@@ -42,7 +46,7 @@ impl RequestHandlerManager {
 
         // Start the request handlers.
         for request_handler_num in 0..self.num_request_handlers {
-            let requests_rx = self.requests_rxs[request_handler_num].clone();
+            let contexted_requests_rx = self.contexted_requests_rxs[request_handler_num].clone();
 
             let (request_handler_stop_tx, request_handler_stop_rx): (Sender<Stop>, Receiver<Stop>) =
                 channel::unbounded();
@@ -52,8 +56,9 @@ impl RequestHandlerManager {
             // Create and spawn the request handler.
             let mut request_handler = RequestHandler::builder()
                 .number(request_handler_num)
-                .requests(requests_rx)
-                .responses(self.responses_tx.clone())
+                .contexted_requests_rx(contexted_requests_rx)
+                .contexted_responses_tx(self.contexted_responses_tx.clone())
+                .log_subscriptions_tx(self.log_subscriptions_tx.clone())
                 .stop_rx(request_handler_stop_rx)
                 .config(self.config.clone())
                 .build();
@@ -81,8 +86,9 @@ impl RequestHandlerManager {
 
                     let mut request_handler = RequestHandler::builder()
                         .number(number)
-                        .requests(self.requests_rxs[number].clone())
-                        .responses(self.responses_tx.clone())
+                        .contexted_requests_rx(self.contexted_requests_rxs[number].clone())
+                        .contexted_responses_tx(self.contexted_responses_tx.clone())
+                        .log_subscriptions_tx(self.log_subscriptions_tx.clone())
                         .stop_rx(request_handler_stop_rxs[number].clone())
                         .config(self.config.clone())
                         .build();

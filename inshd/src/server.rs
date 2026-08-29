@@ -4,7 +4,11 @@ use crate::client_handler_handle::ClientHandlerHandle;
 use crate::client_handler_monitor::ClientHandlerMonitor;
 use crate::client_request::ClientRequest;
 use crate::conn_handler::ConnHandler;
+use crate::contexted_request::ContextedRequest;
+use crate::contexted_response::ContextedResponse;
 use crate::disconnected_client::DisconnectedClient;
+use crate::log_forwarder::LogForwarder;
+use crate::log_subscription::LogSubscription;
 use crate::request_handler_died::RequestHandlerDied;
 use crate::request_handler_manager::RequestHandlerManager;
 use crate::response_handler::ResponseHandler;
@@ -13,7 +17,6 @@ use crate::signal_handler::SignalHandler;
 use crate::stop::Stop;
 use crate::INSHD_PID_FILE;
 use common::paths::INSHD_SOCKET;
-use insh_api::{Request, Response};
 
 use std::fs::remove_file;
 use std::io::Write;
@@ -45,6 +48,7 @@ impl Server {
         let RunOptions {
             num_request_handlers,
             config,
+            log_records_rx,
         } = options;
 
         let (died_tx, died_rx): (Sender<RequestHandlerDied>, Receiver<RequestHandlerDied>) =
@@ -76,8 +80,10 @@ impl Server {
             .unwrap();
 
         // Crate and spawn a response handler thread.
-        let (responses_tx, responses_rx): (Sender<Response>, Receiver<Response>) =
-            channel::unbounded();
+        let (contexted_responses_tx, contexted_responses_rx): (
+            Sender<ContextedResponse>,
+            Receiver<ContextedResponse>,
+        ) = channel::unbounded();
         let (new_clients_tx, new_clients_rx): (Sender<Client>, Receiver<Client>) =
             channel::unbounded();
         let (client_requests_tx, client_requests_rx): (
@@ -93,7 +99,7 @@ impl Server {
         let (response_handler_stop_tx, response_handler_stop_rx): (Sender<Stop>, Receiver<Stop>) =
             channel::unbounded();
         let mut response_handler = ResponseHandler::builder()
-            .responses_rx(responses_rx)
+            .contexted_responses_rx(contexted_responses_rx)
             .new_clients_rx(new_clients_rx)
             .client_requests_rx(client_requests_rx)
             .disconnected_clients_rx(disconnected_clients_rx.clone())
@@ -104,16 +110,45 @@ impl Server {
             .spawn(move || response_handler.run())
             .unwrap();
 
+        // Create and spawn a log forwarder thread. The log forwarder sends log records to the
+        // clients which have subscribed to them.
+        let (log_subscriptions_tx, log_subscriptions_rx): (
+            Sender<LogSubscription>,
+            Receiver<LogSubscription>,
+        ) = channel::unbounded();
+        let (log_forwarder_disconnected_clients_tx, log_forwarder_disconnected_clients_rx): (
+            Sender<DisconnectedClient>,
+            Receiver<DisconnectedClient>,
+        ) = channel::unbounded();
+        disconnected_clients_txs.push(log_forwarder_disconnected_clients_tx.clone());
+        let (log_forwarder_stop_tx, log_forwarder_stop_rx): (Sender<Stop>, Receiver<Stop>) =
+            channel::unbounded();
+        let mut log_forwarder = LogForwarder::builder()
+            .records_rx(log_records_rx)
+            .subscriptions_rx(log_subscriptions_rx)
+            .disconnected_clients_rx(log_forwarder_disconnected_clients_rx)
+            .contexted_responses_tx(contexted_responses_tx.clone())
+            .stop_rx(log_forwarder_stop_rx)
+            .build();
+        let log_forwarder_handle: JoinHandle<()> = thread::Builder::new()
+            .name("log-forwarder".to_string())
+            .spawn(move || log_forwarder.run())
+            .unwrap();
+
         // Create and spawn a request handler manager thread. The request handler manager starts
         // the request handler threads, restarts them if they die, and stops when it is time.
-        let mut requests_rxs: Vec<Receiver<Request>> = Vec::with_capacity(num_request_handlers);
-        let mut requests_txs: Vec<Sender<Request>> = Vec::with_capacity(num_request_handlers);
+        let mut contexted_requests_rxs: Vec<Receiver<ContextedRequest>> =
+            Vec::with_capacity(num_request_handlers);
+        let mut contexted_requests_txs: Vec<Sender<ContextedRequest>> =
+            Vec::with_capacity(num_request_handlers);
         for _ in 0..num_request_handlers {
             // Create the channels.
-            let (requests_tx, requests_rx): (Sender<Request>, Receiver<Request>) =
-                channel::unbounded();
-            requests_rxs.push(requests_rx.clone());
-            requests_txs.push(requests_tx);
+            let (contexted_requests_tx, contexted_requests_rx): (
+                Sender<ContextedRequest>,
+                Receiver<ContextedRequest>,
+            ) = channel::unbounded();
+            contexted_requests_rxs.push(contexted_requests_rx.clone());
+            contexted_requests_txs.push(contexted_requests_tx);
         }
         let (request_handler_manager_stop_tx, request_handler_manager_stop_rx): (
             Sender<Stop>,
@@ -122,8 +157,9 @@ impl Server {
         let mut request_handler_manager = RequestHandlerManager::builder()
             .num_request_handlers(num_request_handlers)
             .died_rx(died_rx)
-            .requests_rxs(requests_rxs)
-            .responses_tx(responses_tx.clone())
+            .contexted_requests_rxs(contexted_requests_rxs)
+            .contexted_responses_tx(contexted_responses_tx.clone())
+            .log_subscriptions_tx(log_subscriptions_tx.clone())
             .stop_rx(request_handler_manager_stop_rx)
             .config(config)
             .build();
@@ -133,14 +169,16 @@ impl Server {
             .unwrap();
 
         // Create and spawn a scheduler to schedule the execution of requests with request handlers.
-        let (incoming_requests_tx, incoming_requests_rx): (Sender<Request>, Receiver<Request>) =
-            channel::unbounded();
+        let (contexted_requests_tx, contexted_requests_rx): (
+            Sender<ContextedRequest>,
+            Receiver<ContextedRequest>,
+        ) = channel::unbounded();
         let (scheduler_stop_tx, scheduler_stop_rx): (Sender<Stop>, Receiver<Stop>) =
             channel::unbounded();
         let mut scheduler: Scheduler = Scheduler::builder()
             .num_request_handlers(num_request_handlers)
-            .requests_txs(requests_txs.clone())
-            .incoming_requests_rx(incoming_requests_rx)
+            .contexted_requests_txs(contexted_requests_txs.clone())
+            .contexted_requests_rx(contexted_requests_rx)
             .stop(scheduler_stop_rx)
             .build();
         let scheduler_handle: JoinHandle<_> = thread::Builder::new()
@@ -178,7 +216,7 @@ impl Server {
         let mut conn_handler: ConnHandler = ConnHandler::builder()
             .listener(listener)
             .new_clients_tx(new_clients_tx.clone())
-            .incoming_requests_tx(incoming_requests_tx.clone())
+            .contexted_requests_tx(contexted_requests_tx.clone())
             .client_requests_tx(client_requests_tx.clone())
             .disconnected_clients_txs(disconnected_clients_txs)
             .client_handler_handles_tx(client_handler_handles_tx.clone())
@@ -210,6 +248,10 @@ impl Server {
         request_handler_manager_stop_tx.send(Stop::new()).unwrap();
         let _ = request_handler_manager_handle.join();
         log::info!("Request handler manager stopped.");
+
+        log_forwarder_stop_tx.send(Stop::new()).unwrap();
+        let _ = log_forwarder_handle.join();
+        log::info!("Log forwarder stopped.");
 
         let _ = signal_handler_handle.join();
         log::info!("Signal handler stopped.");
@@ -280,6 +322,7 @@ mod run_options {
 
     use crate::config::Config;
 
+    use crossbeam::channel::Receiver;
     use typed_builder::TypedBuilder;
 
     /// The number of request handlers.
@@ -293,6 +336,8 @@ mod run_options {
         pub num_request_handlers: usize,
         /// The configuration for inshd.
         pub config: Config,
+        /// A receiver of the log records which have been emitted.
+        pub log_records_rx: Receiver<String>,
     }
 }
 pub use run_options::RunOptions;
