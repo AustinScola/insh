@@ -177,7 +177,7 @@ jobs:
           key: ${{ env.cache-name }}-${{ hashFiles('~/arbsego-version.txt') }}
 
       - if: ${{ steps.cache-arbsego-binary.outputs.cache-hit == 'true' }}
-        name: Verify cached Arbsergo binary
+        name: Verify cached Arbsego binary
         id: very-cached-arbsego-binary
         continue-on-error: true
         run: |
@@ -262,3 +262,64 @@ jobs:
 
       - name: Test
         run: cargo test
+
+  audit:
+    name: Audit
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+        with:
+          submodules: true
+      - name: Get cargo-audit version
+        id: cargo-audit-version
+        run: |
+          echo "version=$(yq '.cargo-audit.version' < truth.yaml)" >> "${GITHUB_OUTPUT}"
+      - name: Restore cargo-audit binary
+        id: cache-cargo-audit-binary
+        uses: actions/cache/restore@v3
+        env:
+          cache-name: cargo-audit-binary
+        with:
+          path: ~/.cargo/bin/cargo-audit
+          key: ${{ env.cache-name }}-${{ steps.cargo-audit-version.outputs.version }}
+      - if: ${{ steps.cache-cargo-audit-binary.outputs.cache-hit == 'true' }}
+        name: Verify cached cargo-audit binary
+        id: verify-cached-cargo-audit-binary
+        continue-on-error: true
+        run: |
+          cargo-audit --version
+      - if: ${{ steps.cache-cargo-audit-binary.outputs.cache-hit != 'true' || steps.verify-cached-cargo-audit-binary.outcome == 'failure' }}
+        name: Restore cargo-audit build dependencies
+        id: cache-cargo-audit-deps
+        uses: actions/cache/restore@v3
+        env:
+          cache-name: cargo-audit-deps
+        with:
+          path: ~/.cargo/registry/
+          key: ${{ env.cache-name }}-${{ steps.cargo-audit-version.outputs.version }}
+          restore-keys: |
+            ${{ env.cache-name }}-
+      - if: ${{ steps.cache-cargo-audit-binary.outputs.cache-hit != 'true' || steps.verify-cached-cargo-audit-binary.outcome == 'failure' }}
+        name: Install cargo-audit
+        id: install-cargo-audit
+        run: |
+          # Install cargo-audit using cargo.
+          cargo install cargo-audit --locked \
+            --version "${{ steps.cargo-audit-version.outputs.version }}"
+      # Save before auditing since a failing audit would skip the post-job saves.
+      - if: ${{ steps.install-cargo-audit.outcome == 'success' && steps.cache-cargo-audit-deps.outputs.cache-hit != 'true' }}
+        name: Save cargo-audit build dependencies
+        uses: actions/cache/save@v3
+        with:
+          path: ~/.cargo/registry/
+          key: ${{ steps.cache-cargo-audit-deps.outputs.cache-primary-key }}
+      - if: ${{ steps.install-cargo-audit.outcome == 'success' }}
+        name: Save cargo-audit binary
+        uses: actions/cache/save@v3
+        with:
+          path: ~/.cargo/bin/cargo-audit
+          key: ${{ steps.cache-cargo-audit-binary.outputs.cache-primary-key }}
+      - name: Audit for vulnerabilities
+        env:
+          BOOTSTRAP: no
+        run: ./cargo-scripts/audit
