@@ -1,0 +1,11 @@
+[package]
+name = "daemon"
+version = "0.1.0"
+edition = "2021"
+description = "Turns the current process into a daemon."
+
+[dependencies]
+# Provides friendly bindings for *nix platform APIs.
+#
+# Used for forking, detaching from the controlling terminal, and redirecting the standard streams.
+nix = { workspace = true }

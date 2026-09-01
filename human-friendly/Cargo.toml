@@ -6,7 +6,7 @@ description = "Renders information about files the way that people are used to r
 
 [dependencies]
 # Used for formatting the times that files were modified in the local time zone.
-chrono = { version = "0.4.26", default-features = false, features = ["clock"] }
+chrono = { workspace = true }
 
 [dev-dependencies]
-test-case = "2.0.0"
+test-case = { workspace = true }

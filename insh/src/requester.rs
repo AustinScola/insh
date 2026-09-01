@@ -35,7 +35,7 @@ impl Requester<Request> for InshdRequester {
             // Serialize the request.
             #[cfg(feature = "logging")]
             log::debug!("Serializing the request...");
-            let bytes: Vec<u8> = match bincode::serialize(&request) {
+            let bytes: Vec<u8> = match postcard::to_stdvec(&request) {
                 Ok(bytes) => bytes,
                 #[allow(unused_variables)]
                 Err(error) => {

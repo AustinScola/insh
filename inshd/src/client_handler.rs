@@ -7,7 +7,7 @@ use crate::disconnected_client::DisconnectedClient;
 use insh_api::Request;
 
 use std::io::{ErrorKind as IOErrorKind, Read};
-use std::os::fd::{AsRawFd, RawFd};
+use std::os::fd::{AsRawFd, BorrowedFd, RawFd};
 use std::os::unix::net::UnixStream;
 
 use crossbeam::channel::Sender;
@@ -45,18 +45,20 @@ impl ClientHandler {
 
         let stream: &mut UnixStream = self.client.stream();
         let stop_rx_fd: RawFd = self.stop_rx.as_raw_fd();
+        let stream_borrowed: BorrowedFd = unsafe { BorrowedFd::borrow_raw(stream.as_raw_fd()) };
+        let stop_rx_borrowed: BorrowedFd = unsafe { BorrowedFd::borrow_raw(stop_rx_fd) };
 
         loop {
             let nfds = None;
             let mut read_fds = FdSet::new();
-            read_fds.insert(stream.as_raw_fd());
-            read_fds.insert(stop_rx_fd);
+            read_fds.insert(stream_borrowed);
+            read_fds.insert(stop_rx_borrowed);
             let write_fds = None;
             let error_fds = None;
             let timeout = None;
             select(nfds, &mut read_fds, write_fds, error_fds, timeout).unwrap();
 
-            if read_fds.contains(stop_rx_fd) {
+            if read_fds.contains(stop_rx_borrowed) {
                 break;
             }
 
@@ -107,7 +109,7 @@ impl ClientHandler {
             log::debug!("Read the request.");
 
             // Deserialize the request.
-            let request: Request = bincode::deserialize(&request_buffer[..length]).unwrap();
+            let request: Request = postcard::from_bytes(&request_buffer[..length]).unwrap();
             let request_uuid: Uuid = *request.uuid();
             log::debug!("Received request {:?}.", request_uuid);
 

@@ -5,8 +5,8 @@ edition = "2021"
 
 [dependencies]
 size = { version = "0.1.0", path = "../size" }
-bitflags = "2.3.1"
-termios = "0.3.3"
+bitflags = { workspace = true }
+termios = { workspace = true }
 
 # Provides friendly bindings for *nix platform APIs.
 #

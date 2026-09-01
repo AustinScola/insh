@@ -20,7 +20,7 @@ file-info = { version = "0.1.0", path = "../file-info" }
 clap = { workspace = true }
 
 # Used to make the server a daemon.
-daemonize = "0.5.0"
+daemon = { version = "0.1.0", path = "../daemon" }
 
 # Used for logging.
 log = { workspace = true }
@@ -37,7 +37,7 @@ nix = { workspace = true }
 typed-builder = { workspace = true }
 
 # Used for deserializing requests.
-bincode = { workspace = true }
+postcard = { workspace = true }
 
 # Used for globally unique identifiers.
 uuid = { workspace = true }
@@ -46,14 +46,14 @@ uuid = { workspace = true }
 crossbeam = { workspace = true }
 
 # Used to handle signals.
-signal-hook = { version = "0.3.15", features = ["extended-siginfo"] }
+signal-hook = { workspace = true }
 
 # Used to make handling pipes easier.
-os_pipe = "1.1.4"
+os_pipe = { workspace = true }
 
 # Used to control access to persistent data stored in the file system.
-fslock = "0.2.1"
+fslock = { workspace = true }
 
 # Used for serialization and deserialization of data structures.
 serde = { workspace = true }
-serde_yaml = { workspace = true }
+serde_yaml_ng = { workspace = true }

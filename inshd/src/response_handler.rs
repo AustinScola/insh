@@ -169,7 +169,7 @@ impl ResponseHandler {
                     if log {
                         log::debug!("Serializing the response...");
                     }
-                    let response: Vec<u8> = bincode::serialize(response).unwrap();
+                    let response: Vec<u8> = postcard::to_stdvec(response).unwrap();
                     if log {
                         log::debug!("Serialized the response.");
                     }

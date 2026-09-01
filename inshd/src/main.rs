@@ -52,7 +52,7 @@ use std::os::unix::net::UnixStream;
 use std::thread::{self, JoinHandle};
 
 use clap::Parser;
-use daemonize::{Daemonize, Outcome as DaemonizeOutcome};
+use daemon::{Daemon, Outcome as DaemonOutcome};
 use flexi_logger::Duplicate as LogDuplicate;
 use nix::sys::signal::{self, Signal};
 use nix::unistd::Pid;
@@ -132,31 +132,23 @@ fn start(options: &mut StartOptions) -> Result<(), StartError> {
 
     // Daemonize the process.
     log::info!("Daemonizing...");
-    let daemonize = Daemonize::new()
-        .pid_file(&*INSHD_PID_FILE)
-        .chown_pid_file(true);
-    match daemonize.execute() {
-        DaemonizeOutcome::Parent(result) => {
-            if let Err(error) = result {
-                let error = StartError::FailedToDaemonize(error);
-                log::error!("{}", error);
-                return Err(error);
-            }
+    let daemon = Daemon::new().pid_file(&*INSHD_PID_FILE);
+    match daemon.execute() {
+        Ok(DaemonOutcome::Parent) => {
             log::info!("Daemonized inshd.");
 
             log::info!("Started inshd.");
             return Ok(());
         }
-        DaemonizeOutcome::Child(result) => {
+        Ok(DaemonOutcome::Child) => {
             let _ = options
                 .logger_handle
                 .adapt_duplication_to_stdout(LogDuplicate::None);
-
-            if let Err(error) = result {
-                let error = StartError::FailedToDaemonize(error);
-                log::error!("{}", error);
-                return Err(error);
-            }
+        }
+        Err(error) => {
+            let error = StartError::FailedToDaemonize(error);
+            log::error!("{}", error);
+            return Err(error);
         }
     }
 
@@ -219,12 +211,12 @@ mod start_error {
     use crate::server::RunError;
     use std::fmt::{Display, Error as FmtError, Formatter};
 
-    use daemonize::Error as DaemonizeError;
+    use daemon::Error as DaemonError;
 
     /// A failure to start inshd.
     pub enum StartError {
         /// A failure to daemonize the inshd server.
-        FailedToDaemonize(DaemonizeError),
+        FailedToDaemonize(DaemonError),
         /// A failure to start the inshd server.
         FailedToRunServer(RunError),
     }
@@ -346,7 +338,7 @@ mod pid_waiter {
     use std::fmt::{Display, Error as FmtError, Formatter};
     use std::io::Error as IOError;
     #[cfg(target_os = "linux")]
-    use std::os::fd::AsRawFd;
+    use std::os::fd::{AsRawFd, BorrowedFd};
     use std::time::{Duration, Instant};
 
     use nix::errno::Errno;
@@ -401,7 +393,9 @@ mod pid_waiter {
                 log::debug!("Got fd {} for pid {}.", pid_fd, self.pid);
 
                 let mut readfds = FdSet::new();
-                let stop_fd: i32 = self.stop_rx.as_raw_fd();
+                let stop_fd: BorrowedFd =
+                    unsafe { BorrowedFd::borrow_raw(self.stop_rx.as_raw_fd()) };
+                let pid_fd: BorrowedFd = unsafe { BorrowedFd::borrow_raw(pid_fd) };
                 readfds.insert(stop_fd);
                 readfds.insert(pid_fd);
 
@@ -771,7 +765,7 @@ fn logs() -> Result<(), LogsError> {
             StreamLogsRequestParams::builder().build(),
         ))
         .build();
-    let bytes: Vec<u8> = bincode::serialize(&request).unwrap();
+    let bytes: Vec<u8> = postcard::to_stdvec(&request).unwrap();
     let length: u64 = bytes.len().try_into().unwrap();
     if let Err(error) = socket.write_all(&length.to_be_bytes()) {
         return Err(LogsError::FailedToSendRequest(error));
@@ -802,7 +796,7 @@ fn logs() -> Result<(), LogsError> {
             return Err(LogsError::FailedToReadResponse(error));
         }
 
-        let response: Response = match bincode::deserialize(&response_buffer[..length]) {
+        let response: Response = match postcard::from_bytes(&response_buffer[..length]) {
             Ok(response) => response,
             Err(error) => {
                 return Err(LogsError::FailedToDeserializeResponse(error));
@@ -828,7 +822,7 @@ mod logs_error {
     use std::fmt::{Display, Error as FmtError, Formatter};
     use std::io::Error as IOError;
 
-    use bincode::Error as BincodeError;
+    use postcard::Error as PostcardError;
 
     /// An error streaming the logs of inshd.
     pub enum LogsError {
@@ -839,7 +833,7 @@ mod logs_error {
         /// Failed to read a response.
         FailedToReadResponse(IOError),
         /// Failed to deserialize a response.
-        FailedToDeserializeResponse(BincodeError),
+        FailedToDeserializeResponse(PostcardError),
         /// The daemon disconnected.
         Disconnected,
     }

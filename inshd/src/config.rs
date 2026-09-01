@@ -44,7 +44,7 @@ impl Config {
             },
         };
 
-        match serde_yaml::from_reader(file) {
+        match serde_yaml_ng::from_reader(file) {
             Ok(config) => config,
             Err(error) => {
                 panic!(

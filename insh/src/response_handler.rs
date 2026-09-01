@@ -92,7 +92,7 @@ impl ResponseHandler<Response> for InshdResponseHandler {
             log::debug!("Read the response.");
 
             // Deserialize the response.
-            let response: Response = bincode::deserialize(&response_buffer[..length]).unwrap();
+            let response: Response = postcard::from_bytes(&response_buffer[..length]).unwrap();
             #[cfg(feature = "logging")]
             {
                 let response_uuid: Uuid = response.uuid().clone();

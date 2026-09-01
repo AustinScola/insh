@@ -100,7 +100,7 @@ impl Data {
             },
         };
 
-        let data: Data = match serde_yaml::from_reader(file) {
+        let data: Data = match serde_yaml_ng::from_reader(file) {
             Ok(data) => data,
             Err(error) => {
                 panic!(
@@ -129,7 +129,7 @@ impl Data {
             .open(&*DATA_FILE_PATH)
             .expect("Cannot write persistent data because the data file could not be opened or created.");
 
-        serde_yaml::to_writer(file, self).unwrap();
+        serde_yaml_ng::to_writer(file, self).unwrap();
     }
 }
 
