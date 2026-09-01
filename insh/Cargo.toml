@@ -34,28 +34,28 @@ crossterm = { workspace = true }
 regex = { workspace = true }
 clap = { workspace = true }
 dirs = { workspace = true }
-unicode-segmentation = "1.9.0"
+unicode-segmentation = { workspace = true }
 itertools = { workspace = true }
 
 # Used to manage the clipboard.
-copypasta = "0.10.1"
+copypasta = { workspace = true }
 
 # Used for serialization and deserialization of data structures.
 serde = { workspace = true }
-serde_yaml = { workspace = true }
+serde_yaml_ng = { workspace = true }
 
 # Used for logging. (These dependencies are only included if the logging features is enabled.)
 log = { workspace = true, optional = true }
 flexi_logger = { workspace = true, optional = true }
 
 # Used to create a parser for text with ANSI escape codes.
-nom = "7.1.1"
+nom = { workspace = true }
 
 # Used for generating the builder pattern for structs.
 typed-builder = { workspace = true }
 
 # Used for serializing requests.
-bincode = { workspace = true }
+postcard = { workspace = true }
 
 # Used for globally unique identifiers.
 uuid = { workspace = true, features = ["serde"] }
@@ -64,4 +64,4 @@ uuid = { workspace = true, features = ["serde"] }
 crossbeam = { workspace = true }
 
 [dev-dependencies]
-test-case = "2.0.0"
+test-case = { workspace = true }

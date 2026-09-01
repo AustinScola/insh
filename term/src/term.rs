@@ -4,12 +4,12 @@ use std::fmt::{Display, Error as FmtError, Formatter};
 use std::fs::File;
 use std::io::{self, Error as IOError, Read, Stdin};
 use std::os::fd::AsRawFd;
-use std::os::fd::RawFd;
+use std::os::fd::{AsFd, BorrowedFd, IntoRawFd, RawFd};
 
 use libc::{ioctl, winsize as WindowSize, TIOCGWINSZ};
 use nix::errno::Errno;
 use nix::libc;
-use nix::poll::{poll, PollFd, PollFlags};
+use nix::poll::{poll, PollFd, PollFlags, PollTimeout};
 use nix::sys::signal::{signal, SigHandler, Signal};
 use nix::unistd::{pipe, read, write};
 use nix::Result as NixResult;
@@ -36,7 +36,9 @@ impl Term {
         let termios: Termios = Termios::from_fd(stdin.as_raw_fd()).unwrap();
 
         // Create a pipe for the SIGWINCH signal handler to communicate with the rest of the code.
-        let (resized_rx, resized_tx): (RawFd, RawFd) = pipe().unwrap();
+        let (resized_rx, resized_tx) = pipe().unwrap();
+        let (resized_rx, resized_tx): (RawFd, RawFd) =
+            (resized_rx.into_raw_fd(), resized_tx.into_raw_fd());
         unsafe {
             (RESIZED_RX, RESIZED_TX) = (Some(resized_rx), Some(resized_tx));
         }
@@ -65,9 +67,14 @@ impl Term {
         }
 
         loop {
-            let timeout = -1; //  block indefinitely
-            let stdin_pollfd = PollFd::new(self.stdin.as_raw_fd(), PollFlags::POLLIN);
-            let resized_rx_pollfd = unsafe { PollFd::new(RESIZED_RX.unwrap(), PollFlags::POLLIN) };
+            let timeout = PollTimeout::NONE; // Block indefinitely.
+            let stdin_pollfd = PollFd::new(self.stdin.as_fd(), PollFlags::POLLIN);
+            let resized_rx_pollfd = unsafe {
+                PollFd::new(
+                    BorrowedFd::borrow_raw(RESIZED_RX.unwrap()),
+                    PollFlags::POLLIN,
+                )
+            };
             let mut pollfds: [PollFd; 2] = [stdin_pollfd, resized_rx_pollfd];
 
             let result: NixResult<c_int> = poll(&mut pollfds, timeout);
@@ -116,7 +123,7 @@ impl Term {
             if let Some(resized_rx_events) = resized_rx_events {
                 let mut buffer: [u8; 1] = [0; 1];
                 unsafe {
-                    read(RESIZED_RX.unwrap(), &mut buffer[..]).unwrap();
+                    read(BorrowedFd::borrow_raw(RESIZED_RX.unwrap()), &mut buffer[..]).unwrap();
                 }
                 if resized_rx_events.contains(PollFlags::POLLIN) {
                     let size: Size = match Term::size() {
@@ -237,7 +244,7 @@ extern "C" fn _handle_sigwinch(_signal: libc::c_int) {
         if let Some(resized_tx_) = RESIZED_TX {
             // NOTE: There is probably a race condition here where Term could get dropped and close the fds?
             let buffer: [u8; 1] = [1; 1];
-            write(resized_tx_, &buffer[..]).unwrap();
+            write(BorrowedFd::borrow_raw(resized_tx_), &buffer[..]).unwrap();
         }
     }
 }

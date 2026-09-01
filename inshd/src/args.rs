@@ -13,22 +13,22 @@ use flexi_logger::{LevelFilter as LogLevelFilter, LogSpecification as LogSpec};
 
 /// Arguments for inshd.
 #[derive(Parser, Debug)]
-#[clap(name = "inshd", author, version, about)]
+#[command(name = "inshd", author, version, about)]
 pub struct Args {
     /// File to write logs to (can be a unix socket)
-    #[clap(long = "log-file", display_order = 0)]
+    #[arg(long = "log-file", display_order = 0)]
     log_file_path: Option<PathBuf>,
 
     /// Default log level for all modules.
-    #[clap(display_order = 1, long = "log-level", id = "LOG_LEVEL", default_value_t = LogLevelFilter::Info)]
+    #[arg(display_order = 1, long = "log-level", id = "LOG_LEVEL", default_value_t = LogLevelFilter::Info)]
     log_level_filter: LogLevelFilter,
 
     /// Log level for a particular module (<module-name>=<log-level>).
-    #[clap(display_order = 2, long = "module-log-level", id = "MODULE_LOG_LEVEL")]
+    #[arg(display_order = 2, long = "module-log-level", id = "MODULE_LOG_LEVEL")]
     module_log_level_filters: Vec<ModuleLogLevelFilter>,
 
     /// The command to run.
-    #[clap(subcommand)]
+    #[command(subcommand)]
     command: Command,
 }
 
@@ -86,7 +86,7 @@ pub enum Command {
 #[derive(ClapArgs, Debug, Clone)]
 pub struct StartArgs {
     /// Start even if already running.
-    #[clap(short = 'f')]
+    #[arg(short = 'f')]
     pub force: bool,
 }
 
@@ -102,10 +102,10 @@ impl From<&RestartArgs> for StartArgs {
 #[derive(ClapArgs, Debug, Clone)]
 pub struct StopArgs {
     /// Force stop (with SIGKILL).
-    #[clap(short = 'f')]
+    #[arg(short = 'f')]
     pub force: bool,
     /// How long to wait for the inshd main process to stop.
-    #[clap(default_value = "10", value_parser = parse_duration)]
+    #[arg(default_value = "10", value_parser = parse_duration)]
     pub timeout: Duration,
 }
 
@@ -122,10 +122,10 @@ impl From<&RestartArgs> for StopArgs {
 #[derive(ClapArgs, Debug, Clone)]
 pub struct RestartArgs {
     /// Force stop (with SIGKILL) and force start.
-    #[clap(short = 'f')]
+    #[arg(short = 'f')]
     pub force: bool,
     /// How long to wait for the inshd main process to stop.
-    #[clap(default_value = "10", value_parser = parse_duration)]
+    #[arg(default_value = "10", value_parser = parse_duration)]
     pub timeout: Duration,
 }
 

@@ -19,6 +19,7 @@ use std::ffi::{c_int, CString, OsString};
 use std::fs::File;
 use std::io::{self, Error as IOError, Stdout, Write};
 use std::os::fd::FromRawFd;
+use std::os::fd::IntoRawFd;
 use std::os::fd::RawFd;
 use std::os::unix::ffi::OsStringExt;
 use std::panic;
@@ -35,7 +36,7 @@ use nix::libc;
 use nix::libc::{ioctl, setenv, winsize as WindowSize, TIOCSWINSZ};
 use nix::pty::{forkpty, ForkptyResult, Winsize};
 use nix::unistd::Pid;
-use nix::unistd::{chdir, execvp, ForkResult};
+use nix::unistd::{chdir, execvp};
 use typed_builder::TypedBuilder;
 use uuid::Uuid;
 
@@ -325,19 +326,16 @@ impl App {
 
         let child: Pid;
         match unsafe { forkpty(&window_size, termios) } {
-            Ok(ForkptyResult {
+            Ok(ForkptyResult::Parent {
+                child: child_,
                 master: master_,
-                fork_result: ForkResult::Parent { child: child_, .. },
             }) => {
-                master = master_;
+                master = master_.into_raw_fd();
                 #[cfg(feature = "logging")]
                 log::debug!("Program has a pid of {}.", child_);
                 child = child_;
             }
-            Ok(ForkptyResult {
-                fork_result: ForkResult::Child,
-                ..
-            }) => {
+            Ok(ForkptyResult::Child) => {
                 // Set the working dir
                 if let Some(cwd) = program.cwd() {
                     chdir(&cwd).unwrap();

@@ -8,7 +8,7 @@ edition = "2021"
 regex = { workspace = true }
 
 # Used for walking directories and selectively ignore files.
-ignore = "0.4.23"
+ignore = { workspace = true }
 
 # Used for serialization and deserialization of data structures.
 serde = { workspace = true }

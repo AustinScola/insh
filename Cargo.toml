@@ -4,6 +4,7 @@ members = [
     "insh",
     "inshd",
     "common",
+    "daemon",
     "insh-api",
     "til",
     "term",
@@ -17,18 +18,93 @@ members = [
 ]
 
 [workspace.dependencies]
-bincode = "1.3.3"
-clap = { version = "3.2.17", features = ["derive"] }
-crossbeam = "0.8.2"
-crossterm = "0.23.0"
-dirs = "4.0.0"
-flexi_logger = "0.25.6"
-itertools = "0.10.3"
-lazy_static = "1.4.0"
-log = "0.4.17"
-nix = "0.26.2"
-regex = "1.5.4"
-serde = { version = "1.0.144", features = ["derive"] }
-serde_yaml = "0.9.10"
-typed-builder = "0.14.0"
-uuid = { version = "1.3.1", features = ["v4", "fast-rng", "macro-diagnostics"] }
+# Used for command line argument parsing.
+clap = { version = "4.6.6", features = ["derive"] }
+
+# Used for concurrent programming.
+crossbeam = "0.8.4"
+
+# Used for styling and controlling the terminal.
+crossterm = "0.29.0"
+
+# Used for determining platform-specific directories.
+dirs = "6.0.0"
+
+# Used for logging.
+log = "0.4.34"
+flexi_logger = "0.31.10"
+
+# Used for declaring lazily evaluated static values.
+lazy_static = "1.5.0"
+
+# Provides friendly bindings for *nix platform APIs.
+# Used for doing things such as sending signals to processes (to stop inshd for example).
+#
+# NOTE: Every module is opt-in as of 0.27, so the features have to be listed explicitly. `event` is
+# `sys::select`, `term` is `pty::forkpty`, and `fs` covers `chdir`/`chown`/`umask`.
+nix = { version = "0.31.3", features = ["event", "fs", "poll", "process", "signal", "term", "time", "user"] }
+
+# Used to create a parser for text with ANSI escape codes.
+nom = "8.0.0"
+
+# Used for serializing and deserializing requests and responses.
+#
+# NOTE: This replaced `bincode`, which is unmaintained (RUSTSEC-2025-0141).
+#
+# NOTE: The default features have to be off. `heapless-cas` is on by default and pulls in
+# `atomic-polyfill`, which is itself unmaintained (RUSTSEC-2023-0089), so leaving the defaults
+# alone just trades one `cargo audit` warning for another.
+postcard = { version = "1.1.3", default-features = false, features = ["use-std"] }
+
+# Used for pattern matching.
+regex = "1.13.1"
+
+# Used for serialization and deserialization of data structures.
+serde = { version = "1.0.229", features = ["derive"] }
+
+# Used for reading and writing YAML (the config files and inshd's persistent data).
+#
+# NOTE: This is a maintained fork of `serde_yaml`, which was archived upstream.
+serde_yaml_ng = "0.10.0"
+
+# Used to handle signals.
+signal-hook = { version = "0.4.4", features = ["extended-siginfo"] }
+
+# Used for generating the builder pattern for structs.
+typed-builder = "0.23.2"
+
+# Used for globally unique identifiers.
+uuid = { version = "1.26.0", features = ["v4", "fast-rng", "macro-diagnostics"] }
+
+# Used for walking directories.
+walkdir = "2.5.0"
+
+# Used for walking directories and selectively ignoring files.
+ignore = "0.4.33"
+
+# Used to control access to persistent data stored in the file system.
+fslock = "0.2.1"
+
+# Used to make handling pipes easier.
+os_pipe = "1.2.3"
+
+# Used to manage the clipboard.
+copypasta = "0.10.2"
+
+# Used for formatting the times that files were modified in the local time zone.
+chrono = { version = "0.4.45", default-features = false, features = ["clock"] }
+
+# Used for iterator adaptors.
+itertools = "0.15.0"
+
+# Used for splitting strings into grapheme clusters.
+unicode-segmentation = "1.13.3"
+
+# Used for declaring sets of flags.
+bitflags = "2.13.1"
+
+# Used for raw terminal control.
+termios = "0.3.3"
+
+# Used for parameterizing tests.
+test-case = "3.3.1"

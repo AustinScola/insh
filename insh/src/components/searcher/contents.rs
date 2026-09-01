@@ -814,7 +814,7 @@ mod state {
 
         use test_case::test_case;
 
-        #[test_case(&mut State::default(), 0, State::default();)]
+        #[test_case(&mut State::default(), 0, State::default(); "scrolling a default state by zero does nothing")]
         #[test_case(
             &mut State{
                 size: Size{rows: 1, columns: 2},
@@ -826,7 +826,7 @@ mod state {
                 size: Size{rows: 1, columns: 2},
                 hits: vec![FileHit::new(Path::new(""), vec![LineHit::new(0, "")])],
                 ..Default::default()
-            };
+            }
         )]
         #[test_case(
             &mut State{
@@ -853,7 +853,7 @@ mod state {
                 file_selected: 1,
                 line_selected: None,
                 ..Default::default()
-            };
+            }
         )]
         fn test_scroll_up(state: &mut State, rows: usize, expected_state: State) {
             state.scroll_up(rows);

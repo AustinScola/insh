@@ -8,7 +8,7 @@ use crate::disconnected_client::DisconnectedClient;
 
 use std::io::Result as IOResult;
 use std::os::fd::AsRawFd;
-use std::os::fd::RawFd;
+use std::os::fd::BorrowedFd;
 use std::os::unix::net::Incoming;
 use std::os::unix::net::UnixListener;
 use std::os::unix::net::UnixStream;
@@ -46,8 +46,8 @@ impl ConnHandler {
         log::info!("Accepting connections...");
         let mut client_num: usize = 0;
 
-        let listener_fd: RawFd = self.listener.as_raw_fd();
-        let stop_rx_fd = self.stop_rx.as_raw_fd();
+        let listener_fd: BorrowedFd = unsafe { BorrowedFd::borrow_raw(self.listener.as_raw_fd()) };
+        let stop_rx_fd: BorrowedFd = unsafe { BorrowedFd::borrow_raw(self.stop_rx.as_raw_fd()) };
         loop {
             let nfds = None;
             let mut readfds = FdSet::new();

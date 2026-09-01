@@ -5,6 +5,7 @@ use nom::branch::alt;
 use nom::bytes::streaming::{tag, take};
 use nom::combinator::value;
 use nom::IResult as ParseResult;
+use nom::Parser;
 
 use nom::combinator::map;
 
@@ -28,7 +29,8 @@ pub fn parser(input: &[u8]) -> ParseResult<&[u8], ANSIEscapedText> {
         map(take(1usize), |bytes: &[u8]| {
             ANSIEscapedText::Character(bytes[0])
         }),
-    ))(input)
+    ))
+    .parse(input)
 }
 
 fn ansi_escape_code(input: &[u8]) -> ParseResult<&[u8], ANSIEscapeCode> {
@@ -39,16 +41,17 @@ fn ansi_escape_code(input: &[u8]) -> ParseResult<&[u8], ANSIEscapeCode> {
 }
 
 fn alternative_screen(input: &[u8]) -> ParseResult<&[u8], ANSIEscapeCode> {
-    let (input, _) = tag(&[0x3F, 0x31, 0x30, 0x34, 0x39])(input)?; // ? 1049
+    let (input, _) = tag(&[0x3F, 0x31, 0x30, 0x34, 0x39][..]).parse(input)?; // ? 1049
 
     alt((
-        value(ANSIEscapeCode::EnableAlternativeScreen, tag(&[0x68])), // h
-        value(ANSIEscapeCode::DisableAlternativeScreen, tag(&[0x6C])), // l
-    ))(input)
+        value(ANSIEscapeCode::EnableAlternativeScreen, tag(&[0x68][..])), // h
+        value(ANSIEscapeCode::DisableAlternativeScreen, tag(&[0x6C][..])), // l
+    ))
+    .parse(input)
 }
 
 fn control_sequence_introducer(input: &[u8]) -> ParseResult<&[u8], &[u8]> {
-    tag(&[0x1B, 0x5B])(input) // `<Esc> [`
+    tag(&[0x1B, 0x5B][..]).parse(input) // `<Esc> [`
 }
 
 #[cfg(test)]

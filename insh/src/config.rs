@@ -12,7 +12,7 @@ mod config {
     use std::path::PathBuf;
 
     use serde::Deserialize;
-    use serde_yaml::Error as YamlParseError;
+    use serde_yaml_ng::Error as YamlParseError;
 
     /// Configuration options.
     #[derive(Deserialize, Debug, Default, Clone, Eq, PartialEq)]
@@ -63,7 +63,7 @@ mod config {
                 },
             };
 
-            match serde_yaml::from_reader(file) {
+            match serde_yaml_ng::from_reader(file) {
                 Ok(config) => Ok(config),
                 Err(error) => Err(ConfigLoadError::ParseError { path, error }),
             }

@@ -6,7 +6,7 @@ mod module_log_level_filter {
     use flexi_logger::LevelFilter as LogLevelFilter;
 
     /// A log level filter for a particular module.
-    #[derive(Debug)]
+    #[derive(Clone, Debug)]
     pub struct ModuleLogLevelFilter {
         /// The name of the module.
         module_name: String,

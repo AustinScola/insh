@@ -14,28 +14,28 @@ use clap::{Parser, Subcommand};
 use flexi_logger::{LevelFilter as LogLevelFilter, LogSpecification};
 
 #[derive(Parser, Debug)]
-#[clap(name = "insh", author, version, about)]
+#[command(name = "insh", author, version, about)]
 pub struct Args {
     /// Starting directory to run in
-    #[clap(short, long, display_order = 0)]
+    #[arg(short, long, display_order = 0)]
     dir: Option<PathBuf>,
 
     /// File to write logs to (can be a unix socket)
     #[cfg(feature = "logging")]
-    #[clap(long = "log-file", display_order = 1)]
+    #[arg(long = "log-file", display_order = 1)]
     pub log_file_path: Option<PathBuf>,
 
     /// Default log level for all modules
     #[cfg(feature = "logging")]
-    #[clap(display_order = 2, long = "log-level", id = "LOG_LEVEL", default_value_t = LogLevelFilter::Info)]
+    #[arg(display_order = 2, long = "log-level", id = "LOG_LEVEL", default_value_t = LogLevelFilter::Info)]
     log_level_filter: LogLevelFilter,
 
     /// Log level for a particular module (<module-name>=<log-level>)
     #[cfg(feature = "logging")]
-    #[clap(display_order = 3, long = "module-log-level", id = "MODULE_LOG_LEVEL")]
+    #[arg(display_order = 3, long = "module-log-level", id = "MODULE_LOG_LEVEL")]
     module_log_level_filters: Vec<ModuleLogLevelFilter>,
 
-    #[clap(subcommand)]
+    #[command(subcommand)]
     command: Option<Command>,
 }
 
@@ -155,35 +155,35 @@ impl Args {
 #[derive(Subcommand, Clone, Debug)]
 pub enum Command {
     /// Browse a directory
-    #[clap(alias = "b", display_order = 1)]
+    #[command(alias = "b", display_order = 1)]
     Browse,
 
     /// Find files by name
-    #[clap(alias = "f", display_order = 2)]
+    #[command(alias = "f", display_order = 2)]
     Find { phrase: Option<String> },
 
     /// Search file contents
-    #[clap(alias = "s", display_order = 3)]
+    #[command(alias = "s", display_order = 3)]
     Search { phrase: Option<String> },
 
     /// Edit a file
     ///
     /// Edit a file using the editor if a file is provided or just open the editor if no file is
     /// provided.
-    #[clap(alias = "e", display_order = 4, value_parser)]
+    #[command(alias = "e", display_order = 4)]
     Edit {
         /// Open the browser afterwards
         ///
         /// The directory is the directory the file is in or if the global `directory` argument is
         /// provided, then it is used.
-        #[clap(short, long)]
+        #[arg(short, long)]
         browse: bool,
 
         /// The file to edit
         ///
         /// Of the form "<file>", "<file>:<line>", "<file>:<line>,<column> or,
         /// "<file>:<line>:<column>". (All forms also accept a trailing colon.)
-        #[clap(name = "FILE")]
+        #[arg(name = "FILE")]
         file_line_column: Option<FileLineColumn>,
     },
 }

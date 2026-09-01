@@ -40,8 +40,6 @@ dirs = { workspace = true }
 #   - sinding terminal resizes to programs.
 nix = { workspace = true }
 
-# Used for running programs.
-subprocess = "0.2.9"
 
 # Used for concurrent programming.
 crossbeam = { workspace = true }
