@@ -2,15 +2,16 @@
 
 use std::fmt::{Display, Error as FmtError, Formatter};
 use std::path::{Path, PathBuf};
-
-use serde::{Deserialize, Serialize};
-use typed_builder::TypedBuilder;
-use uuid::Uuid;
+use std::time::Duration;
 
 use file_info::FileInfo;
 use file_type::FileType;
 use path_finder::Entry;
 use phrase_searcher::FileHit;
+
+use serde::{Deserialize, Serialize};
+use typed_builder::TypedBuilder;
+use uuid::Uuid;
 
 #[derive(Debug, TypedBuilder, Serialize, Deserialize)]
 pub struct Request {
@@ -232,6 +233,10 @@ impl Display for GetFilesError {
 #[derive(Debug, TypedBuilder, Serialize, Deserialize)]
 pub struct FindFilesResponseParams {
     entries: Vec<Entry>,
+    /// The number of files which have been searched so far.
+    searched: usize,
+    /// The duration of the search so far.
+    duration: Duration,
 }
 
 impl FindFilesResponseParams {
@@ -241,6 +246,16 @@ impl FindFilesResponseParams {
 
     pub fn is_empty(&self) -> bool {
         return self.entries.is_empty();
+    }
+
+    /// Return the number of files which have been searched so far.
+    pub fn searched(&self) -> usize {
+        self.searched
+    }
+
+    /// Return the duration of the search so far.
+    pub fn duration(&self) -> Duration {
+        self.duration
     }
 }
 
@@ -286,6 +301,10 @@ impl Display for CreateFileError {
 #[derive(Debug, TypedBuilder, Serialize, Deserialize)]
 pub struct SearchPhraseResponseParams {
     hits: Vec<FileHit>,
+    /// The number of files which have been searched so far.
+    searched: usize,
+    /// The duration of the search so far.
+    duration: Duration,
 }
 
 impl SearchPhraseResponseParams {
@@ -295,6 +314,16 @@ impl SearchPhraseResponseParams {
 
     pub fn is_empty(&self) -> bool {
         return self.hits.is_empty();
+    }
+
+    /// Return the number of files which have been searched so far.
+    pub fn searched(&self) -> usize {
+        self.searched
+    }
+
+    /// Return the duration of the search so far.
+    pub fn duration(&self) -> Duration {
+        self.duration
     }
 }
 

@@ -1,9 +1,9 @@
 mod props {
     use std::path::PathBuf;
 
-    use typed_builder::TypedBuilder;
-
     use file_type::FileType;
+
+    use typed_builder::TypedBuilder;
 
     #[derive(TypedBuilder)]
     pub struct Props {
@@ -24,13 +24,13 @@ mod props {
 pub use props::Props;
 
 mod file_creator {
-    use rend::{Fabric, Size};
-    use til::Component;
-
     use super::Event;
     use super::{Action, Effect, Props, State};
-    use crate::components::common::{PhraseEffect, PhraseEvent};
+    use crate::components::common::{Footer, FooterProps, PhraseEffect, PhraseEvent};
     use crate::Stateful;
+
+    use rend::{Fabric, Size};
+    use til::Component;
 
     pub struct FileCreator {
         state: State,
@@ -41,6 +41,10 @@ mod file_creator {
             Self {
                 state: State::from(props),
             }
+        }
+
+        fn name(&self) -> String {
+            String::from(self.state.name())
         }
 
         fn handle(&mut self, event: Event) -> Option<Effect> {
@@ -100,17 +104,22 @@ mod file_creator {
                     let phrase_fabric = self.state.phrase.render(Size::new(1, columns));
                     fabric = fabric.quilt_bottom(phrase_fabric);
 
-                    match self.state.error() {
-                        Some(error) => {
-                            let error_fabric = Fabric::center(error, Size::new(rows - 2, columns));
-                            fabric = fabric.quilt_bottom(error_fabric);
-                        }
-                        None => {
-                            fabric.pad_bottom(rows);
-                        }
+                    if rows > 3 {
+                        let error_size = Size::new(rows - 3, columns);
+                        let error_fabric = match self.state.error() {
+                            Some(error) => Fabric::center(error, error_size),
+                            None => Fabric::new(error_size),
+                        };
+                        fabric = fabric.quilt_bottom(error_fabric);
                     }
 
-                    fabric
+                    let footer_props = FooterProps::builder()
+                        .name(self.name())
+                        .info(&self.state)
+                        .build();
+                    let footer_fabric = Footer::new(footer_props).render(Size::new(1, columns));
+
+                    fabric.quilt_bottom(footer_fabric)
                 }
             }
         }
@@ -132,7 +141,9 @@ pub use event::Event;
 mod state {
     use std::path::PathBuf;
 
-    use uuid::Uuid;
+    use super::{Action, Effect, Props};
+    use crate::components::common::{Dir, DirProps, FooterInfo, Phrase, PhraseEvent};
+    use crate::Stateful;
 
     use file_type::FileType;
     use insh_api::{
@@ -141,10 +152,7 @@ mod state {
     };
     use til::Component;
 
-    use super::{Action, Effect, Props};
-    use crate::components::common::PhraseEvent;
-    use crate::components::common::{Dir, DirProps, Phrase};
-    use crate::Stateful;
+    use uuid::Uuid;
 
     pub struct State {
         dir: PathBuf,
@@ -186,6 +194,9 @@ mod state {
         }
     }
 
+    /// The footer only names what is being created, since there is nothing else to show.
+    impl FooterInfo for State {}
+
     impl State {
         pub fn dir_component(&self) -> &Dir {
             &self.dir_component
@@ -193,6 +204,14 @@ mod state {
 
         pub fn error(&self) -> &Option<String> {
             &self.error
+        }
+
+        /// Return the name of what is being created shown in the footer.
+        pub fn name(&self) -> &str {
+            match self.file_type {
+                FileType::Dir => "directory creator",
+                _ => "file creator",
+            }
         }
 
         fn create_file(&mut self, filename: &str) -> Option<Effect> {

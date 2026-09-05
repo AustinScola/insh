@@ -2,6 +2,7 @@ mod props {
     use std::path::PathBuf;
 
     use rend::Size;
+
     use typed_builder::TypedBuilder;
 
     #[derive(TypedBuilder)]
@@ -13,15 +14,16 @@ mod props {
 pub use props::Props;
 
 mod contents {
+    use std::path::{Path, MAIN_SEPARATOR as PATH_SEPARATOR};
+
     use super::{Action, Effect, Event, Props, State};
     use crate::color::Color;
+    use crate::components::common::FooterInfo;
     use crate::stateful::Stateful;
 
     use rend::{Fabric, Size, Yarn};
     use term::{Key, KeyEvent, KeyMods, TermEvent};
     use til::Component;
-
-    use std::path::{Path, MAIN_SEPARATOR as PATH_SEPARATOR};
 
     pub struct Contents {
         state: State,
@@ -147,6 +149,24 @@ mod contents {
             }
         }
     }
+
+    /// The footer shows how finding the files is going and which of the hits is selected.
+    impl FooterInfo for Contents {
+        fn text(&self) -> String {
+            self.state.progress()
+        }
+
+        fn position(&self) -> String {
+            let hits: usize = self.state.entries().len();
+
+            match self.state.entry_number() {
+                Some(entry_number) if entry_number < hits => {
+                    format!("{}/{}", entry_number + 1, hits)
+                }
+                _ => String::new(),
+            }
+        }
+    }
 }
 pub use contents::Contents;
 
@@ -164,6 +184,10 @@ mod event {
 pub use event::Event;
 
 mod state {
+    use std::cmp::{self, Ordering};
+    use std::path::{Path, PathBuf, MAIN_SEPARATOR as PATH_SEPARATOR};
+    use std::time::Duration;
+
     use super::{Action, Effect, Props};
     use crate::clipboard::Clipboard;
     use crate::programs::{VimArgs, VimArgsBuilder};
@@ -172,9 +196,6 @@ mod state {
     use insh_api::{FindFilesResponseParams, Response, ResponseParams};
     use path_finder::Entry;
     use rend::Size;
-
-    use std::cmp::{self, Ordering};
-    use std::path::{Path, PathBuf, MAIN_SEPARATOR as PATH_SEPARATOR};
 
     use uuid::Uuid;
 
@@ -189,6 +210,10 @@ mod state {
         offset: usize,
         pending_request: Option<Uuid>,
         received_first_resp: bool,
+        /// The number of files which have been searched.
+        files_searched: usize,
+        /// The duration of the search so far.
+        duration: Duration,
     }
 
     impl From<Props> for State {
@@ -204,6 +229,8 @@ mod state {
                 offset: 0,
                 pending_request: None,
                 received_first_resp: false,
+                files_searched: 0,
+                duration: Duration::ZERO,
             }
         }
     }
@@ -211,6 +238,27 @@ mod state {
     impl State {
         pub fn dir(&self) -> &PathBuf {
             &self.dir
+        }
+
+        /// Return how finding the files is going (or nothing if no files have been looked for).
+        pub fn progress(&self) -> String {
+            if self.phrase.is_none() {
+                return String::new();
+            }
+
+            format!(
+                "{} file{} searched ({:.2}s)",
+                self.files_searched,
+                match self.files_searched {
+                    1 => "",
+                    _ => "s",
+                },
+                self.duration.as_secs_f64(),
+            )
+        }
+
+        pub fn entries(&self) -> &[Entry] {
+            &self.entries
         }
 
         pub fn focussed(&self) -> bool {
@@ -234,7 +282,7 @@ mod state {
             self.selected
         }
 
-        fn entry_number(&self) -> Option<usize> {
+        pub fn entry_number(&self) -> Option<usize> {
             self.selected.map(|selected| self.offset + selected)
         }
 
@@ -295,6 +343,8 @@ mod state {
             let uuid: Uuid = Uuid::new_v4();
             self.pending_request = Some(uuid);
             self.received_first_resp = false;
+            self.files_searched = 0;
+            self.duration = Duration::ZERO;
             Some(Effect::SendFindFilesRequest {
                 uuid,
                 dir: self.dir.clone(),
@@ -303,7 +353,9 @@ mod state {
         }
 
         fn down(&mut self) -> Option<Effect> {
-            if self.entries.is_empty() {
+            // There is nowhere to move to if none of the hits are shown (which happens when the
+            // terminal is too short for anything but the directory, the phrase, and the footer).
+            if self.entries.is_empty() || self.size.rows == 0 {
                 return None;
             }
 
@@ -322,7 +374,9 @@ mod state {
 
         /// Select the last hit and adjust the scroll position if necessary.
         fn really_down(&mut self) -> Option<Effect> {
-            if self.entries.is_empty() {
+            // There is nowhere to move to if none of the hits are shown (which happens when the
+            // terminal is too short for anything but the directory, the phrase, and the footer).
+            if self.entries.is_empty() || self.size.rows == 0 {
                 return None;
             }
 
@@ -459,20 +513,28 @@ mod state {
             };
 
             self.entries.extend_from_slice(params.entries());
+            self.files_searched = params.searched();
+            self.duration = params.duration();
 
-            if self.entries.is_empty() && response.last() {
-                self.hits = Some(false);
-                self.selected = None;
-                return Some(Effect::Unfocus);
+            if response.last() {
+                self.pending_request = None;
+            }
+
+            // A response which does not have any entries is only an update of how the finding of
+            // the files is going, so nothing is shown yet unless there is nothing left to find.
+            if self.entries.is_empty() {
+                if response.last() {
+                    self.hits = Some(false);
+                    self.selected = None;
+                    return Some(Effect::Unfocus);
+                }
+
+                return None;
             }
 
             self.hits = Some(true);
             if self.selected.is_none() {
                 self.selected = Some(0);
-            }
-
-            if response.last() {
-                self.pending_request = None;
             }
 
             None
@@ -526,9 +588,9 @@ mod action {
 use action::Action;
 
 mod effect {
-    use crate::programs::VimArgs;
-
     use std::path::PathBuf;
+
+    use crate::programs::VimArgs;
 
     use uuid::Uuid;
 

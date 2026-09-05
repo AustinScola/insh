@@ -2,8 +2,13 @@ use std::cmp::{self, Ordering};
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use typed_builder::TypedBuilder;
-use uuid::Uuid;
+use crate::clipboard::Clipboard;
+use crate::color::Color;
+use crate::components::common::FooterInfo;
+use crate::config::Config;
+use crate::programs::{VimArgs, VimArgsBuilder};
+use crate::request_builders::get_files_request;
+use crate::stateful::Stateful;
 
 use file_info::FileInfo;
 use file_type::FileType;
@@ -12,12 +17,8 @@ use rend::{Fabric, Size, Yarn};
 use term::{Key, KeyEvent, KeyMods, TermEvent};
 use til::Component;
 
-use crate::clipboard::Clipboard;
-use crate::color::Color;
-use crate::config::Config;
-use crate::programs::{VimArgs, VimArgsBuilder};
-use crate::request_builders::get_files_request;
-use crate::stateful::Stateful;
+use typed_builder::TypedBuilder;
+use uuid::Uuid;
 
 /// Contains functionality for rendering the entries of a directory.
 mod entry {
@@ -161,10 +162,11 @@ mod entry {
     mod tests {
         use std::path::PathBuf;
 
-        use file_type::FileType;
-        use test_case::test_case;
-
         use super::*;
+
+        use file_type::FileType;
+
+        use test_case::test_case;
 
         /// Return the number of seconds since the Unix epoch used as the current time by the
         /// tests.
@@ -451,6 +453,25 @@ impl Component<Props, Event, Effect> for Contents {
                 }
                 Err(error) => Fabric::center(&error.to_string(), size),
             },
+        }
+    }
+}
+
+/// The footer shows which of the files of the directory is selected.
+impl FooterInfo for Contents {
+    fn position(&self) -> String {
+        let files: usize = match self.state.file_infos() {
+            Some(Ok(file_infos)) => file_infos.len(),
+            _ => {
+                return String::new();
+            }
+        };
+
+        match self.state.entry_number() {
+            Some(entry_number) if entry_number < files => {
+                format!("{}/{}", entry_number + 1, files)
+            }
+            _ => String::new(),
         }
     }
 }
@@ -743,7 +764,9 @@ impl State {
             }
         };
 
-        if file_infos.is_empty() {
+        // There is nowhere to move to if none of the entries are shown (which happens when the
+        // terminal is too short for anything but the directory and the footer).
+        if file_infos.is_empty() || self.size.rows == 0 {
             return None;
         }
 
@@ -777,7 +800,9 @@ impl State {
             }
         };
 
-        if file_infos.is_empty() {
+        // There is nowhere to move to if none of the entries are shown (which happens when the
+        // terminal is too short for anything but the directory and the footer).
+        if file_infos.is_empty() || self.size.rows == 0 {
             return None;
         }
 

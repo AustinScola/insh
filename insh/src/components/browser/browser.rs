@@ -1,7 +1,10 @@
 use std::path::PathBuf;
 
-use typed_builder::TypedBuilder;
-use uuid::Uuid;
+use super::{Contents, ContentsEffect, ContentsEvent, ContentsProps};
+use crate::components::common::{Dir, DirEvent, DirProps, Footer, FooterProps};
+use crate::config::Config;
+use crate::programs::VimArgs;
+use crate::stateful::Stateful;
 
 use file_type::FileType;
 use insh_api::Request;
@@ -10,11 +13,8 @@ use rend::{Fabric, Size};
 use term::TermEvent;
 use til::Component;
 
-use super::{Contents, ContentsEffect, ContentsEvent, ContentsProps};
-use crate::components::common::{Dir, DirEvent, DirProps};
-use crate::config::Config;
-use crate::programs::VimArgs;
-use crate::stateful::Stateful;
+use typed_builder::TypedBuilder;
+use uuid::Uuid;
 
 #[derive(TypedBuilder)]
 pub struct Props {
@@ -37,6 +37,10 @@ impl Component<Props, Event, Effect> for Browser {
         Self { state }
     }
 
+    fn name(&self) -> String {
+        String::from("browser")
+    }
+
     fn handle(&mut self, event: Event) -> Option<Effect> {
         let mut effect: Option<Effect> = None;
         match event {
@@ -49,7 +53,7 @@ impl Component<Props, Event, Effect> for Browser {
             Event::TermEvent(term_event) => {
                 match term_event {
                     TermEvent::Resize(size) => {
-                        let size = Size::new(size.rows - 1, size.columns);
+                        let size = Size::new(size.rows.saturating_sub(2), size.columns);
                         self.state.contents.handle(ContentsEvent::Resize { size });
                     }
                     _ => {
@@ -113,10 +117,21 @@ impl Component<Props, Event, Effect> for Browser {
             1 => self.state.dir.render(size),
             rows => {
                 let columns = size.columns;
-                let fabric: Fabric = self.state.dir.render(Size::new(1, columns));
-                let contents_fabric: Fabric =
-                    self.state.contents.render(Size::new(rows - 1, columns));
-                fabric.quilt_bottom(contents_fabric)
+                let mut fabric: Fabric = self.state.dir.render(Size::new(1, columns));
+
+                if rows > 2 {
+                    let contents_fabric: Fabric =
+                        self.state.contents.render(Size::new(rows - 2, columns));
+                    fabric = fabric.quilt_bottom(contents_fabric);
+                }
+
+                let footer_props = FooterProps::builder()
+                    .name(self.name())
+                    .info(&self.state.contents)
+                    .build();
+                let footer_fabric: Fabric = Footer::new(footer_props).render(Size::new(1, columns));
+
+                fabric.quilt_bottom(footer_fabric)
             }
         }
     }
@@ -133,7 +148,7 @@ impl From<Props> for State {
         let dir_props = DirProps::new(props.dir.clone());
         let dir = Dir::new(dir_props);
 
-        let contents_size = Size::new(props.size.rows - 1, props.size.columns);
+        let contents_size = Size::new(props.size.rows.saturating_sub(2), props.size.columns);
         let contents_props = ContentsProps::builder()
             .config(props.config)
             .dir(props.dir)
