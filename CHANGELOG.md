@@ -3,6 +3,7 @@
     - Add `database.pool.size` inshd configuration option.
 - Add `server.request_handlers.num` inshd configuration option.
 - Add footer.
+- Add colored logs and `--color` and `--no-color` arguments to `inshd`.
 
 # 0.4.12
 - Add `inshd logs` command for streaming logs.

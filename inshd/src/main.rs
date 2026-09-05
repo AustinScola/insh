@@ -35,7 +35,7 @@ mod stop;
 
 use crate::args::{Args, Command};
 use crate::config::Config;
-use crate::logging::{configure_logging, ConfiguredLogging};
+use crate::logging::{configure_logging, Color, ColoredLogRecord, ConfiguredLogging};
 use crate::paths::INSHD_PID_FILE;
 use crate::server::{RunOptions, Server};
 
@@ -107,7 +107,7 @@ fn main() {
                 1
             }
         },
-        Command::Logs => match logs() {
+        Command::Logs => match logs(args.color()) {
             Ok(_) => 0,
             Err(error) => {
                 log::error!("{}", error);
@@ -181,6 +181,8 @@ mod start_options {
 
     use crate::args::StartArgs;
 
+    use insh_api::LogRecord;
+
     use crossbeam::channel::Receiver;
     use flexi_logger::LoggerHandle;
 
@@ -191,14 +193,14 @@ mod start_options {
         /// The basic logger handle.
         pub logger_handle: &'a mut LoggerHandle,
         /// A receiver of the log records which have been emitted.
-        pub log_records_rx: Receiver<String>,
+        pub log_records_rx: Receiver<LogRecord>,
     }
 
     impl<'a> StartOptions<'a> {
         /// Return new start options.
         pub fn new(
             logger_handle: &'a mut LoggerHandle,
-            log_records_rx: Receiver<String>,
+            log_records_rx: Receiver<LogRecord>,
             start_args: &StartArgs,
         ) -> Self {
             StartOptions {
@@ -626,6 +628,8 @@ mod restart_options {
     use super::{StartOptions, StopOptions};
     use crate::args::RestartArgs;
 
+    use insh_api::LogRecord;
+
     use crossbeam::channel::Receiver;
     use flexi_logger::LoggerHandle;
 
@@ -641,7 +645,7 @@ mod restart_options {
         /// Return new restart options.
         pub fn new(
             logger_handle: &'a mut LoggerHandle,
-            log_records_rx: Receiver<String>,
+            log_records_rx: Receiver<LogRecord>,
             restart_args: &RestartArgs,
         ) -> Self {
             Self {
@@ -765,7 +769,9 @@ use status_error::StatusError;
 /// Stream the logs of inshd.
 ///
 /// Only the log records which are emitted from this point onwards are streamed.
-fn logs() -> Result<(), LogsError> {
+fn logs(color: Color) -> Result<(), LogsError> {
+    let color: bool = color.color_stdout();
+
     let mut socket: UnixStream = match UnixStream::connect(&*INSHD_SOCKET) {
         Ok(socket) => socket,
         Err(error) => {
@@ -825,7 +831,11 @@ fn logs() -> Result<(), LogsError> {
         };
 
         for record in params.records() {
-            println!("{}", record);
+            if color {
+                println!("{}", ColoredLogRecord::new(record));
+            } else {
+                println!("{}", record);
+            }
         }
     }
 }

@@ -347,6 +347,8 @@ mod run_options {
 
     use crate::config::Config;
 
+    use insh_api::LogRecord;
+
     use crossbeam::channel::Receiver;
     use typed_builder::TypedBuilder;
 
@@ -356,7 +358,7 @@ mod run_options {
         /// The configuration for inshd.
         pub config: Config,
         /// A receiver of the log records which have been emitted.
-        pub log_records_rx: Receiver<String>,
+        pub log_records_rx: Receiver<LogRecord>,
     }
 }
 pub use run_options::RunOptions;

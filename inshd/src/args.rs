@@ -1,5 +1,5 @@
 //! Arguments for inshd.
-use crate::logging::LogOptions;
+use crate::logging::{Color, LogOptions};
 use common::args::ModuleLogLevelFilter;
 
 use std::error::Error;
@@ -27,6 +27,14 @@ pub struct Args {
     #[arg(display_order = 2, long = "module-log-level", id = "MODULE_LOG_LEVEL")]
     module_log_level_filters: Vec<ModuleLogLevelFilter>,
 
+    /// Color the logs.
+    #[arg(display_order = 3, long = "color", conflicts_with = "no_color")]
+    color: bool,
+
+    /// Do not color the logs.
+    #[arg(display_order = 4, long = "no-color")]
+    no_color: bool,
+
     /// The command to run.
     #[command(subcommand)]
     command: Command,
@@ -36,6 +44,17 @@ impl Args {
     /// Return the command.
     pub fn command(&self) -> &Command {
         &self.command
+    }
+
+    /// Return whether or not to color the logs.
+    pub fn color(&self) -> Color {
+        if self.color {
+            Color::Always
+        } else if self.no_color {
+            Color::Never
+        } else {
+            Color::Auto
+        }
     }
 }
 
@@ -47,6 +66,7 @@ impl Args {
             .log_spec(self.log_spec())
             .log_file_path(self.log_file_path.clone())
             .stdout_only(matches!(self.command, Command::Logs))
+            .color(self.color())
             .build()
     }
 
