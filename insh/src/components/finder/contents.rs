@@ -191,9 +191,10 @@ mod state {
     use super::{Action, Effect, Props};
     use crate::clipboard::Clipboard;
     use crate::programs::{VimArgs, VimArgsBuilder};
+    use crate::request_builders::find_files_request;
     use crate::stateful::Stateful;
 
-    use insh_api::{FindFilesResponseParams, Response, ResponseParams};
+    use insh_api::{FindFilesResponseParams, Request, Response, ResponseParams};
     use path_finder::Entry;
     use rend::Size;
 
@@ -340,16 +341,14 @@ mod state {
         fn find(&mut self, phrase: &str) -> Option<Effect> {
             self.focus();
             self.phrase = Some(phrase.to_string());
-            let uuid: Uuid = Uuid::new_v4();
-            self.pending_request = Some(uuid);
             self.received_first_resp = false;
             self.files_searched = 0;
             self.duration = Duration::ZERO;
-            Some(Effect::SendFindFilesRequest {
-                uuid,
-                dir: self.dir.clone(),
-                pattern: phrase.to_string(),
-            })
+
+            let request: Request = find_files_request(self.dir.clone(), phrase.to_string());
+            self.pending_request = Some(*request.uuid());
+
+            Some(Effect::Request(request))
         }
 
         fn down(&mut self) -> Option<Effect> {
@@ -489,6 +488,12 @@ mod state {
                 }
             };
 
+            if response.uuid() != &pending_request {
+                #[cfg(feature = "logging")]
+                log::debug!("The response is not for the pending request.");
+                return None;
+            }
+
             if !self.received_first_resp {
                 self.hits = None;
                 self.entries.clear();
@@ -496,12 +501,6 @@ mod state {
                 self.offset = 0;
             }
             self.received_first_resp = true;
-
-            if response.uuid() != &pending_request {
-                #[cfg(feature = "logging")]
-                log::debug!("The response is not for the pending request.");
-                return None;
-            }
 
             let params: &FindFilesResponseParams = match response.params() {
                 ResponseParams::FindFiles(params) => params,
@@ -592,19 +591,12 @@ mod effect {
 
     use crate::programs::VimArgs;
 
-    use uuid::Uuid;
+    use insh_api::Request;
 
     pub enum Effect {
         Unfocus,
-        SendFindFilesRequest {
-            uuid: Uuid,
-            dir: PathBuf,
-            pattern: String,
-        },
-        Goto {
-            dir: PathBuf,
-            file: Option<PathBuf>,
-        },
+        Request(Request),
+        Goto { dir: PathBuf, file: Option<PathBuf> },
         OpenVim(VimArgs),
         Bell,
     }

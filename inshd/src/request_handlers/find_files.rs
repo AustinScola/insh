@@ -1,12 +1,14 @@
 //! Handles requests to find files.
 use std::thread::{self, JoinHandle};
 
+use crate::config::Config;
 use crate::file_finder::{FileFinder, FileFinderOptions};
 use crate::file_finder::{FindFilesResult, FoundFiles};
 
 use insh_api::{
     FindFilesRequestParams, FindFilesResponseParams, ResponseParams, ResponseParamsAndLast,
 };
+use insh_db::{find_history, DbConnPool};
 
 use crossbeam::channel::{self, Receiver, Sender};
 
@@ -22,7 +24,19 @@ pub struct FindFiles {
 
 impl FindFiles {
     /// Find files.
-    pub fn run(params: &FindFilesRequestParams) -> FindFiles {
+    pub fn run(
+        params: &FindFilesRequestParams,
+        config: Config,
+        db_conn_pool: &DbConnPool,
+    ) -> FindFiles {
+        // Record the pattern in the find history right away, since the pattern was submitted
+        // regardless of how the find itself turns out. Failing to record it should not stop the
+        // find from happening, so the error is only logged.
+        let history_length: usize = config.finder().history().length();
+        if let Err(error) = find_history::add(db_conn_pool, params.pattern(), history_length) {
+            log::error!("Failed to add the pattern to the find history: {}", error);
+        }
+
         // Create and start a thread to perform the finding of files.
         let (results_tx, results_rx): (Sender<FindFilesResult>, Receiver<FindFilesResult>) =
             channel::unbounded();

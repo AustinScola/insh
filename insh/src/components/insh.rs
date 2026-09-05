@@ -11,7 +11,7 @@ use crate::request_builders::get_files_request;
 use crate::stateful::Stateful;
 
 use file_type::FileType;
-use insh_api::{FindFilesRequestParams, Request, RequestParams, Response};
+use insh_api::{Request, Response};
 use rend::{Fabric, Size};
 use term::{Key, KeyEvent, KeyMods, TermEvent};
 use til::{Component, Event, SystemEffect};
@@ -172,14 +172,7 @@ impl Component<Props, Event<Response>, SystemEffect<Request>> for Insh {
                 let finder = self.state.finder.as_mut().unwrap();
                 let finder_effect: Option<FinderEffect> = finder.handle(event);
                 match finder_effect {
-                    Some(FinderEffect::SendFindFilesRequest { uuid, dir, pattern }) => {
-                        let params: RequestParams = RequestParams::FindFiles(
-                            FindFilesRequestParams::builder()
-                                .dir(dir)
-                                .pattern(pattern)
-                                .build(),
-                        );
-                        let request: Request = Request::builder().uuid(uuid).params(params).build();
+                    Some(FinderEffect::Request(request)) => {
                         return Some(SystemEffect::Request(request));
                     }
                     Some(FinderEffect::Browse { dir, file }) => {

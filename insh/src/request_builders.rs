@@ -39,6 +39,26 @@ mod get_files {
 }
 pub use get_files::get_files_request;
 
+/// Contains functionality for building requests for finding files.
+mod find_files {
+    use std::path::PathBuf;
+
+    use insh_api::{FindFilesRequestParams, Request, RequestParams};
+
+    /// Return a request for finding the files of the directory which match the pattern.
+    pub fn find_files_request(dir: PathBuf, pattern: String) -> Request {
+        Request::builder()
+            .params(RequestParams::FindFiles(
+                FindFilesRequestParams::builder()
+                    .dir(dir)
+                    .pattern(pattern)
+                    .build(),
+            ))
+            .build()
+    }
+}
+pub use find_files::find_files_request;
+
 /// Contains functionality for building requests for searching files for a phrase.
 mod search_phrase {
     use std::path::PathBuf;

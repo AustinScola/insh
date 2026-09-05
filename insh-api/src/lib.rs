@@ -34,6 +34,7 @@ impl Request {
 pub enum RequestParams {
     GetFiles(GetFilesRequestParams),
     FindFiles(FindFilesRequestParams),
+    SuggestFindPattern(SuggestFindPatternRequestParams),
     CreateFile(CreateFileRequestParams),
     SearchPhrase(SearchPhraseRequestParams),
     SuggestSearchPhrase(SuggestSearchPhraseRequestParams),
@@ -116,6 +117,17 @@ impl FindFilesRequestParams {
 }
 
 #[derive(Debug, TypedBuilder, Serialize, Deserialize)]
+pub struct SuggestFindPatternRequestParams {
+    partial: String,
+}
+
+impl SuggestFindPatternRequestParams {
+    pub fn partial(&self) -> &str {
+        &self.partial
+    }
+}
+
+#[derive(Debug, TypedBuilder, Serialize, Deserialize)]
 pub struct CreateFileRequestParams {
     path: PathBuf,
     file_type: FileType,
@@ -188,6 +200,7 @@ impl Response {
 pub enum ResponseParams {
     GetFiles(GetFilesResponseParams),
     FindFiles(FindFilesResponseParams),
+    SuggestFindPattern(SuggestFindPatternResponseParams),
     CreateFile(CreateFileResponseParams),
     SearchPhrase(SearchPhraseResponseParams),
     SuggestSearchPhrase(SuggestSearchPhraseResponseParams),
@@ -256,6 +269,17 @@ impl FindFilesResponseParams {
     /// Return the duration of the search so far.
     pub fn duration(&self) -> Duration {
         self.duration
+    }
+}
+
+#[derive(Debug, TypedBuilder, Serialize, Deserialize)]
+pub struct SuggestFindPatternResponseParams {
+    suggestion: Option<String>,
+}
+
+impl SuggestFindPatternResponseParams {
+    pub fn suggestion(&self) -> &Option<String> {
+        &self.suggestion
     }
 }
 
