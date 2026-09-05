@@ -1498,6 +1498,7 @@ dependencies = [
  "clap",
  "common",
  "crossbeam",
+ "crossterm",
  "daemon",
  "file-info",
  "file-type",

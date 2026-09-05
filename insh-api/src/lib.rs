@@ -341,11 +341,86 @@ impl SuggestSearchPhraseResponseParams {
 /// Response parameters for streaming logs.
 #[derive(Debug, TypedBuilder, Serialize, Deserialize)]
 pub struct StreamLogsResponseParams {
-    records: Vec<String>,
+    records: Vec<LogRecord>,
 }
 
 impl StreamLogsResponseParams {
-    pub fn records(&self) -> &Vec<String> {
+    pub fn records(&self) -> &Vec<LogRecord> {
         &self.records
+    }
+}
+
+/// A log record.
+#[derive(Debug, Clone, TypedBuilder, Serialize, Deserialize)]
+pub struct LogRecord {
+    /// When the record was emitted.
+    timestamp: String,
+    /// The severity of the record.
+    level: LogLevel,
+    /// The module which emitted the record.
+    module: String,
+    /// The thread which emitted the record.
+    thread: String,
+    /// The message of the record.
+    message: String,
+}
+
+impl LogRecord {
+    pub fn timestamp(&self) -> &str {
+        &self.timestamp
+    }
+
+    pub fn level(&self) -> LogLevel {
+        self.level
+    }
+
+    pub fn module(&self) -> &str {
+        &self.module
+    }
+
+    pub fn thread(&self) -> &str {
+        &self.thread
+    }
+
+    pub fn message(&self) -> &str {
+        &self.message
+    }
+}
+
+impl Display for LogRecord {
+    fn fmt(&self, formatter: &mut Formatter<'_>) -> Result<(), FmtError> {
+        write!(
+            formatter,
+            "{} {} [{}] [{}] {}",
+            self.timestamp, self.level, self.module, self.thread, self.message
+        )
+    }
+}
+
+/// The severity of a log record.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum LogLevel {
+    /// A very serious error.
+    Error,
+    /// A hazardous situation.
+    Warn,
+    /// Useful information.
+    Info,
+    /// Information which is useful for debugging.
+    Debug,
+    /// Very low priority information.
+    Trace,
+}
+
+impl Display for LogLevel {
+    fn fmt(&self, formatter: &mut Formatter<'_>) -> Result<(), FmtError> {
+        let string: &str = match self {
+            Self::Error => "ERROR",
+            Self::Warn => "WARN",
+            Self::Info => "INFO",
+            Self::Debug => "DEBUG",
+            Self::Trace => "TRACE",
+        };
+        write!(formatter, "{}", string)
     }
 }

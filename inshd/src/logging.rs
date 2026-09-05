@@ -1,17 +1,21 @@
 //! Logging.
-use std::io::{Error as IOError, Write};
+use std::fmt::{Display, Error as FmtError, Formatter};
+use std::io::{stdout, Error as IOError, IsTerminal, Write};
 use std::path::PathBuf;
 use std::thread;
 
 use crate::paths::INSHD_LOGS_DIR;
 
 use common::paths::make_private_dir;
+use insh_api::{LogLevel, LogRecord};
 
 use crossbeam::channel::{self, Receiver, Sender};
+use crossterm::style::Stylize;
 use flexi_logger::writers::LogWriter;
 use flexi_logger::{
-    Age, Cleanup, Criterion, DeferredNow, FileSpec, LevelFilter as LogLevelFilter,
-    LogSpecification as LogSpec, Logger, LoggerHandle, Naming, Record,
+    AdaptiveFormat, Age, Cleanup, Criterion, DeferredNow, FileSpec, Level,
+    LevelFilter as LogLevelFilter, LogSpecification as LogSpec, Logger, LoggerHandle, Naming,
+    Record,
 };
 use typed_builder::TypedBuilder;
 
@@ -24,7 +28,7 @@ pub struct ConfiguredLogging {
     /// A handle to the logger.
     pub logger_handle: LoggerHandle,
     /// A receiver of the log records which have been emitted.
-    pub records_rx: Receiver<String>,
+    pub records_rx: Receiver<LogRecord>,
 }
 
 /// Configure logging.
@@ -34,13 +38,22 @@ pub fn configure_logging(options: &LogOptions) -> ConfiguredLogging {
         log_file_path,
         log_spec,
         stdout_only,
+        color,
     } = options;
 
-    let (records_tx, records_rx): (Sender<String>, Receiver<String>) =
+    let (records_tx, records_rx): (Sender<LogRecord>, Receiver<LogRecord>) =
         channel::bounded(LOG_RECORD_BUFFER_SIZE);
     let record_sender: Box<dyn LogWriter> = Box::new(LogRecordSender::new(records_tx));
 
+    // NOTE: The format is set for every writer here and then overridden for stdout below, so that
+    // the log files are never colored.
     let mut logger = Logger::with(log_spec.clone()).format(log_format);
+    logger = match color {
+        Color::Always => logger.format_for_stdout(colored_log_format),
+        Color::Never => logger,
+        Color::Auto => logger
+            .adaptive_format_for_stdout(AdaptiveFormat::Custom(log_format, colored_log_format)),
+    };
 
     if *stdout_only {
         logger = logger.log_to_stdout();
@@ -89,17 +102,42 @@ pub struct LogOptions {
     /// Doing so can rotate the log file the running daemon is writing to out from under it.
     #[builder(default = false)]
     stdout_only: bool,
+    /// Whether or not to color the logs.
+    #[builder(default = Color::Auto)]
+    color: Color,
+}
+
+/// Whether or not to color the logs.
+#[derive(Clone, Copy, Debug)]
+pub enum Color {
+    /// Always color the logs.
+    Always,
+    /// Never color the logs.
+    Never,
+    /// Color the logs only when they are being written to a terminal.
+    Auto,
+}
+
+impl Color {
+    /// Return whether or not the logs written to standard output should be colored.
+    pub fn color_stdout(&self) -> bool {
+        match self {
+            Self::Always => true,
+            Self::Never => false,
+            Self::Auto => stdout().is_terminal(),
+        }
+    }
 }
 
 /// Sends log records to be streamed to clients.
 struct LogRecordSender {
     /// A sender of log records.
-    records_tx: Sender<String>,
+    records_tx: Sender<LogRecord>,
 }
 
 impl LogRecordSender {
     /// Return a new sender of log records.
-    fn new(records_tx: Sender<String>) -> Self {
+    fn new(records_tx: Sender<LogRecord>) -> Self {
         Self { records_tx }
     }
 }
@@ -109,16 +147,41 @@ impl LogWriter for LogRecordSender {
     // blocking here would stall all logging in the daemon, and logging here would be recursive.
     // Records are dropped if no one is receiving them or if the receiver has fallen behind.
     fn write(&self, now: &mut DeferredNow, record: &Record) -> Result<(), IOError> {
-        let mut buffer: Vec<u8> = Vec::new();
-        log_format(&mut buffer, now, record)?;
-        let _ = self
-            .records_tx
-            .try_send(String::from_utf8_lossy(&buffer).into_owned());
+        let _ = self.records_tx.try_send(log_record(now, record));
         Ok(())
     }
 
     fn flush(&self) -> Result<(), IOError> {
         Ok(())
+    }
+}
+
+/// Return the log record which a record of the logging framework corresponds to.
+fn log_record(now: &mut DeferredNow, record: &Record) -> LogRecord {
+    LogRecord::builder()
+        .timestamp(now.now().format("%d-%m-%Y %H:%M.%S").to_string())
+        .level(record.level().log_level())
+        .module(record.module_path().unwrap_or("<unnamed>").to_string())
+        .thread(thread::current().name().unwrap_or("<unnamed>").to_string())
+        .message(record.args().to_string())
+        .build()
+}
+
+/// Conversion to a log level.
+trait ToLogLevel {
+    /// Return the log level which this corresponds to.
+    fn log_level(&self) -> LogLevel;
+}
+
+impl ToLogLevel for Level {
+    fn log_level(&self) -> LogLevel {
+        match self {
+            Self::Error => LogLevel::Error,
+            Self::Warn => LogLevel::Warn,
+            Self::Info => LogLevel::Info,
+            Self::Debug => LogLevel::Debug,
+            Self::Trace => LogLevel::Trace,
+        }
     }
 }
 
@@ -128,13 +191,54 @@ pub fn log_format(
     now: &mut DeferredNow,
     record: &Record,
 ) -> Result<(), IOError> {
+    write!(writer, "{}", log_record(now, record))
+}
+
+/// Format log records with color.
+pub fn colored_log_format(
+    writer: &mut dyn Write,
+    now: &mut DeferredNow,
+    record: &Record,
+) -> Result<(), IOError> {
     write!(
         writer,
-        "{} {} [{}] [{}] {}",
-        now.now().format("%d-%m-%Y %H:%M.%S"),
-        record.level(),
-        record.module_path().unwrap_or("<unnamed>"),
-        thread::current().name().unwrap_or("<unnamed>"),
-        record.args()
+        "{}",
+        ColoredLogRecord::new(&log_record(now, record))
     )
+}
+
+/// A log record which is displayed with color.
+pub struct ColoredLogRecord<'a> {
+    /// The log record.
+    record: &'a LogRecord,
+}
+
+impl<'a> ColoredLogRecord<'a> {
+    /// Return a new colored log record.
+    pub fn new(record: &'a LogRecord) -> Self {
+        Self { record }
+    }
+}
+
+impl Display for ColoredLogRecord<'_> {
+    fn fmt(&self, formatter: &mut Formatter<'_>) -> Result<(), FmtError> {
+        let level = self.record.level();
+        let level = match level {
+            LogLevel::Error => level.to_string().red(),
+            LogLevel::Warn => level.to_string().dark_yellow(),
+            LogLevel::Info => level.to_string().green(),
+            LogLevel::Debug => level.to_string().blue(),
+            LogLevel::Trace => level.to_string().dark_grey(),
+        };
+
+        write!(
+            formatter,
+            "{} {} {} {} {}",
+            self.record.timestamp().blue(),
+            level,
+            format!("[{}]", self.record.module()).dark_grey(),
+            format!("[{}]", self.record.thread()).dark_grey(),
+            self.record.message()
+        )
+    }
 }

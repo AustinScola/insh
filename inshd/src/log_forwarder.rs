@@ -4,7 +4,7 @@ use crate::disconnected_client::DisconnectedClient;
 use crate::log_subscription::LogSubscription;
 use crate::stop::Stop;
 
-use insh_api::{Response, ResponseParams, StreamLogsResponseParams};
+use insh_api::{LogRecord, Response, ResponseParams, StreamLogsResponseParams};
 
 use std::collections::HashMap;
 
@@ -16,7 +16,7 @@ use uuid::Uuid;
 #[derive(TypedBuilder)]
 pub struct LogForwarder {
     /// A receiver of log records.
-    records_rx: Receiver<String>,
+    records_rx: Receiver<LogRecord>,
     /// A receiver of subscriptions to the logs.
     subscriptions_rx: Receiver<LogSubscription>,
     /// A receiver of information about clients disconnecting.
@@ -102,7 +102,7 @@ impl LogForwarder {
     }
 
     /// Handle a log record.
-    fn handle_record(&mut self, record: String) {
+    fn handle_record(&mut self, record: LogRecord) {
         // NOTE: Nothing in here may log. Log records emitted here would be forwarded, which would
         // emit more log records, and so on forever.
         for request_uuid in self.subscriptions.values().copied().collect::<Vec<Uuid>>() {
@@ -111,7 +111,7 @@ impl LogForwarder {
     }
 
     /// Send log records as a response to a request to stream the logs.
-    fn send(&self, request_uuid: Uuid, records: Vec<String>, last: bool) {
+    fn send(&self, request_uuid: Uuid, records: Vec<LogRecord>, last: bool) {
         let response: Response = Response::builder()
             .uuid(request_uuid)
             .last(last)
