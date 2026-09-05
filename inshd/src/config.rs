@@ -12,9 +12,15 @@ use serde::Deserialize;
 /// The number of request handlers to run.
 const DEFAULT_NUM_REQUEST_HANDLERS: usize = 8;
 
+/// The maximum length of the Finder history.
+const DEFAULT_FINDER_HISTORY_LENGTH: usize = 1000;
+
 /// Configuration options.
 #[derive(Deserialize, Debug, Default, Clone, Eq, PartialEq)]
 pub struct Config {
+    /// Configuration of the Finder.
+    #[serde(default)]
+    finder: FinderConfig,
     /// Configuration of the Searcher.
     #[serde(default)]
     searcher: SearcherConfig,
@@ -72,6 +78,11 @@ impl Config {
         }
 
         Ok(())
+    }
+
+    /// Return the finder configuration.
+    pub fn finder(&self) -> &FinderConfig {
+        &self.finder
     }
 
     /// Return the searcher configuration.
@@ -157,6 +168,49 @@ pub struct DatabasePoolConfig {
     /// [`Config::db_conn_pool_size`] resolves.
     #[serde(default)]
     size: Option<u32>,
+}
+
+/// Configuration for the Finder.
+#[derive(Deserialize, Debug, Default, Clone, Eq, PartialEq)]
+pub struct FinderConfig {
+    /// Configuration for the Finder history.
+    #[serde(default)]
+    history: FinderHistoryConfig,
+}
+
+impl FinderConfig {
+    /// Return the finder history configuration.
+    pub fn history(&self) -> &FinderHistoryConfig {
+        &self.history
+    }
+}
+
+/// Configuration for the Finder history.
+#[derive(Deserialize, Debug, Clone, Eq, PartialEq)]
+pub struct FinderHistoryConfig {
+    /// The maximum length of the finder history.
+    #[serde(default = "FinderHistoryConfig::default_length")]
+    length: usize,
+}
+
+impl Default for FinderHistoryConfig {
+    fn default() -> Self {
+        Self {
+            length: Self::default_length(),
+        }
+    }
+}
+
+impl FinderHistoryConfig {
+    /// Return the default maximum length of the finder history.
+    fn default_length() -> usize {
+        DEFAULT_FINDER_HISTORY_LENGTH
+    }
+
+    /// Return the maximum length of the finder history.
+    pub fn length(&self) -> usize {
+        self.length
+    }
 }
 
 /// Configuration for the Searcher.

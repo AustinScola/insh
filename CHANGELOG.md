@@ -4,6 +4,7 @@
 - Add `server.request_handlers.num` inshd configuration option.
 - Add footer.
 - Add colored logs and `--color` and `--no-color` arguments to `inshd`.
+- Add finder suggestions.
 
 # 0.4.12
 - Add `inshd logs` command for streaming logs.

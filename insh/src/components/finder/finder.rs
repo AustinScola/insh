@@ -22,7 +22,9 @@ mod finder {
     use crate::components::common::{Footer, FooterProps, PhraseEffect, PhraseEvent};
     use crate::stateful::Stateful;
 
-    use insh_api::Response;
+    use insh_api::{
+        Request, RequestParams, Response, ResponseParams, SuggestFindPatternRequestParams,
+    };
     use rend::{Fabric, Size};
     use term::TermEvent;
     use til::{Component, Event};
@@ -52,48 +54,58 @@ mod finder {
                 }
                 _ => match self.state.focus() {
                     Focus::Phrase => {
-                        let event = match event {
-                            Event::TermEvent(event) => event,
-                            Event::Response(_) => {
-                                #[cfg(feature = "logging")]
-                                log::warn!("Phrase doesn't handle responses yet.");
-                                return None;
+                        let phrase_event = match event {
+                            Event::TermEvent(term_event) => PhraseEvent::TermEvent(term_event),
+                            Event::Response(response) => {
+                                let suggestion = match response.params() {
+                                    ResponseParams::SuggestFindPattern(params) => {
+                                        params.suggestion().clone()
+                                    }
+                                    // Responses for a find which is still streaming arrive here
+                                    // when the contents are unfocused before the find is done.
+                                    ResponseParams::FindFiles(_) => {
+                                        #[cfg(feature = "logging")]
+                                        log::debug!(
+                                            "Ignoring a response for a find which is not focused."
+                                        );
+                                        return None;
+                                    }
+                                    _ => {
+                                        #[cfg(feature = "logging")]
+                                        log::error!("Unexpected response parameters.");
+                                        return None;
+                                    }
+                                };
+                                PhraseEvent::Completion {
+                                    uuid: *response.uuid(),
+                                    completion: suggestion,
+                                }
                             }
                         };
 
                         let mut action: Option<Action> = None;
 
-                        let phrase_event = PhraseEvent::TermEvent(event);
                         let phrase_effect = self.state.phrase.handle(phrase_event);
                         match phrase_effect {
                             Some(PhraseEffect::Enter { phrase }) => {
                                 self.state.perform(Action::FocusContents);
                                 let contents_effect =
                                     self.state.contents.handle(ContentsEvent::Find { phrase });
-                                match contents_effect {
-                                    Some(ContentsEffect::SendFindFilesRequest {
-                                        uuid,
-                                        dir,
-                                        pattern,
-                                    }) => {
-                                        return Some(Effect::SendFindFilesRequest {
-                                            uuid,
-                                            dir,
-                                            pattern,
-                                        })
-                                    }
-                                    _ => {}
+                                if let Some(ContentsEffect::Request(request)) = contents_effect {
+                                    return Some(Effect::Request(request));
                                 }
                             }
                             Some(PhraseEffect::Bell) => {
                                 return Some(Effect::Bell);
                             }
-                            // The phrase here is never completable, so this is never emitted.
-                            Some(PhraseEffect::RequestCompletion { .. }) => {
-                                #[cfg(feature = "logging")]
-                                log::warn!(
-                                    "The phrase is not completable but a completion was requested."
+                            Some(PhraseEffect::RequestCompletion { uuid, partial }) => {
+                                let params = RequestParams::SuggestFindPattern(
+                                    SuggestFindPatternRequestParams::builder()
+                                        .partial(partial)
+                                        .build(),
                                 );
+                                let request = Request::builder().uuid(uuid).params(params).build();
+                                return Some(Effect::Request(request));
                             }
                             Some(PhraseEffect::Quit) => {
                                 action = Some(Action::Quit);
@@ -119,8 +131,8 @@ mod finder {
                                 self.state.phrase.handle(PhraseEvent::Focus);
                                 None
                             }
-                            Some(ContentsEffect::SendFindFilesRequest { uuid, dir, pattern }) => {
-                                Some(Effect::SendFindFilesRequest { uuid, dir, pattern })
+                            Some(ContentsEffect::Request(request)) => {
+                                Some(Effect::Request(request))
                             }
                             Some(ContentsEffect::Goto { dir, file }) => {
                                 Some(Effect::Browse { dir, file })
@@ -195,7 +207,12 @@ mod state {
             let dir_props = DirProps::new(props.dir.clone());
             let dir = Dir::new(dir_props);
 
-            let phrase = Phrase::new(PhraseProps::builder().value(props.phrase).build());
+            let phrase = Phrase::new(
+                PhraseProps::builder()
+                    .completable(true)
+                    .value(props.phrase)
+                    .build(),
+            );
 
             let contents_size = Size::new(props.size.rows.saturating_sub(3), props.size.columns);
             let contents_props = ContentsProps::builder()
@@ -275,22 +292,15 @@ mod action {
 use action::Action;
 
 mod effect {
-    use crate::programs::VimArgs;
-
     use std::path::PathBuf;
 
-    use uuid::Uuid;
+    use crate::programs::VimArgs;
+
+    use insh_api::Request;
 
     pub enum Effect {
-        SendFindFilesRequest {
-            uuid: Uuid,
-            dir: PathBuf,
-            pattern: String,
-        },
-        Browse {
-            dir: PathBuf,
-            file: Option<PathBuf>,
-        },
+        Request(Request),
+        Browse { dir: PathBuf, file: Option<PathBuf> },
         OpenVim(VimArgs),
         Bell,
         Quit,

@@ -5,6 +5,14 @@
 #![allow(missing_docs, clippy::missing_docs_in_private_items)]
 
 diesel::table! {
+    find_history (id) {
+        id -> Int8,
+        pattern -> Text,
+        last_found -> Timestamptz,
+    }
+}
+
+diesel::table! {
     search_history (id) {
         id -> Int8,
         phrase -> Text,
