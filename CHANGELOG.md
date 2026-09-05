@@ -1,7 +1,8 @@
 # 0.5.0
 - Use PostgreSQL for data storage instead of a file.
-    - Add `database.pool.size` inshd configuration option
-- Add `server.request_handlers.num` inshd configuration option
+    - Add `database.pool.size` inshd configuration option.
+- Add `server.request_handlers.num` inshd configuration option.
+- Add footer.
 
 # 0.4.12
 - Add `inshd logs` command for streaming logs.
@@ -65,7 +66,7 @@ ANSI escape codes for enabling and disabling the alternative screen.
 
 # 0.3.18
 - Add making of the bell sound for invalid commands. This can be turned off via the configuration
-setting `general.bell`.
+option `general.bell`.
 
 # 0.3.17
 - Fix yanking on Ubuntu 22.04.
