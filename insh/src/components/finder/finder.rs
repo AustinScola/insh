@@ -1,7 +1,7 @@
 mod props {
-    use rend::Size;
-
     use std::path::PathBuf;
+
+    use rend::Size;
 
     use typed_builder::TypedBuilder;
 
@@ -19,14 +19,13 @@ pub use props::Props;
 mod finder {
     use super::super::{ContentsEffect, ContentsEvent};
     use super::{Action, Effect, Focus, Props, State};
-    use crate::components::common::{PhraseEffect, PhraseEvent};
+    use crate::components::common::{Footer, FooterProps, PhraseEffect, PhraseEvent};
     use crate::stateful::Stateful;
 
     use insh_api::Response;
     use rend::{Fabric, Size};
-    use til::{Component, Event};
-
     use term::TermEvent;
+    use til::{Component, Event};
 
     pub struct Finder {
         state: State,
@@ -38,10 +37,14 @@ mod finder {
             Finder { state }
         }
 
+        fn name(&self) -> String {
+            String::from("finder")
+        }
+
         fn handle(&mut self, event: Event<Response>) -> Option<Effect> {
             match event {
                 Event::TermEvent(TermEvent::Resize(size)) => {
-                    let contents_size = Size::new(size.rows.saturating_sub(2), size.columns);
+                    let contents_size = Size::new(size.rows.saturating_sub(3), size.columns);
                     self.state
                         .contents
                         .handle(ContentsEvent::TermEvent(TermEvent::Resize(contents_size)));
@@ -151,9 +154,19 @@ mod finder {
                     let phrase_fabric = self.state.phrase.render(Size::new(1, columns));
                     fabric = fabric.quilt_bottom(phrase_fabric);
 
-                    let contents_fabric =
-                        self.state.contents().render(Size::new(rows - 2, columns));
-                    fabric.quilt_bottom(contents_fabric)
+                    if rows > 3 {
+                        let contents_fabric =
+                            self.state.contents().render(Size::new(rows - 3, columns));
+                        fabric = fabric.quilt_bottom(contents_fabric);
+                    }
+
+                    let footer_props = FooterProps::builder()
+                        .name(self.name())
+                        .info(self.state.contents())
+                        .build();
+                    let footer_fabric = Footer::new(footer_props).render(Size::new(1, columns));
+
+                    fabric.quilt_bottom(footer_fabric)
                 }
             }
         }
@@ -184,7 +197,7 @@ mod state {
 
             let phrase = Phrase::new(PhraseProps::builder().value(props.phrase).build());
 
-            let contents_size = Size::new(props.size.rows.saturating_sub(2), props.size.columns);
+            let contents_size = Size::new(props.size.rows.saturating_sub(3), props.size.columns);
             let contents_props = ContentsProps::builder()
                 .dir(props.dir)
                 .size(contents_size)

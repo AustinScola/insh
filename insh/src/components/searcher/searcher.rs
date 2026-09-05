@@ -1,10 +1,11 @@
 mod props {
+    use std::path::PathBuf;
+
     use crate::config::Config;
 
     use rend::Size;
-    use uuid::Uuid;
 
-    use std::path::PathBuf;
+    use uuid::Uuid;
 
     pub struct Props {
         pub config: Config,
@@ -37,8 +38,7 @@ pub use props::Props;
 mod searcher {
     use super::super::{ContentsEffect, ContentsEvent};
     use super::{Action, Effect, Focus, Props, State};
-
-    use crate::components::common::{PhraseEffect, PhraseEvent};
+    use crate::components::common::{Footer, FooterProps, PhraseEffect, PhraseEvent};
     use crate::Stateful;
 
     use insh_api::{
@@ -58,10 +58,50 @@ mod searcher {
             Self { state }
         }
 
+        fn name(&self) -> String {
+            String::from("searcher")
+        }
+
+        fn render(&self, size: Size) -> Fabric {
+            match size.rows {
+                0 => Fabric::new(size),
+                1 => self.state.phrase().render(size),
+                2 => {
+                    let columns = size.columns;
+                    let phrase_fabric = self.state.phrase().render(Size::new(1, columns));
+                    let dir_fabric = self.state.dir().render(Size::new(1, columns));
+                    dir_fabric.quilt_bottom(phrase_fabric)
+                }
+                rows => {
+                    let columns = size.columns;
+
+                    let dir_fabric = self.state.dir().render(Size::new(1, columns));
+                    let mut fabric: Fabric = dir_fabric;
+
+                    let phrase_fabric = self.state.phrase().render(Size::new(1, columns));
+                    fabric = fabric.quilt_bottom(phrase_fabric);
+
+                    if rows > 3 {
+                        let contents_fabric =
+                            self.state.contents().render(Size::new(rows - 3, columns));
+                        fabric = fabric.quilt_bottom(contents_fabric);
+                    }
+
+                    let footer_props = FooterProps::builder()
+                        .name(self.name())
+                        .info(self.state.contents())
+                        .build();
+                    let footer_fabric = Footer::new(footer_props).render(Size::new(1, columns));
+
+                    fabric.quilt_bottom(footer_fabric)
+                }
+            }
+        }
+
         fn handle(&mut self, event: Event<Response>) -> Option<Effect> {
             match event {
                 Event::TermEvent(TermEvent::Resize(size)) => {
-                    let contents_size = Size::new(size.rows.saturating_sub(2), size.columns);
+                    let contents_size = Size::new(size.rows.saturating_sub(3), size.columns);
                     self.state
                         .contents
                         .handle(ContentsEvent::TermEvent(TermEvent::Resize(contents_size)));
@@ -150,42 +190,16 @@ mod searcher {
                 },
             }
         }
-
-        fn render(&self, size: Size) -> Fabric {
-            match size.rows {
-                0 => Fabric::new(size),
-                1 => self.state.phrase().render(size),
-                2 => {
-                    let columns = size.columns;
-                    let phrase_fabric = self.state.phrase().render(Size::new(1, columns));
-                    let dir_fabric = self.state.dir().render(Size::new(1, columns));
-                    dir_fabric.quilt_bottom(phrase_fabric)
-                }
-                rows => {
-                    let columns = size.columns;
-
-                    let dir_fabric = self.state.dir().render(Size::new(1, columns));
-                    let mut fabric: Fabric = dir_fabric;
-
-                    let phrase_fabric = self.state.phrase().render(Size::new(1, columns));
-                    fabric = fabric.quilt_bottom(phrase_fabric);
-
-                    let contents_fabric =
-                        self.state.contents().render(Size::new(rows - 2, columns));
-                    fabric.quilt_bottom(contents_fabric)
-                }
-            }
-        }
     }
 }
 pub use searcher::Searcher;
 
 mod effect {
+    use std::path::PathBuf;
+
     use crate::programs::VimArgs;
 
     use insh_api::Request;
-
-    use std::path::PathBuf;
 
     pub enum Effect {
         Goto { dir: PathBuf, file: Option<PathBuf> },
@@ -198,6 +212,8 @@ mod effect {
 pub use effect::Effect;
 
 mod state {
+    use std::path::PathBuf;
+
     use super::super::{Contents, ContentsProps};
     use super::{Action, Effect, Props};
     use crate::components::common::{Dir, DirProps, Phrase, PhraseEvent, PhraseProps};
@@ -206,8 +222,6 @@ mod state {
 
     use rend::Size;
     use til::Component;
-
-    use std::path::PathBuf;
 
     pub struct State {
         focus: Focus,
@@ -278,7 +292,7 @@ mod state {
                 .build();
             let mut phrase = Phrase::new(phrase_props);
 
-            let contents_size = Size::new(props.size.rows.saturating_sub(2), props.size.columns);
+            let contents_size = Size::new(props.size.rows.saturating_sub(3), props.size.columns);
             let contents_props = ContentsProps::new(
                 props.config,
                 props.dir,
@@ -314,9 +328,9 @@ mod state {
 use state::{Focus, State};
 
 mod action {
-    use crate::programs::VimArgs;
-
     use std::path::PathBuf;
+
+    use crate::programs::VimArgs;
 
     pub enum Action {
         FocusPhrase,

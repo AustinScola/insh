@@ -1,15 +1,14 @@
 //! Handles requests to find files.
 use std::thread::{self, JoinHandle};
 
-use crossbeam::channel::{self, select, Receiver, Sender};
+use crate::file_finder::{FileFinder, FileFinderOptions};
+use crate::file_finder::{FindFilesResult, FoundFiles};
 
 use insh_api::{
     FindFilesRequestParams, FindFilesResponseParams, ResponseParams, ResponseParamsAndLast,
 };
-use path_finder::Entry;
 
-use crate::file_finder::FindFilesResult;
-use crate::file_finder::{FileFinder, FileFinderOptions};
+use crossbeam::channel::{self, Receiver, Sender};
 
 /// Handles a request to find files.
 pub struct FindFiles {
@@ -53,54 +52,42 @@ impl Iterator for FindFiles {
             return None;
         }
 
-        select! {
-            recv(self.results_rx) -> result => {
-                let result: FindFilesResult = match result {
-                    Ok(result) => result,
-                    Err(error) => {
-                        log::error!("Error receiving find files result from file finder thread: {}", error);
-                        todo!();
-                    }
-                };
-
-                let entry: Option<Entry> = match result {
-                    Ok(entry) => entry,
-                    Err(error) => {
-                        log::error!("Error finding files: {}", error);
-                        todo!();
-                    }
-                };
-
-                let entry: Entry = match entry {
-                    Some(entry) => entry,
-                    None => {
-                        self.done = true;
-                        let file_finder_handle: JoinHandle<()> = self.file_finder_handle.take().unwrap();
-                        let _ = file_finder_handle.join();
-                        return Some(ResponseParamsAndLast::builder()
-                            .response_params(
-                                ResponseParams::FindFiles(
-                                    FindFilesResponseParams::builder()
-                                        .entries(vec![])
-                                        .build()
-                                )
-                            )
-                            .last(true)
-                            .build());
-                    }
-                };
-
-                return Some(ResponseParamsAndLast::builder()
-                    .response_params(
-                        ResponseParams::FindFiles(
-                            FindFilesResponseParams::builder()
-                                .entries(vec![entry])
-                                .build()
-                        )
-                    )
-                    .last(false)
-                    .build());
+        let result: FindFilesResult = match self.results_rx.recv() {
+            Ok(result) => result,
+            Err(error) => {
+                log::error!(
+                    "Error receiving find files result from file finder thread: {}",
+                    error
+                );
+                todo!();
             }
+        };
+
+        let found: FoundFiles = match result {
+            Ok(found) => found,
+            Err(error) => {
+                log::error!("Error finding files: {}", error);
+                todo!();
+            }
+        };
+
+        if found.done {
+            self.done = true;
+            let file_finder_handle: JoinHandle<()> = self.file_finder_handle.take().unwrap();
+            let _ = file_finder_handle.join();
         }
+
+        return Some(
+            ResponseParamsAndLast::builder()
+                .response_params(ResponseParams::FindFiles(
+                    FindFilesResponseParams::builder()
+                        .entries(found.entries)
+                        .searched(found.searched)
+                        .duration(found.duration)
+                        .build(),
+                ))
+                .last(found.done)
+                .build(),
+        );
     }
 }

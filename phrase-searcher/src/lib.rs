@@ -28,10 +28,21 @@ impl PhraseSearcher {
     }
 }
 
-impl Iterator for PhraseSearcher {
-    type Item = FileHit;
+/// A file which the phrase searcher searched.
+///
+/// Every file which is searched is reported (not just the ones with hits) so that the progress of
+/// searching files can be followed.
+pub enum Searched {
+    /// The file has lines which contain the phrase.
+    Hit(FileHit),
+    /// The file does not have any lines which contain the phrase (or it could not be read).
+    NoHit,
+}
 
-    fn next(&mut self) -> Option<FileHit> {
+impl Iterator for PhraseSearcher {
+    type Item = Searched;
+
+    fn next(&mut self) -> Option<Searched> {
         loop {
             let entry: Option<Result<Entry, WalkerEntryError>> = self.walker.next();
 
@@ -51,7 +62,7 @@ impl Iterator for PhraseSearcher {
                             Ok(file) => file,
                             Err(error) => {
                                 log::warn!("Failed to open {:?}: {}", path, error);
-                                continue;
+                                return Some(Searched::NoHit);
                             }
                         };
                         let reader = BufReader::new(file);
@@ -71,16 +82,12 @@ impl Iterator for PhraseSearcher {
                             }
                         }
 
-                        if failed_to_read_line {
-                            continue;
+                        if failed_to_read_line || line_hits.is_empty() {
+                            return Some(Searched::NoHit);
                         }
 
-                        if !line_hits.is_empty() {
-                            let file_hit = FileHit::new(path, line_hits);
-                            return Some(file_hit);
-                        }
-
-                        continue;
+                        let file_hit = FileHit::new(path, line_hits);
+                        return Some(Searched::Hit(file_hit));
                     }
                 },
             }

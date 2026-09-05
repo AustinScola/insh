@@ -47,10 +47,21 @@ impl Display for NewPathFinderError {
     }
 }
 
-impl Iterator for PathFinder {
-    type Item = Entry;
+/// A file which the path finder examined.
+///
+/// Every file which is examined is reported (not just the ones which match) so that the progress of
+/// finding files can be followed.
+pub enum Examined {
+    /// The name of the file matched the pattern.
+    Matched(Entry),
+    /// The name of the file did not match the pattern.
+    NotMatched,
+}
 
-    fn next(&mut self) -> Option<Entry> {
+impl Iterator for PathFinder {
+    type Item = Examined;
+
+    fn next(&mut self) -> Option<Examined> {
         loop {
             let entry: Option<Result<WalkdirEntry, WalkEntryError>> = self.walk.next();
 
@@ -66,9 +77,9 @@ impl Iterator for PathFinder {
                         }
 
                         if self.regex.is_match(&entry.file_name().to_string_lossy()) {
-                            return Some(entry.into());
+                            return Some(Examined::Matched(entry.into()));
                         }
-                        continue;
+                        return Some(Examined::NotMatched);
                     }
                 },
             }

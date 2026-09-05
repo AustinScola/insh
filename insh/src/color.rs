@@ -20,6 +20,7 @@ pub enum Color {
     InvertedGrayedText,
     InvertedLightGrayedText,
     InvertedBackground,
+    FooterBackground,
     BadRegex,
     NotCompiledRegex,
 }
@@ -34,6 +35,7 @@ impl From<Color> for CrosstermColor {
             Color::InvertedGrayedText => LIGHT_GREY,
             Color::InvertedLightGrayedText => DARK_GREY,
             Color::InvertedBackground => CrosstermColor::White,
+            Color::FooterBackground => CrosstermColor::Grey,
             Color::BadRegex => CrosstermColor::Red,
             Color::NotCompiledRegex => DARK_GREY,
         }

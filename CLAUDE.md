@@ -143,6 +143,11 @@ own state. Nesting follows the same shape all the way down (e.g. `Browser` → `
 - **Props/State/Effect/Action per component.** Each component file defines nested private
   `mod props`, `mod state`, `mod effect`, `mod action` blocks and re-exports the public names with
   `pub use`. This keeps each type's imports local. Match this layout rather than flattening.
+- **Imports are grouped and ordered**: `std`, then crate-local (`super::` before `crate::`), then
+  workspace sibling crates (`common`, `insh_api`, `insh_db`, `rend`, `til`, ...), then third-party.
+  A blank line separates each group and each group is alphabetical. Note that a workspace sibling
+  goes in the third group, not with `crate::` — `insh_db` belongs next to `insh_api`. Existing files
+  vary, so follow this rather than whichever file you happen to be reading.
 - **State transitions go through `Stateful`** (`insh/src/stateful.rs`):
   `fn perform(&mut self, action: Action) -> Option<Effect>`. Components translate events into
   actions and let the state machine produce effects.

@@ -1,10 +1,11 @@
 mod props {
+    use std::path::PathBuf;
+
     use crate::config::Config;
 
     use rend::Size;
-    use uuid::Uuid;
 
-    use std::path::PathBuf;
+    use uuid::Uuid;
 
     pub struct Props {
         pub config: Config,
@@ -35,8 +36,11 @@ mod props {
 pub use props::Props;
 
 mod contents {
+    use std::path::MAIN_SEPARATOR as PATH_SEPARATOR;
+
     use super::{Action, Effect, Event, Props, State};
     use crate::color::Color;
+    use crate::components::common::FooterInfo;
     use crate::string::DetabExt;
     use crate::Config;
     use crate::Stateful;
@@ -45,8 +49,6 @@ mod contents {
     use rend::{Fabric, Size, Yarn};
     use term::{Key, KeyEvent, KeyMods, TermEvent};
     use til::Component;
-
-    use std::path::MAIN_SEPARATOR as PATH_SEPARATOR;
 
     pub struct Contents {
         config: Config,
@@ -239,6 +241,32 @@ mod contents {
             }
         }
     }
+
+    /// The footer shows how searching the files is going and which of the line hits is selected.
+    ///
+    /// The line hits are counted (and not the file hits) because the lines are what is moved
+    /// between. A dash is shown in place of the position when a file is selected instead of one of
+    /// its lines.
+    impl FooterInfo for Contents {
+        fn text(&self) -> String {
+            self.state.progress()
+        }
+
+        fn position(&self) -> String {
+            let line_hits: usize = self.state.line_hits();
+            if line_hits == 0 {
+                return String::new();
+            }
+
+            match self.state.selected_line_hit() {
+                Some(selected) if selected < line_hits => {
+                    format!("{}/{}", selected + 1, line_hits)
+                }
+                Some(_) => String::new(),
+                None => format!("-/{}", line_hits),
+            }
+        }
+    }
 }
 pub use contents::Contents;
 
@@ -255,6 +283,10 @@ mod event {
 pub use event::Event;
 
 mod state {
+    use std::cmp::{self, Ordering};
+    use std::path::{Path, PathBuf, MAIN_SEPARATOR as PATH_SEPARATOR};
+    use std::time::Duration;
+
     use super::{Action, Effect, Props};
     use crate::clipboard::Clipboard;
     use crate::programs::{VimArgs, VimArgsBuilder};
@@ -264,10 +296,8 @@ mod state {
     use insh_api::{Request, Response, ResponseParams, SearchPhraseResponseParams};
     use phrase_searcher::{FileHit, LineHit};
     use rend::Size;
-    use uuid::Uuid;
 
-    use std::cmp::Ordering;
-    use std::path::{Path, PathBuf, MAIN_SEPARATOR as PATH_SEPARATOR};
+    use uuid::Uuid;
 
     #[derive(Debug, PartialEq, Eq, Default)]
     pub struct State {
@@ -282,6 +312,10 @@ mod state {
         file_selected: usize,
         line_selected: Option<usize>,
         pending_request: Option<Uuid>,
+        /// The number of files which have been searched.
+        files_searched: usize,
+        /// The duration of the search so far.
+        duration: Duration,
     }
 
     impl From<&Props> for State {
@@ -300,6 +334,8 @@ mod state {
                 file_selected: 0,
                 line_selected: None,
                 pending_request: props.pending_request,
+                files_searched: 0,
+                duration: Duration::ZERO,
             }
         }
     }
@@ -307,6 +343,51 @@ mod state {
     impl State {
         pub fn dir(&self) -> &Path {
             &self.dir
+        }
+
+        /// Return how searching the files is going (or nothing if the files were not searched).
+        pub fn progress(&self) -> String {
+            if !self.searched {
+                return String::new();
+            }
+
+            format!(
+                "{} file{} searched ({:.2}s)",
+                self.files_searched,
+                match self.files_searched {
+                    1 => "",
+                    _ => "s",
+                },
+                self.duration.as_secs_f64(),
+            )
+        }
+
+        /// Return the total number of lines which contain the phrase.
+        pub fn line_hits(&self) -> usize {
+            self.hits
+                .iter()
+                .map(|file_hit| file_hit.line_hits().len())
+                .sum()
+        }
+
+        /// Return which of the lines containing the phrase is selected, or `None` if a file is
+        /// selected instead of one of its lines.
+        pub fn selected_line_hit(&self) -> Option<usize> {
+            let hit_number: usize = self.hit_number()?;
+            let line_hit_number: usize = self.line_hit_number()?;
+
+            // The line hits of the hits before the selected one all come first.
+            let before: usize = self.hits[..hit_number]
+                .iter()
+                .map(|file_hit| file_hit.line_hits().len())
+                .sum();
+
+            // The number of the selected line is clamped so that the position stays in range even
+            // if the selection and the scroll are momentarily out of step.
+            let line_hits: usize = self.hits[hit_number].line_hits().len();
+            let line_hit_number: usize = cmp::min(line_hit_number, line_hits.saturating_sub(1));
+
+            return Some(before + line_hit_number);
         }
 
         /// Return if the search contents are currently foccused on.
@@ -450,6 +531,8 @@ mod state {
             self.line_offset = None;
             self.file_selected = 0;
             self.line_selected = None;
+            self.files_searched = 0;
+            self.duration = Duration::ZERO;
 
             let request: Request = search_phrase_request(self.dir.clone(), phrase.to_string());
             self.pending_request = Some(*request.uuid());
@@ -772,6 +855,8 @@ mod state {
             };
 
             self.hits.extend_from_slice(params.hits());
+            self.files_searched = params.searched();
+            self.duration = params.duration();
 
             if response.last() {
                 self.pending_request = None;
@@ -890,11 +975,11 @@ mod action {
 use action::Action;
 
 mod effect {
+    use std::path::PathBuf;
+
     use crate::programs::VimArgs;
 
     use insh_api::Request;
-
-    use std::path::PathBuf;
 
     pub enum Effect {
         Unfocus,
