@@ -128,5 +128,7 @@ Insh can be configured by the file `~/.insh-config.yaml`.
 Inshd can be configured by the file `~/.inshd-config.yaml`.
 
 `server.request_handlers.num` (usize): The number of request handlers (default=`8`).
+
 `database.pool.size` (usize): The size of the database pool (default=`8`).
+
 `searcher.history.length` (usize): The number of searches to store (default=`1000`).
