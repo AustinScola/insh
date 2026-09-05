@@ -1,10 +1,4 @@
 //! Handles requests from clients.
-use crossbeam::channel::{select, Receiver, Sender};
-use typed_builder::TypedBuilder;
-use uuid::Uuid;
-
-use insh_api::{Request, RequestParams, Response, ResponseParamsAndLast};
-
 use crate::config::Config;
 use crate::contexted_request::ContextedRequest;
 use crate::contexted_response::ContextedResponse;
@@ -13,6 +7,13 @@ use crate::request_handlers::{
     CreateFile, FindFiles, GetFiles, SearchPhrase, StreamLogs, SuggestSearchPhrase,
 };
 use crate::stop::Stop;
+
+use insh_api::{Request, RequestParams, Response, ResponseParamsAndLast};
+use insh_db::DbConnPool;
+
+use crossbeam::channel::{select, Receiver, Sender};
+use typed_builder::TypedBuilder;
+use uuid::Uuid;
 
 /// Handles requests from clients.
 #[derive(TypedBuilder)]
@@ -30,6 +31,8 @@ pub struct RequestHandler {
     stop_rx: Receiver<Stop>,
     /// The configuration for inshd.
     config: Config,
+    /// A pool of connections to the database.
+    db_conn_pool: DbConnPool,
 }
 
 impl RequestHandler {
@@ -53,10 +56,10 @@ impl RequestHandler {
                         RequestParams::FindFiles(params) => Box::new(FindFiles::run(params)),
                         RequestParams::CreateFile(params) => Box::new(CreateFile::new(params)),
                         RequestParams::SearchPhrase(params) => {
-                            Box::new(SearchPhrase::run(params, self.config.clone()))
+                            Box::new(SearchPhrase::run(params, self.config.clone(), &self.db_conn_pool))
                         }
                         RequestParams::SuggestSearchPhrase(params) => {
-                            Box::new(SuggestSearchPhrase::new(params))
+                            Box::new(SuggestSearchPhrase::new(params, self.db_conn_pool.clone()))
                         }
                         RequestParams::StreamLogs(params) => {
                             Box::new(StreamLogs::run(params, client_uuid, *request.uuid(), &self.log_subscriptions_tx))

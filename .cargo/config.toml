@@ -1,0 +1,8 @@
+# The version of PostgreSQL to embed in inshd.
+#
+# The build script of the `postgresql_embedded` crate reads this environment variable to determine
+# which PostgreSQL binaries to download and embed. It must be an *exact* version: the build script
+# only reuses its cached download (in `~/.theseus`) when the version is exact, so with the default
+# version requirement of `*` it re-resolves the latest version over the network on every build.
+[env]
+POSTGRESQL_VERSION = "=18.6.0"

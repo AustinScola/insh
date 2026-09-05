@@ -34,7 +34,7 @@ so it only works when they are on `PATH`.
 | `cargo test` | Run all tests |
 | `cargo test -p rend yarn` | Run tests in one crate matching a name |
 
-Tests are inline `#[cfg(test)] mod tests` blocks (in `rend`, and in `insh`'s `string`,
+Tests are inline `#[cfg(test)] mod tests` blocks (in `rend`, in `insh-db`, and in `insh`'s `string`,
 `ansi_escaped_text`, `args`, and `searcher/contents` modules), using `test-case` for
 parameterization. There are no integration test directories.
 
@@ -76,9 +76,11 @@ mistakes here — plain `cargo check` will not.
   protocol.
 - **`inshd`** — the daemon. Multi-threaded server over a unix socket that performs file
   finding/getting/creating, contents searching, search suggestions, and owns persistent data
-  (`data.yaml`) and its own config (`~/.inshd-config.yaml`).
+  (in an embedded PostgreSQL database) and its own config (`~/.inshd-config.yaml`).
 - **`insh-api`** — the wire protocol shared by both: `Request`/`RequestParams` and
-  `Response`/`ResponseParams`, bincode-serialized.
+  `Response`/`ResponseParams`, postcard-serialized.
+- **`insh-db`** — the embedded PostgreSQL database and everything Diesel: the `Database` lifecycle,
+  the schema, the migrations, and the query API. Only `inshd` depends on it.
 - **`til`** — the TUI application framework ("terminal interface library"). `App`, the `Component`
   trait, the event loop, and running foreign programs (vim, bash) that take over the terminal.
 - **`rend`** — styled-text rendering primitives: `Yarn` (a styled line), `Fabric` (a grid of yarns,
@@ -88,12 +90,12 @@ mistakes here — plain `cargo check` will not.
 - **`size`**, **`file-type`**, **`file-info`**, **`path-finder`**, **`phrase-searcher`**, **`common`**
   — small shared leaf crates. `path-finder` does regex-matched, gitignore-respecting directory
   walking; `phrase-searcher` walks a directory tree matching file contents against a phrase;
-  `common` holds the `~/.insh` path constants used by both binaries.
+  `common` holds the `~/.insh` path constants and directory permissions used by both binaries.
 
 ### Client/daemon split
 
 `insh` and `inshd` share a version number and are released together (`notes/release_process.md`).
-Communication is a `UnixStream` at `common::paths::INSHD_SOCKET`, with bincode-encoded
+Communication is a `UnixStream` at `common::paths::INSHD_SOCKET`, with postcard-encoded
 `insh_api::Request`/`Response`. Each `Request` carries a `Uuid`; responses echo that uuid and set
 `last` on the final one, so a single request may stream multiple responses (e.g. find-files
 results arriving incrementally). Components hold the uuid of their in-flight request and ignore
@@ -158,15 +160,65 @@ own state. Nesting follows the same shape all the way down (e.g. `Browser` → `
 
 ### Persistent state
 
-`~/.insh/` (mode 0700) holds `data.yaml` (searcher history, guarded by an `fslock` lock file at
-`data.lock`) and `daemon/` (socket, pid file, logs). `inshd` owns `data.yaml` exclusively —
-`inshd/src/data.rs` is the only reader/writer; `insh` never touches it directly, instead going
-through the daemon (e.g. `SearchPhrase`/`SuggestSearchPhrase` requests).
+`~/.insh/` (mode 0700) holds `daemon/` (socket, pid file, logs) and `daemon/postgres/` (the
+embedded database). `insh` never touches any of it directly, instead going through the daemon
+(e.g. `SearchPhrase`/`SuggestSearchPhrase` requests).
+
+Application data lives in an embedded PostgreSQL database in the `insh-db` crate, which `Server::run`
+starts and stops. The PostgreSQL binaries are embedded in the `inshd` executable at build time by
+`postgresql_embedded`'s `bundled` feature, so PostgreSQL does not have to be installed separately;
+they are extracted to a directory named after their version under `daemon/postgres/` on first run,
+which is also where the unix socket goes. `listen_addresses` is set to empty so the server never
+binds a TCP port.
+
+**Connections are authenticated by operating system user, not by a password.** `insh-db` writes
+`pg_hba.conf` and `pg_ident.conf` into the data directory after `setup()` and before `start()`, on
+every start so a renamed user still works. The ident map is needed because `postgresql_embedded`
+hardcodes the superuser as `postgres`, which is not the name of the user running the daemon. A
+password still has to exist because `initdb` is always run with `--auth password`, but `insh-db`
+writes the password file itself (`postgresql_embedded` would create it world readable) and deletes
+it once the database is created, so no secret is left on disk.
+
+Handlers go through the query API in `insh-db/src/search_history.rs` rather than touching the schema
+directly.
+
+**Permissions matter here and nothing enforces them for you.** Several dependencies create files
+under `~/.insh` with whatever the process umask allows: `flexi_logger` makes the log directories,
+`UnixListener` makes the socket and `postgresql_embedded` extracts the server binaries.
+`common::paths::make_private_dir` creates a directory 0700 — along with the ones above it, up to but
+never past `~/.insh` — and fixes up any that already exist. **Each module makes the directories it
+needs itself** rather than `main` doing it up front: `logging.rs` makes the log directory before
+configuring the logger, and `insh-db` makes the PostgreSQL directory. The `daemon` crate sets the
+pid file's mode explicitly when it creates it. Anything new that lands in `~/.insh` needs its mode
+set explicitly. Do not reach for a process-wide umask: `request_handlers/create_file.rs`
+creates files for the *user*, and tightening the daemon umask would silently make those private too.
+The log files are the one exception — `flexi_logger` has no permissions option, so they keep the
+daemon's umask and are protected by the 0700 `logs/` directory instead.
+
+Queries go through Diesel. `insh-db/src/schema.rs` is written by hand (not generated with
+`diesel print-schema`) and migrations under `insh-db/migrations/` are embedded with
+`embed_migrations!`, so **building never requires a running database** — keep it that way.
+`insh-db/build.rs` exists only to re-run the build when a migration changes.
+
+Because `postgresql_embedded` needs a newer toolchain than insh otherwise would, `rust-toolchain.toml`
+pins one, and `.cargo/config.toml` pins `POSTGRESQL_VERSION` to an exact version so the build script
+reuses its `~/.theseus` download cache instead of re-resolving over the network every build.
+
+The `search_history` table holds one row per distinct phrase, with `last_searched` bumped by an
+upsert when a phrase is searched for again, so suggestions do not repeat.
 
 Configuration is split by binary and read-only for each: `insh` reads `~/.insh-config.yaml` via
 `insh/src/config.rs`; `inshd` separately reads `~/.inshd-config.yaml` via `inshd/src/config.rs`
-(currently just `searcher.history.length`, which governs the search history `inshd` writes to
-`data.yaml`).
+(`searcher.history.length`, which governs how many rows `inshd` keeps in the `search_history`
+table; `server.request_handlers`; and `database.pool.size`, which defaults to
+`server.request_handlers` — `Config::db_conn_pool_size` resolves that, since serde cannot express a
+default which depends on another field). `insh-db` installs an r2d2 event handler which logs how
+many connections are in use as it changes.
+
+Note the existing `SearcherHistoryConfig` puts `#[serde(default)]` on the `length` *field*, which
+resolves to `usize::default()` — that is `0`, not the struct's `Default` of `1000`. New config
+structs should use `#[serde(default = "...")]` naming a function instead, the way
+`DatabasePoolConfig::size` does.
 
 ## Releasing
 

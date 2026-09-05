@@ -1,4 +1,14 @@
 //! The inshd server.
+use std::fs::{remove_file, set_permissions, Permissions};
+use std::io::Write;
+use std::os::unix::fs::PermissionsExt;
+use std::os::unix::net::UnixListener;
+use std::panic;
+use std::panic::PanicHookInfo;
+use std::process::exit;
+use std::thread;
+use std::thread::JoinHandle;
+
 use crate::client::Client;
 use crate::client_handler_handle::ClientHandlerHandle;
 use crate::client_handler_monitor::ClientHandlerMonitor;
@@ -16,16 +26,9 @@ use crate::scheduler::Scheduler;
 use crate::signal_handler::SignalHandler;
 use crate::stop::Stop;
 use crate::INSHD_PID_FILE;
-use common::paths::INSHD_SOCKET;
 
-use std::fs::remove_file;
-use std::io::Write;
-use std::os::unix::net::UnixListener;
-use std::panic;
-use std::panic::PanicHookInfo;
-use std::process::exit;
-use std::thread;
-use std::thread::JoinHandle;
+use common::paths::{INSHD_SOCKET, INSH_FILES_PERMS};
+use insh_db::Database;
 
 use crossbeam::channel::{self, Receiver, Sender};
 use crossbeam::sync::{Parker, Unparker};
@@ -46,10 +49,10 @@ impl Server {
     pub fn run(&self, options: RunOptions) -> Result<(), RunError> {
         log::info!("Running...");
         let RunOptions {
-            num_request_handlers,
             config,
             log_records_rx,
         } = options;
+        let num_request_handlers: usize = config.server().request_handlers().num();
 
         let (died_tx, died_rx): (Sender<RequestHandlerDied>, Receiver<RequestHandlerDied>) =
             channel::unbounded();
@@ -57,8 +60,19 @@ impl Server {
         // Set up a panic hook.
         Server::set_panic_hook(died_tx.clone());
 
+        // Start the database before the socket is created so that clients cannot connect until
+        // the daemon is able to serve them.
+        let database: Database = match Database::start(config.db_conn_pool_size()) {
+            Ok(database) => database,
+            Err(error) => {
+                log::error!("Failed to start the database.");
+                return Err(RunError::StartDatabaseError(error));
+            }
+        };
+        let db_conn_pool = database.conn_pool();
+
         // Create a unix socket for clients to connect to.
-        log::debug!("Creating a unix socket {:?}...", &*INSHD_SOCKET);
+        log::debug!("Creating a unix socket {:?}...", *INSHD_SOCKET);
         let listener = match UnixListener::bind(&*INSHD_SOCKET) {
             Ok(listener) => listener,
             Err(error) => {
@@ -67,6 +81,13 @@ impl Server {
             }
         };
         log::debug!("Created the unix socket.");
+
+        // The socket is created with the permissions of the process, which let the group in.
+        if let Err(error) =
+            set_permissions(&*INSHD_SOCKET, Permissions::from_mode(INSH_FILES_PERMS))
+        {
+            log::warn!("Failed to set the permissions of the socket: {}", error);
+        }
 
         // Create and spawn a thread for handling termination signals.
         let main_parker: Parker = Parker::new();
@@ -162,6 +183,7 @@ impl Server {
             .log_subscriptions_tx(log_subscriptions_tx.clone())
             .stop_rx(request_handler_manager_stop_rx)
             .config(config)
+            .db_conn_pool(db_conn_pool)
             .build();
         let request_handler_manager_handle: JoinHandle<()> = thread::Builder::new()
             .name("request-handler-monitor".to_string())
@@ -262,6 +284,9 @@ impl Server {
 
         log::info!("All threads stopped.");
 
+        // Stop the database.
+        database.stop();
+
         Server::cleanup();
         Ok(())
     }
@@ -325,15 +350,9 @@ mod run_options {
     use crossbeam::channel::Receiver;
     use typed_builder::TypedBuilder;
 
-    /// The number of request handlers.
-    const DEFAULT_NUM_REQUEST_HANDLERS: usize = 8;
-
     /// Options for running inshd.
     #[derive(TypedBuilder)]
     pub struct RunOptions {
-        /// The number of request handlers.
-        #[builder(default = DEFAULT_NUM_REQUEST_HANDLERS)]
-        pub num_request_handlers: usize,
         /// The configuration for inshd.
         pub config: Config,
         /// A receiver of the log records which have been emitted.
@@ -345,11 +364,15 @@ pub use run_options::RunOptions;
 mod run_error {
     //! An error running inshd.
 
+    use insh_db::StartError as DatabaseStartError;
+
     use std::fmt::{Display, Error as FmtError, Formatter};
     use std::io::Error as IOError;
 
     /// An error running inshd.
     pub enum RunError {
+        /// An error starting the database.
+        StartDatabaseError(DatabaseStartError),
         /// An error creating the unix socket.
         CreateSocketError(IOError),
     }
@@ -357,6 +380,9 @@ mod run_error {
     impl Display for RunError {
         fn fmt(&self, formatter: &mut Formatter<'_>) -> Result<(), FmtError> {
             match self {
+                Self::StartDatabaseError(error) => {
+                    write!(formatter, "Failed to start the database: {}.", error)
+                }
                 Self::CreateSocketError(error) => {
                     write!(formatter, "Failed to create the unix socket: {}.", error)
                 }

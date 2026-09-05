@@ -11,6 +11,7 @@ path = "src/main.rs"
 [dependencies]
 common = { version = "0.1.0", path = "../common" }
 insh-api = { version = "0.1.0", path = "../insh-api" }
+insh-db = { version = "0.1.0", path = "../insh-db" }
 path-finder = { version = "0.1.0", path = "../path-finder" }
 phrase-searcher = { version = "0.1.0", path = "../phrase-searcher" }
 file-type = { version = "0.1.0", path = "../file-type" }
@@ -51,9 +52,11 @@ signal-hook = { workspace = true }
 # Used to make handling pipes easier.
 os_pipe = { workspace = true }
 
-# Used to control access to persistent data stored in the file system.
-fslock = { workspace = true }
-
 # Used for serialization and deserialization of data structures.
 serde = { workspace = true }
 serde_yaml_ng = { workspace = true }
+
+[dev-dependencies]
+
+# Used for parameterizing tests.
+test-case = { workspace = true }

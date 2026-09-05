@@ -1,0 +1,36 @@
+[package]
+name = "insh-db"
+version = "0.1.0"
+edition = "2021"
+description = "The database that inshd stores data in."
+build = "build.rs"
+
+[dependencies]
+common = { version = "0.1.0", path = "../common" }
+
+# Used for logging.
+log = { workspace = true }
+
+# Provides friendly bindings for *nix platform APIs.
+# Used for looking up the name of the user that the database is authenticated as.
+nix = { workspace = true }
+
+# Used to run an embedded PostgreSQL server.
+postgresql_embedded = { workspace = true }
+
+# Used to run `pg_ctl` directly in order to stop a PostgreSQL server which was left running.
+postgresql_commands = { workspace = true }
+
+# Used as an ORM for the database.
+diesel = { workspace = true }
+
+# Used to embed the database migrations in the executable and to run them.
+diesel_migrations = { workspace = true }
+
+# Not used directly. See the note in the workspace manifest.
+pq-sys = { workspace = true }
+
+[dev-dependencies]
+
+# Used for parameterizing tests.
+test-case = { workspace = true }

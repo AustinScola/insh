@@ -16,7 +16,6 @@ mod config;
 mod conn_handler;
 mod contexted_request;
 mod contexted_response;
-mod data;
 mod disconnected_client;
 mod file_finder;
 mod file_searcher;
@@ -152,7 +151,14 @@ fn start(options: &mut StartOptions) -> Result<(), StartError> {
         }
     }
 
-    let config: Config = Config::load();
+    let config: Config = match Config::load() {
+        Ok(config) => config,
+        Err(error) => {
+            let error = StartError::FailedToLoadConfig(error);
+            log::error!("{}", error);
+            return Err(error);
+        }
+    };
 
     let server = Server::new();
     let run_options: RunOptions = RunOptions::builder()
@@ -208,15 +214,20 @@ pub use start_options::StartOptions;
 mod start_error {
     //! A failure to start inshd.
 
-    use crate::server::RunError;
     use std::fmt::{Display, Error as FmtError, Formatter};
+
+    use crate::config::LoadError as ConfigLoadError;
+    use crate::server::RunError;
 
     use daemon::Error as DaemonError;
 
     /// A failure to start inshd.
+    #[allow(clippy::enum_variant_names)]
     pub enum StartError {
         /// A failure to daemonize the inshd server.
         FailedToDaemonize(DaemonError),
+        /// A failure to load the configuration.
+        FailedToLoadConfig(ConfigLoadError),
         /// A failure to start the inshd server.
         FailedToRunServer(RunError),
     }
@@ -226,6 +237,9 @@ mod start_error {
             match self {
                 Self::FailedToDaemonize(error) => {
                     write!(formatter, "Failed to daemonize the process: {}.", error)
+                }
+                Self::FailedToLoadConfig(error) => {
+                    write!(formatter, "Failed to load the configuration: {}.", error)
                 }
                 Self::FailedToRunServer(error) => {
                     write!(formatter, "Failed to run the server: {}.", error)

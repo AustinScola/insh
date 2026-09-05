@@ -7,6 +7,11 @@ on:
   schedule:
     - cron: "0 3 * * *"
 
+env:
+  # Used by `postgresql_embedded` to download the PostgreSQL binaries which are embedded in inshd.
+  # Downloading them without a token is subject to a much lower rate limit.
+  GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
 jobs:
   check:
     name: Check
@@ -31,6 +36,16 @@ jobs:
           key: ${{ env.cache-name }}-default-features-${{ hashFiles('Cargo.lock') }}
           restore-keys: |
             ${{ env.cache-name }}-default-features
+            ${{ env.cache-name }}-
+
+      - name: Cache the PostgreSQL archive
+        uses: actions/cache@v3
+        env:
+          cache-name: postgresql-archive
+        with:
+          path: ~/.theseus/
+          key: ${{ env.cache-name }}-${{ hashFiles('.cargo/config.toml') }}
+          restore-keys: |
             ${{ env.cache-name }}-
 
       - name: Cache build output
@@ -63,6 +78,16 @@ jobs:
           key: ${{ env.cache-name }}-with-logging-${{ hashFiles('Cargo.lock') }}
           restore-keys: |
             ${{ env.cache-name }}-with-logging-
+            ${{ env.cache-name }}-
+
+      - name: Cache the PostgreSQL archive
+        uses: actions/cache@v3
+        env:
+          cache-name: postgresql-archive
+        with:
+          path: ~/.theseus/
+          key: ${{ env.cache-name }}-${{ hashFiles('.cargo/config.toml') }}
+          restore-keys: |
             ${{ env.cache-name }}-
 
       - name: Cache build output
@@ -101,6 +126,16 @@ jobs:
           key: ${{ env.cache-name }}-default-features-${{ hashFiles('Cargo.lock') }}
           restore-keys: |
             ${{ env.cache-name }}-default-features
+            ${{ env.cache-name }}-
+
+      - name: Cache the PostgreSQL archive
+        uses: actions/cache@v3
+        env:
+          cache-name: postgresql-archive
+        with:
+          path: ~/.theseus/
+          key: ${{ env.cache-name }}-${{ hashFiles('.cargo/config.toml') }}
+          restore-keys: |
             ${{ env.cache-name }}-
 
       - name: Cache build output
@@ -244,6 +279,16 @@ jobs:
           key: ${{ env.cache-name }}-test-${{ hashFiles('Cargo.lock') }}
           restore-keys: |
             ${{ env.cache-name }}-test
+            ${{ env.cache-name }}-
+
+      - name: Cache the PostgreSQL archive
+        uses: actions/cache@v3
+        env:
+          cache-name: postgresql-archive
+        with:
+          path: ~/.theseus/
+          key: ${{ env.cache-name }}-${{ hashFiles('.cargo/config.toml') }}
+          restore-keys: |
             ${{ env.cache-name }}-
 
       - name: Cache build output

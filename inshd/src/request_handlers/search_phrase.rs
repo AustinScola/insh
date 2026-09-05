@@ -1,17 +1,17 @@
 //! Handles requests to search files for a phrase.
 use std::thread::{self, JoinHandle};
 
-use crossbeam::channel::{self, select, Receiver, Sender};
+use crate::config::Config;
+use crate::file_searcher::SearchPhraseResult;
+use crate::file_searcher::{FileSearcher, FileSearcherOptions};
 
 use insh_api::{
     ResponseParams, ResponseParamsAndLast, SearchPhraseRequestParams, SearchPhraseResponseParams,
 };
+use insh_db::{search_history, DbConnPool};
 use phrase_searcher::FileHit;
 
-use crate::config::Config;
-use crate::data::Data;
-use crate::file_searcher::SearchPhraseResult;
-use crate::file_searcher::{FileSearcher, FileSearcherOptions};
+use crossbeam::channel::{self, select, Receiver, Sender};
 
 /// Handles a request to search the contents of files for a phrase.
 pub struct SearchPhrase {
@@ -25,14 +25,18 @@ pub struct SearchPhrase {
 
 impl SearchPhrase {
     /// Search the contents of files for a phrase.
-    pub fn run(params: &SearchPhraseRequestParams, config: Config) -> SearchPhrase {
+    pub fn run(
+        params: &SearchPhraseRequestParams,
+        config: Config,
+        db_conn_pool: &DbConnPool,
+    ) -> SearchPhrase {
         // Record the search in the search history right away, since the phrase was submitted
-        // regardless of how the search itself turns out.
-        let mut data: Data = Data::read();
-        data.searcher
-            .add_to_history(params.phrase(), config.searcher().history().length());
-        data.write();
-        data.release();
+        // regardless of how the search itself turns out. Failing to record it should not stop the
+        // search from happening, so the error is only logged.
+        let history_length: usize = config.searcher().history().length();
+        if let Err(error) = search_history::add(db_conn_pool, params.phrase(), history_length) {
+            log::error!("Failed to add the phrase to the search history: {}", error);
+        }
 
         // Create and start a thread to perform the searching of contents.
         let (results_tx, results_rx): (Sender<SearchPhraseResult>, Receiver<SearchPhraseResult>) =

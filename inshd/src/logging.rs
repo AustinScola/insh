@@ -1,9 +1,11 @@
 //! Logging.
-use crate::paths::INSHD_LOGS_DIR;
-
 use std::io::{Error as IOError, Write};
 use std::path::PathBuf;
 use std::thread;
+
+use crate::paths::INSHD_LOGS_DIR;
+
+use common::paths::make_private_dir;
 
 use crossbeam::channel::{self, Receiver, Sender};
 use flexi_logger::writers::LogWriter;
@@ -46,6 +48,12 @@ pub fn configure_logging(options: &LogOptions) -> ConfiguredLogging {
         logger =
             logger.log_to_file_and_writer(FileSpec::try_from(log_file_path).unwrap(), record_sender)
     } else {
+        // The logger makes the directories it needs with permissions that let the group and others
+        // in, so make them first. Logging is not configured yet, so there is nothing to log to.
+        if let Err(error) = make_private_dir(&INSHD_LOGS_DIR) {
+            eprintln!("Failed to create the log directory: {}.", error);
+        }
+
         logger = logger
             .log_to_file_and_writer(
                 FileSpec::default().directory(&*INSHD_LOGS_DIR),
@@ -127,6 +135,6 @@ pub fn log_format(
         record.level(),
         record.module_path().unwrap_or("<unnamed>"),
         thread::current().name().unwrap_or("<unnamed>"),
-        &record.args()
+        record.args()
     )
 }
