@@ -10,6 +10,8 @@ use crate::request_handler::RequestHandler;
 use crate::request_handler_died::RequestHandlerDied;
 use crate::stop::Stop;
 
+use insh_db::DbConnPool;
+
 use crossbeam::channel::{self, select, Receiver, Sender};
 use typed_builder::TypedBuilder;
 
@@ -30,6 +32,8 @@ pub struct RequestHandlerManager {
     stop_rx: Receiver<Stop>,
     /// The configuration for inshd.
     config: Config,
+    /// A pool of connections to the database.
+    db_conn_pool: DbConnPool,
 }
 
 impl RequestHandlerManager {
@@ -61,6 +65,7 @@ impl RequestHandlerManager {
                 .log_subscriptions_tx(self.log_subscriptions_tx.clone())
                 .stop_rx(request_handler_stop_rx)
                 .config(self.config.clone())
+                .db_conn_pool(self.db_conn_pool.clone())
                 .build();
             let name: String = format!("request-handler-{}", request_handler_num).to_string();
             let request_handler_handle: JoinHandle<()> = thread::Builder::new()
@@ -91,6 +96,7 @@ impl RequestHandlerManager {
                         .log_subscriptions_tx(self.log_subscriptions_tx.clone())
                         .stop_rx(request_handler_stop_rxs[number].clone())
                         .config(self.config.clone())
+                        .db_conn_pool(self.db_conn_pool.clone())
                         .build();
                     let name: String = format!("request-handler-{}", number).to_string();
                     let request_handler_handle: JoinHandle<()> = thread::Builder::new()

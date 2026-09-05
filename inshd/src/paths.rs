@@ -1,6 +1,7 @@
 //! Common paths.
-use common::paths::{INSHD_DIR, INSH_DIR};
 use std::path::PathBuf;
+
+use common::paths::{INSHD_DIR, INSH_DIR};
 
 lazy_static! {
     /// The inshd pid file.

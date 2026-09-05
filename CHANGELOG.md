@@ -1,3 +1,8 @@
+# 0.5.0
+- Use PostgreSQL for data storage instead of a file.
+    - Add `database.pool.size` inshd configuration option
+- Add `server.request_handlers.num` inshd configuration option
+
 # 0.4.12
 - Add `inshd logs` command for streaming logs.
 

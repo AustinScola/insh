@@ -1,11 +1,12 @@
 //! Turns the current process into a daemon.
 
-use crate::{Error, Outcome};
-
 use std::fs::{File, OpenOptions};
 use std::io::Write;
 use std::os::fd::AsFd;
+use std::os::unix::fs::OpenOptionsExt;
 use std::path::{Path, PathBuf};
+
+use crate::{Error, Outcome};
 
 use nix::sys::stat::{umask, Mode};
 use nix::unistd::{chdir, dup2_stderr, dup2_stdin, dup2_stdout, fork, getpid, setsid, ForkResult};
@@ -15,6 +16,12 @@ const NULL: &str = "/dev/null";
 
 /// The umask that the daemon runs with.
 const UMASK: Mode = Mode::from_bits_truncate(0o027);
+
+/// The permissions of the pid file.
+///
+/// This is set explicitly rather than left to the umask so that nothing other than the user can
+/// read the pid of the daemon.
+const PID_FILE_PERMS: u32 = 0o600; // rw- --- ---
 
 /// Turns the current process into a daemon.
 pub struct Daemon {
@@ -90,6 +97,7 @@ impl Daemon {
                 .write(true)
                 .create(true)
                 .truncate(true)
+                .mode(PID_FILE_PERMS)
                 .open(pid_file)
                 .map_err(Error::PidFile)?;
             writeln!(file, "{}", getpid()).map_err(Error::PidFile)?;

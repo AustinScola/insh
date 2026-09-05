@@ -6,6 +6,7 @@ members = [
     "common",
     "daemon",
     "insh-api",
+    "insh-db",
     "til",
     "term",
     "rend",
@@ -82,9 +83,6 @@ walkdir = "2.5.0"
 # Used for walking directories and selectively ignoring files.
 ignore = "0.4.33"
 
-# Used to control access to persistent data stored in the file system.
-fslock = "0.2.1"
-
 # Used to make handling pipes easier.
 os_pipe = "1.2.3"
 
@@ -105,6 +103,24 @@ bitflags = "2.13.1"
 
 # Used for raw terminal control.
 termios = "0.3.3"
+
+# Used to run an embedded PostgreSQL server. The `bundled` feature embeds the PostgreSQL binaries
+# in the executable so that PostgreSQL does not have to be installed separately.
+postgresql_embedded = { version = "0.21.0", default-features = false, features = ["blocking", "bundled", "theseus", "tls-rustls-ring"] }
+
+# Used to run `pg_ctl` directly in order to stop a PostgreSQL server which was left running.
+postgresql_commands = "0.21.0"
+
+# Used as an ORM for the database.
+diesel = { version = "2.3.12", features = ["postgres", "r2d2"] }
+
+# Used to embed the database migrations in the executable and to run them.
+diesel_migrations = "2.3.2"
+
+# Not used directly. Diesel depends on this for the PostgreSQL backend, but it does not expose a
+# feature to build libpq from source, so it is depended on here to enable that feature. TLS is not
+# enabled because the database is only reachable over a local unix socket.
+pq-sys = { version = "0.7.5", features = ["bundled_without_openssl"] }
 
 # Used for parameterizing tests.
 test-case = "3.3.1"
