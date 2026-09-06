@@ -25,10 +25,10 @@ below. The currently selected entry is highlighed in yellow.
 
 | Command              | Description                                                                                                                                                                        |
 |----------------------|------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| `j`                  | Move the selection down by one entry.                                                                                                                                              |
-| `k`                  | Move the selection up by one entry.                                                                                                                                                |
-| `J`                  | Move the selection to the last entry.                                                                                                                                              |
-| `K`                  | Move the selection to the first entry.                                                                                                                                             |
+| `j` \| `<Down>`      | Move the selection down by one entry.                                                                                                                                              |
+| `k` \| `<Up>`        | Move the selection up by one entry.                                                                                                                                                |
+| `J` \| `<End>`       | Move the selection to the last entry.                                                                                                                                              |
+| `K` \| `<Home>`      | Move the selection to the first entry.                                                                                                                                             |
 | `l` \| `<Enter>`     | If the currently selected entry is a file, then open it in vim. Else, if the currently selected entry is a directory, then change the current directory to the selected directory. |
 | `h` \| `<Backspace>` | Change directories to the parent of the current directory (if the current directory is not the root directory).                                                                    |
 | `b`                  | Run bash with the working directory set to the current directory.                                                                                                                  |
@@ -69,10 +69,10 @@ the file name.
 | Command          | Description                                                                |
 |------------------|----------------------------------------------------------------------------|
 | `<Ctrl>-q`       | Return focus to the input bar.                                             |
-| `j`              | Move the selection down by one hit.                                        |
-| `k`              | Move the selection up by one hit.                                          |
-| `J`              | Move the selection to the last hit.                                        |
-| `K`              | Move the selection to the first hit.                                       |
+| `j` \| `<Down>`  | Move the selection down by one hit.                                        |
+| `k` \| `<Up>`    | Move the selection up by one hit.                                          |
+| `J` \| `<End>`   | Move the selection to the last hit.                                        |
+| `K` \| `<Home>`  | Move the selection to the first hit.                                       |
 | `l` \| `<Enter>` | Open the hit in vim.                                                       |
 | `g`              | Go to the hit in the file browser.                                         |
 | `G`              | Go to the hit in the file browser and select it.                           |
@@ -94,10 +94,10 @@ The commands for the input bar are the same as those for the Finder.
 | Command          | Description                                                                                                                                                                                        |
 |------------------|----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
 | `<Ctrl>-q`       | Return focus to the input bar.                                                                                                                                                                     |
-| `j`              | Move the selection down.                                                                                                                                                                           |
-| `k`              | Move the selection up.                                                                                                                                                                             |
-| `J`              | Move the selection to the last file hit.                                                                                                                                                           |
-| `K`              | Move the selection to the first file hit.                                                                                                                                                          |
+| `j` \| `<Down>`  | Move the selection down.                                                                                                                                                                           |
+| `k` \| `<Up>`    | Move the selection up.                                                                                                                                                                             |
+| `J` \| `<End>`   | Move the selection to the last file hit.                                                                                                                                                           |
+| `K` \| `<Home>`  | Move the selection to the first file hit.                                                                                                                                                          |
 | `<Ctrl>-j`       | Move the view down.                                                                                                                                                                                |
 | `<Ctrl>-k`       | Move the view up.                                                                                                                                                                                  |
 | `l` \| `<Enter>` | Open the hit in vim. If the file path of a hit is selected, then open vim at the start of the file. Else, if an occurrence of the string is selected, then open vim at the line of the occurrence. |
@@ -117,6 +117,8 @@ Insh can be configured by the file `~/.insh-config.yaml`.
 `general.tab_width` (usize): The width of the `<Tab>` character (default=`4`).
 
 `general.bell` (bool): Whether or not the bell sound should be made (default=`true`).
+
+`input.escape_timeout` (usize): The number of milliseconds after receiving an escape character to wait for the rest of an ANSI escape code. If the ANSI escape code is not received then the escape is interpreted as just an escape character (default=`50`).
 
 `browser.sort` (map): How files are sorted alphabetically. If `null`, then files are not sorted (default=`{}`).
 

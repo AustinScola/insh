@@ -4,5 +4,5 @@
 mod event;
 mod term;
 
-pub use crate::event::{Key, KeyEvent, KeyMods, TermEvent};
-pub use crate::term::Term;
+pub use crate::event::{Key, KeyEvent, KeyMods, ParsedTermEvent, TermEvent, TermEventParseError};
+pub use crate::term::{SavedAttrs, Term};

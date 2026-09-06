@@ -13,10 +13,10 @@ logging = [
 ]
 
 [dependencies]
+ansi = { version = "0.1.0", path = "../ansi" }
 rend = { version = "0.1.0", path = "../rend" }
 term = { version = "0.1.0", path = "../term" }
 
-crossterm = { workspace = true, features = ["serde"] }
 serde = { workspace = true }
 
 # Used for generating the builder pattern for structs.

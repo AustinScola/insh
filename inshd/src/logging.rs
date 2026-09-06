@@ -6,11 +6,11 @@ use std::thread;
 
 use crate::paths::INSHD_LOGS_DIR;
 
+use ansi::{Color as AnsiColor, ControlFunction, GraphicRendition};
 use common::paths::make_private_dir;
 use insh_api::{LogLevel, LogRecord};
 
 use crossbeam::channel::{self, Receiver, Sender};
-use crossterm::style::Stylize;
 use flexi_logger::writers::LogWriter;
 use flexi_logger::{
     AdaptiveFormat, Age, Cleanup, Criterion, DeferredNow, FileSpec, Level,
@@ -223,22 +223,53 @@ impl<'a> ColoredLogRecord<'a> {
 impl Display for ColoredLogRecord<'_> {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> Result<(), FmtError> {
         let level = self.record.level();
-        let level = match level {
-            LogLevel::Error => level.to_string().red(),
-            LogLevel::Warn => level.to_string().dark_yellow(),
-            LogLevel::Info => level.to_string().green(),
-            LogLevel::Debug => level.to_string().blue(),
-            LogLevel::Trace => level.to_string().dark_grey(),
+        let level_color: AnsiColor = match level {
+            LogLevel::Error => AnsiColor::BrightRed,
+            LogLevel::Warn => AnsiColor::Yellow,
+            LogLevel::Info => AnsiColor::BrightGreen,
+            LogLevel::Debug => AnsiColor::BrightBlue,
+            LogLevel::Trace => AnsiColor::BrightBlack,
         };
 
         write!(
             formatter,
             "{} {} {} {} {}",
-            self.record.timestamp().blue(),
-            level,
-            format!("[{}]", self.record.module()).dark_grey(),
-            format!("[{}]", self.record.thread()).dark_grey(),
+            Colored::new(self.record.timestamp(), AnsiColor::BrightBlue),
+            Colored::new(level, level_color),
+            Colored::new(
+                format!("[{}]", self.record.module()),
+                AnsiColor::BrightBlack
+            ),
+            Colored::new(
+                format!("[{}]", self.record.thread()),
+                AnsiColor::BrightBlack
+            ),
             self.record.message()
         )
+    }
+}
+
+/// Text which is written in a color.
+struct Colored<T: Display> {
+    /// The text.
+    text: T,
+    /// The color to write it in.
+    color: AnsiColor,
+}
+
+impl<T: Display> Colored<T> {
+    /// Return text which is written in the given color.
+    fn new(text: T, color: AnsiColor) -> Self {
+        Self { text, color }
+    }
+}
+
+impl<T: Display> Display for Colored<T> {
+    fn fmt(&self, formatter: &mut Formatter<'_>) -> Result<(), FmtError> {
+        let start =
+            ControlFunction::SelectGraphicRendition(vec![GraphicRendition::Foreground(self.color)]);
+        let end = ControlFunction::SelectGraphicRendition(vec![GraphicRendition::Reset]);
+
+        write!(formatter, "{}{}{}", start, self.text, end)
     }
 }

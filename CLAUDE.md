@@ -83,10 +83,20 @@ mistakes here — plain `cargo check` will not.
   the schema, the migrations, and the query API. Only `inshd` depends on it.
 - **`til`** — the TUI application framework ("terminal interface library"). `App`, the `Component`
   trait, the event loop, and running foreign programs (vim, bash) that take over the terminal.
-- **`rend`** — styled-text rendering primitives: `Yarn` (a styled line), `Fabric` (a grid of yarns,
-  stacked with `quilt_bottom`), and `Renderer` (diffs and writes to the terminal).
-- **`term`** — raw terminal control (termios, SIGWINCH-based resize detection) and the `TermEvent` /
-  `Key` types. Also builds a `print-event` debug binary.
+- **`rend`** — styled-text rendering primitives: `Cell` (one column, holding a grapheme cluster),
+  `Yarn` (a styled line, measured in columns rather than characters), `Fabric` (a grid of yarns,
+  stacked with `quilt_bottom`), and `Renderer`, which writes a whole `Fabric` to a terminal. The
+  `Renderer` is generic over what it writes to so its output can be checked in tests; it repaints
+  every cell rather than diffing, and only writes a select-graphic-rendition sequence where the
+  colours actually change.
+- **`term`** — raw terminal control (termios, SIGWINCH-based resize detection), reading input, and
+  the `TermEvent` / `Key` types. Also builds a `print-event` debug binary.
+- **`ansi`** — the ANSI escape sequences which the terminal and the programs in it send, and the
+  colours and styles they carry. Two layers: `AnsiEscapeSequence` is the structure of a sequence,
+  and `ControlFunction` is what one means. Both directions work, so anything here can be written
+  back out as bytes, as short as it goes. It has no dependencies and does no I/O — `term` uses it
+  to read input and `rend` uses it to draw, which is how the two of them share one vocabulary.
+  `ansi/src/lib.rs` lists the standards it is written against; check anything added to it there.
 - **`size`**, **`file-type`**, **`file-info`**, **`path-finder`**, **`phrase-searcher`**, **`common`**
   — small shared leaf crates. `path-finder` does regex-matched, gitignore-respecting directory
   walking; `phrase-searcher` walks a directory tree matching file contents against a phrase;
@@ -127,8 +137,13 @@ pub trait Component<Props, Event, Effect> {
 `App::run` owns the event loop: it `select!`s over terminal events and daemon responses, feeds them
 to the root component as `til::Event<Response>`, and interprets the returned
 `til::SystemEffect<Request>` (`RunProgram`, `Request`, `Bell`, `Exit`). Rendering is pull-based —
-after each event the root's `render(size)` produces a `Fabric` which the `Renderer` diffs onto the
+after each event the root's `render(size)` produces a `Fabric` which the `Renderer` writes to the
 screen.
+
+The loop waits for one event, then goes on handling however many are already waiting before
+rendering again. Holding a key down sends them faster than the screen can be drawn for each one, and
+the ones which are skipped over have all been superseded by the ones after them anyway. Nothing is
+ever waited for in order to batch them, so a key pressed on its own is still drawn straight away.
 
 `SystemEffect::RunProgram` suspends the TUI, runs a `til::Program` (see `insh/src/programs/` for
 vim and bash), forwards terminal resizes to it, and restores the screen after. Vim's stdout is

@@ -1,10 +1,10 @@
-use std::collections::VecDeque;
 use std::ffi::c_int;
 use std::fmt::{Display, Error as FmtError, Formatter};
 use std::fs::File;
 use std::io::{self, Error as IOError, Read, Stdin};
 use std::os::fd::AsRawFd;
 use std::os::fd::{AsFd, BorrowedFd, IntoRawFd, RawFd};
+use std::time::Duration;
 
 use libc::{ioctl, winsize as WindowSize, TIOCGWINSZ};
 use nix::errno::Errno;
@@ -14,27 +14,52 @@ use nix::sys::signal::{signal, SigHandler, Signal};
 use nix::unistd::{pipe, read, write};
 use nix::Result as NixResult;
 use termios::*;
+use typed_builder::TypedBuilder;
 
-use crate::event::TermEvent;
+use crate::event::{KeyEvent, ParsedTermEvent, TermEvent, TermEventParseError};
 use size::Size;
 
 // TODO: Make sure we close these?
 static mut RESIZED_RX: Option<RawFd> = None;
 static mut RESIZED_TX: Option<RawFd> = None;
 
+#[derive(TypedBuilder)]
 pub struct Term {
+    #[builder(setter(skip), default=io::stdin())]
     stdin: Stdin,
-    buffer: [u8; 1],
-    buffered_reads: VecDeque<Result<TermEvent, ReadError>>,
+    /// The bytes which have been read from the terminal but not parsed into an event yet.
+    #[builder(setter(skip), default)]
+    bytes: Vec<u8>,
+    #[builder(setter(skip), default=Termios::from_fd(io::stdin().as_raw_fd()).unwrap())]
     termios: Termios,
+    #[builder(setter(skip), default)]
     saved_termios: Option<Termios>,
+    /// The read end of the pipe which the handler for the signal that the terminal was resized
+    /// writes to, so that a resize can be waited for alongside input.
+    #[builder(setter(skip), default=Term::handle_resizes())]
+    resized_rx: RawFd,
+    /// How long to wait for the rest of an escape sequence before deciding that the bytes which
+    /// have been read are all that the terminal is going to send. A press of the escape key is
+    /// indistinguishable from the start of a sequence until this runs out.
+    #[builder(default=Term::DEFAULT_ESCAPE_TIMEOUT)]
+    escape_timeout: Duration,
 }
 
 impl Term {
     pub fn new() -> Self {
-        let stdin: Stdin = io::stdin();
-        let termios: Termios = Termios::from_fd(stdin.as_raw_fd()).unwrap();
+        Self::builder().build()
+    }
 
+    /// How long to wait for the rest of an escape sequence by default.
+    pub const DEFAULT_ESCAPE_TIMEOUT: Duration = Duration::from_millis(50);
+
+    /// How many bytes to read from the terminal at a time. Pasted text is the only input which is
+    /// ever anywhere near this long, and it does not matter if it takes more than one read.
+    const READ_SIZE: usize = 4096;
+
+    /// Set up the pipe and the signal handler which report that the terminal was resized, and
+    /// return the end of the pipe which is read from.
+    fn handle_resizes() -> RawFd {
         // Create a pipe for the SIGWINCH signal handler to communicate with the rest of the code.
         let (resized_rx, resized_tx) = pipe().unwrap();
         let (resized_rx, resized_tx): (RawFd, RawFd) =
@@ -51,30 +76,35 @@ impl Term {
             }
         }
 
-        Self {
-            stdin,
-            buffered_reads: VecDeque::new(),
-            buffer: [0; 1],
-            termios,
-            saved_termios: None,
-        }
+        resized_rx
     }
 
     pub fn read(&mut self) -> Result<TermEvent, ReadError> {
-        // If there are any buffered reads, then return the first one.
-        if let Some(result) = self.buffered_reads.pop_front() {
-            return result;
-        }
-
         loop {
-            let timeout = PollTimeout::NONE; // Block indefinitely.
-            let stdin_pollfd = PollFd::new(self.stdin.as_fd(), PollFlags::POLLIN);
-            let resized_rx_pollfd = unsafe {
-                PollFd::new(
-                    BorrowedFd::borrow_raw(RESIZED_RX.unwrap()),
-                    PollFlags::POLLIN,
-                )
+            // Try to parse an event out of the bytes which have already been read, and work out
+            // how long it is worth waiting for more of them if there is not one yet.
+            let timeout: PollTimeout = match ParsedTermEvent::try_from(&self.bytes[..]) {
+                Ok(ParsedTermEvent { event, len }) => {
+                    self.bytes.drain(..len);
+                    return Ok(event);
+                }
+                Err(TermEventParseError::Unrecognized(len)) => {
+                    self.bytes.drain(..len);
+                    continue;
+                }
+                // Block indefinitely, because the terminal has committed to sending the rest of
+                // the pasted text however long it takes to arrive.
+                Err(TermEventParseError::NeedRestOfPaste) => PollTimeout::NONE,
+                // Block indefinitely, because nothing has been read which could be an event yet.
+                Err(TermEventParseError::Need(_)) if self.bytes.is_empty() => PollTimeout::NONE,
+                Err(TermEventParseError::Need(_)) => {
+                    PollTimeout::try_from(self.escape_timeout).unwrap_or(PollTimeout::MAX)
+                }
             };
+
+            let stdin_pollfd = PollFd::new(self.stdin.as_fd(), PollFlags::POLLIN);
+            let resized_rx_pollfd =
+                unsafe { PollFd::new(BorrowedFd::borrow_raw(self.resized_rx), PollFlags::POLLIN) };
             let mut pollfds: [PollFd; 2] = [stdin_pollfd, resized_rx_pollfd];
 
             let result: NixResult<c_int> = poll(&mut pollfds, timeout);
@@ -85,45 +115,44 @@ impl Term {
                 Err(errno) => {
                     return Err(ReadError::PollError(errno));
                 }
-                _ => {}
+                // Nothing more is coming, so the bytes which have been read are not the start of a
+                // sequence after all and the first one is a key of its own.
+                Ok(0) => match self.bytes.first().copied() {
+                    Some(byte) => {
+                        self.bytes.remove(0);
+                        return Ok(TermEvent::KeyEvent(KeyEvent::from(byte)));
+                    }
+                    // NOTE: There is only ever a timeout to run out when bytes are waiting, so
+                    // there is always one to take, but polling again is the harmless thing to do
+                    // rather than counting on that from thirty lines away.
+                    None => {
+                        continue;
+                    }
+                },
+                Ok(_) => {}
             }
 
             let [stdin_events, resized_rx_events] = pollfds;
 
-            let stdin_events: Option<PollFlags> = stdin_events.revents();
-            if let Some(stdin_events) = stdin_events {
+            if let Some(stdin_events) = stdin_events.revents() {
                 if stdin_events.contains(PollFlags::POLLIN) {
-                    let result = match self.stdin.read_exact(&mut self.buffer) {
-                        Ok(_) => Ok(TermEvent::try_from(&self.buffer[..]).unwrap()),
-                        Err(error) => Err(ReadError::IOError(error)),
-                    };
-
-                    // Buffer an other events.
-                    loop {
-                        match self.stdin.read(&mut self.buffer) {
-                            Ok(read) => {
-                                if read == 0 {
-                                    break;
-                                }
-                            }
-                            Err(error) => {
-                                self.buffered_reads
-                                    .push_back(Err(ReadError::IOError(error)));
-                            }
+                    let mut buffer: [u8; Self::READ_SIZE] = [0; Self::READ_SIZE];
+                    match self.stdin.read(&mut buffer) {
+                        Ok(read) => {
+                            self.bytes.extend_from_slice(&buffer[..read]);
                         }
-                        self.buffered_reads
-                            .push_back(Ok(TermEvent::try_from(&self.buffer[..]).unwrap()));
+                        Err(error) => {
+                            return Err(ReadError::IOError(error));
+                        }
                     }
-
-                    return result;
+                    continue;
                 }
             }
 
-            let resized_rx_events: Option<PollFlags> = resized_rx_events.revents();
-            if let Some(resized_rx_events) = resized_rx_events {
+            if let Some(resized_rx_events) = resized_rx_events.revents() {
                 let mut buffer: [u8; 1] = [0; 1];
                 unsafe {
-                    read(BorrowedFd::borrow_raw(RESIZED_RX.unwrap()), &mut buffer[..]).unwrap();
+                    read(BorrowedFd::borrow_raw(self.resized_rx), &mut buffer[..]).unwrap();
                 }
                 if resized_rx_events.contains(PollFlags::POLLIN) {
                     let size: Size = match Term::size() {
@@ -135,8 +164,6 @@ impl Term {
                     return Ok(TermEvent::Resize(size));
                 }
             }
-
-            unreachable!();
         }
     }
 
@@ -169,19 +196,25 @@ impl Term {
         Ok(())
     }
 
+    /// Return the attributes which were saved, or `None` if they have not been.
+    pub fn saved_attrs(&self) -> Option<SavedAttrs> {
+        self.saved_termios.map(|termios| SavedAttrs {
+            termios,
+            fd: self.stdin.as_raw_fd(),
+        })
+    }
+
     pub fn restore_attrs(&mut self) -> Result<(), RestoreAttrsError> {
-        let saved_termios: Termios = match self.saved_termios {
-            Some(saved_termios) => saved_termios,
+        let saved_attrs: SavedAttrs = match self.saved_attrs() {
+            Some(saved_attrs) => saved_attrs,
             None => {
                 return Err(RestoreAttrsError::AttrsNotSavedError);
             }
         };
 
-        if let Err(error) = termios::tcsetattr(self.stdin.as_raw_fd(), TCSAFLUSH, &saved_termios) {
-            return Err(RestoreAttrsError::FailedToSetAttrs(error));
-        }
+        saved_attrs.restore()?;
 
-        self.termios = saved_termios;
+        self.termios = saved_attrs.termios;
         Ok(())
     }
 
@@ -246,6 +279,27 @@ extern "C" fn _handle_sigwinch(_signal: libc::c_int) {
             let buffer: [u8; 1] = [1; 1];
             write(BorrowedFd::borrow_raw(resized_tx_), &buffer[..]).unwrap();
         }
+    }
+}
+
+/// The attributes which a terminal had before it was taken over, kept so that they can be put back
+/// from somewhere which does not own the [`Term`] they came from. A panic handler is the one which
+/// needs that, because it runs when the terminal is no longer reachable through anything else.
+#[derive(Debug, Clone, Copy)]
+pub struct SavedAttrs {
+    /// The attributes.
+    termios: Termios,
+    /// The file descriptor of the terminal they are for.
+    fd: RawFd,
+}
+
+impl SavedAttrs {
+    /// Put the attributes back.
+    pub fn restore(&self) -> Result<(), RestoreAttrsError> {
+        if let Err(error) = termios::tcsetattr(self.fd, TCSAFLUSH, &self.termios) {
+            return Err(RestoreAttrsError::FailedToSetAttrs(error));
+        }
+        Ok(())
     }
 }
 

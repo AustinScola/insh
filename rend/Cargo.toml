@@ -6,10 +6,12 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
+ansi = { version = "0.1.0", path = "../ansi" }
 size = { version = "0.1.0", path = "../size" }
-crossterm = { workspace = true }
 
 itertools = { workspace = true }
+unicode-segmentation = { workspace = true }
+unicode-width = { workspace = true }
 
 [dev-dependencies]
 test-case = { workspace = true }

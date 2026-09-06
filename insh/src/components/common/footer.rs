@@ -38,12 +38,10 @@ mod props {
 pub use props::Props;
 
 mod footer {
-    use std::cmp;
-
     use super::{Effect, Event, Info, Props, State};
     use crate::color::Color;
 
-    use rend::{Fabric, Size, Yarn};
+    use rend::{Cell, Fabric, Size, Yarn};
     use til::Component;
 
     pub struct Footer<'a, I: Info> {
@@ -75,20 +73,21 @@ mod footer {
                 false => format!("{}  {}", position, self.state.name()),
             };
 
-            let right_len: usize = cmp::min(right.chars().count(), size.columns);
+            let mut right_cells: Vec<Cell> = Cell::all(&right);
+            Cell::keep_last(&mut right_cells, size.columns);
+            let right_len: usize = right_cells.len();
+
             // Keep a blank column between the text and where you are so that they never run
             // together.
-            let text_len: usize = cmp::min(
-                text.chars().count(),
-                size.columns.saturating_sub(right_len + 1),
-            );
+            let mut text_cells: Vec<Cell> = Cell::all(&text);
+            Cell::truncate(&mut text_cells, size.columns.saturating_sub(right_len + 1));
 
-            let mut characters: Vec<char> = Vec::with_capacity(size.columns);
-            characters.extend(text.chars().take(text_len));
-            characters.extend(vec![' '; size.columns - text_len - right_len]);
-            characters.extend(right.chars().skip(right.chars().count() - right_len));
+            let mut cells: Vec<Cell> = Vec::with_capacity(size.columns);
+            cells.append(&mut text_cells);
+            cells.resize(size.columns - right_len, Cell::BLANK);
+            cells.append(&mut right_cells);
 
-            let mut yarn = Yarn::from(characters);
+            let mut yarn = Yarn::from(cells);
             yarn.color(Color::InvertedText.into());
             yarn.background(Color::FooterBackground.into());
 
@@ -128,7 +127,7 @@ mod footer {
 
             let fabric: Fabric = Footer::new(props).render(Size::new(1, columns));
 
-            fabric.characters()[0].iter().collect()
+            fabric.cells()[0].iter().map(ToString::to_string).collect()
         }
 
         #[test_case("", "", "file creator", 20, "        file creator"; "only the name")]

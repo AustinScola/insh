@@ -4,11 +4,13 @@ terminal screen.
 */
 #![allow(clippy::needless_return)]
 
+mod cell;
 mod fabric;
 mod location;
 mod renderer;
 mod yarn;
 
+pub use cell::Cell;
 pub use fabric::Fabric;
 pub use location::Location;
 pub use renderer::Renderer;

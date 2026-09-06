@@ -62,8 +62,13 @@ mod contents {
                     [KeyPattern::exact(Key::Char('j'), KeyMods::NONE)],
                     Action::Down,
                 )
+                .bind([KeyPattern::exact(Key::Down, KeyMods::NONE)], Action::Down)
                 .bind(
                     [KeyPattern::exact(Key::Char('J'), KeyMods::SHIFT)],
+                    Action::ReallyDown,
+                )
+                .bind(
+                    [KeyPattern::exact(Key::End, KeyMods::NONE)],
                     Action::ReallyDown,
                 )
                 .bind(
@@ -71,15 +76,28 @@ mod contents {
                     Action::ScrollDown,
                 )
                 .bind(
+                    [KeyPattern::exact(Key::Down, KeyMods::CONTROL)],
+                    Action::ScrollDown,
+                )
+                .bind(
                     [KeyPattern::exact(Key::Char('k'), KeyMods::NONE)],
                     Action::Up,
                 )
+                .bind([KeyPattern::exact(Key::Up, KeyMods::NONE)], Action::Up)
                 .bind(
                     [KeyPattern::exact(Key::Char('K'), KeyMods::SHIFT)],
                     Action::ReallyUp,
                 )
                 .bind(
+                    [KeyPattern::exact(Key::Home, KeyMods::NONE)],
+                    Action::ReallyUp,
+                )
+                .bind(
                     [KeyPattern::exact(Key::Char('k'), KeyMods::CONTROL)],
+                    Action::ScrollUp,
+                )
+                .bind(
+                    [KeyPattern::exact(Key::Up, KeyMods::CONTROL)],
                     Action::ScrollUp,
                 )
                 .bind(
@@ -88,6 +106,7 @@ mod contents {
                 )
                 .bind([KeyPattern::any(Key::Char('l'))], Action::Edit)
                 .bind([KeyPattern::any(Key::CarriageReturn)], Action::Edit)
+                .bind([KeyPattern::exact(Key::Right, KeyMods::NONE)], Action::Edit)
                 .bind(
                     [KeyPattern::exact(Key::Char('g'), KeyMods::NONE)],
                     Action::Goto,
@@ -139,6 +158,10 @@ mod contents {
                 Event::Search { phrase } => Action::Search { phrase },
                 Event::Response(response) => Action::HandleResponse(response),
                 Event::TermEvent(TermEvent::Resize(size)) => Action::Resize { size },
+                // There is nothing to paste into a list of hits.
+                Event::TermEvent(TermEvent::Paste(_)) => {
+                    return None;
+                }
                 Event::TermEvent(TermEvent::KeyEvent(key_event)) => {
                     match self.command_parser.parse(key_event) {
                         Parsed::Command(action) => action,
