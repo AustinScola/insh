@@ -1,15 +1,15 @@
-use crossterm::style::Color as CrosstermColor;
+use ansi::Color as AnsiColor;
 
-const DARK_GREY: CrosstermColor = CrosstermColor::Rgb {
-    r: 96,
-    g: 96,
-    b: 96,
+const DARK_GREY: AnsiColor = AnsiColor::Rgb {
+    red: 96,
+    green: 96,
+    blue: 96,
 };
 
-const LIGHT_GREY: CrosstermColor = CrosstermColor::Rgb {
-    r: 159,
-    g: 159,
-    b: 159,
+const LIGHT_GREY: AnsiColor = AnsiColor::Rgb {
+    red: 159,
+    green: 159,
+    blue: 159,
 };
 
 pub enum Color {
@@ -25,18 +25,18 @@ pub enum Color {
     NotCompiledRegex,
 }
 
-impl From<Color> for CrosstermColor {
-    fn from(color: Color) -> CrosstermColor {
+impl From<Color> for AnsiColor {
+    fn from(color: Color) -> AnsiColor {
         match color {
-            Color::Highlight => CrosstermColor::Yellow,
+            Color::Highlight => AnsiColor::BrightYellow,
             Color::GrayedText => DARK_GREY,
             Color::LightGrayedText => LIGHT_GREY,
-            Color::InvertedText => CrosstermColor::Black,
+            Color::InvertedText => AnsiColor::Black,
             Color::InvertedGrayedText => LIGHT_GREY,
             Color::InvertedLightGrayedText => DARK_GREY,
-            Color::InvertedBackground => CrosstermColor::White,
-            Color::FooterBackground => CrosstermColor::Grey,
-            Color::BadRegex => CrosstermColor::Red,
+            Color::InvertedBackground => AnsiColor::BrightWhite,
+            Color::FooterBackground => AnsiColor::White,
+            Color::BadRegex => AnsiColor::BrightRed,
             Color::NotCompiledRegex => DARK_GREY,
         }
     }

@@ -13,12 +13,10 @@ use crate::stateful::Stateful;
 use file_type::FileType;
 use insh_api::{Request, Response};
 use rend::{Fabric, Size};
-use term::{Key, KeyEvent, KeyMods, TermEvent};
+use term::{Key, KeyEvent, KeyMods, Term, TermEvent};
 use til::{Component, Event, SystemEffect};
 
 use std::path::PathBuf;
-
-use crossterm::terminal;
 
 mod props {
     use std::path::PathBuf;
@@ -250,7 +248,7 @@ struct State {
 impl From<Props> for State {
     fn from(props: Props) -> Self {
         let dir: PathBuf = props.dir().clone().unwrap_or_else(current_dir::current_dir);
-        let size: Size = Size::from(terminal::size().unwrap());
+        let size: Size = Term::size().unwrap();
 
         let browser_props = BrowserProps::builder()
             .config(props.config().clone())
@@ -321,7 +319,7 @@ impl State {
             get_files_request(dir.clone(), &self.config, self.config.browser().metadata());
 
         self.mode = Mode::Browse;
-        let size: Size = Size::from(terminal::size().unwrap());
+        let size: Size = Term::size().unwrap();
         let browser_props = BrowserProps::builder()
             .config(self.config.clone())
             .dir(dir)
@@ -346,7 +344,7 @@ impl State {
 
     fn find(&mut self, dir: PathBuf) -> Option<SystemEffect<Request>> {
         self.mode = Mode::Finder;
-        let size: Size = Size::from(terminal::size().unwrap());
+        let size: Size = Term::size().unwrap();
         let phrase = None;
         let finder_props = FinderProps::builder()
             .dir(dir)
@@ -359,7 +357,7 @@ impl State {
 
     fn search(&mut self, dir: PathBuf) -> Option<SystemEffect<Request>> {
         self.mode = Mode::Searcher;
-        let size: Size = Size::from(terminal::size().unwrap());
+        let size: Size = Term::size().unwrap();
         let phrase = None;
         let searcher_props = SearcherProps::new(self.config.clone(), dir, size, phrase, None);
         self.searcher = Some(Searcher::new(searcher_props));

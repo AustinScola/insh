@@ -4,15 +4,20 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
+ansi = { version = "0.1.0", path = "../ansi" }
 size = { version = "0.1.0", path = "../size" }
 bitflags = { workspace = true }
 termios = { workspace = true }
+typed-builder = { workspace = true }
 
 # Provides friendly bindings for *nix platform APIs.
 #
 # Used for:
 #   - detecting terminal size changes (via  the SIGWINCH signal).
 nix = { workspace = true }
+
+[dev-dependencies]
+test-case = { workspace = true }
 
 [[bin]]
 name = "print-event"

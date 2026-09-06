@@ -2,11 +2,11 @@
 This module contains the [`Fabric`] struct which is used for representing a 2D rectangle of styled
 text.
 */
-use super::{Size, Yarn};
+use super::{Cell, Size, Yarn};
 
 use std::cmp::Ordering;
 
-use crossterm::style::Color;
+use ansi::Color;
 use itertools::izip;
 
 // MAYBE TODO: Use ranges for storage to save memory when elements are sparse?
@@ -15,8 +15,8 @@ use itertools::izip;
 pub struct Fabric {
     /// The size of the fabric.
     size: Size,
-    /// The characters of the text.
-    characters: Vec<Vec<char>>,
+    /// The cells of the text, one for each column of each row.
+    characters: Vec<Vec<Cell>>,
     /// The text colors.
     colors: Vec<Vec<Option<Color>>>,
     /// The background colors of the text.
@@ -26,7 +26,7 @@ pub struct Fabric {
 impl Fabric {
     /// Return a new fabric with the given `size`.
     pub fn new(size: Size) -> Self {
-        let characters = vec![vec![' '; size.columns]; size.rows];
+        let characters = vec![vec![Cell::BLANK; size.columns]; size.rows];
         let colors = vec![vec![]; size.rows];
         let backgrounds = vec![vec![]; size.rows];
         Fabric {
@@ -64,8 +64,8 @@ impl Fabric {
         self.size
     }
 
-    /// Return the characters composing the fabric.
-    pub fn characters(&self) -> &Vec<Vec<char>> {
+    /// Return the cells composing the fabric, one for each column of each row.
+    pub fn cells(&self) -> &Vec<Vec<Cell>> {
         &self.characters
     }
 
@@ -92,9 +92,9 @@ impl Fabric {
                 let bottom_pad_rows = difference - top_pad_rows;
 
                 self.characters = [
-                    vec![vec![' '; self.size.columns]; top_pad_rows],
+                    vec![vec![Cell::BLANK; self.size.columns]; top_pad_rows],
                     self.characters.to_owned(),
-                    vec![vec![' '; self.size.columns]; bottom_pad_rows],
+                    vec![vec![Cell::BLANK; self.size.columns]; bottom_pad_rows],
                 ]
                 .concat();
                 self.colors = [
@@ -127,7 +127,8 @@ impl Fabric {
                 let columns: usize = self.size.columns;
 
                 self.size = Size::new(new_rows, columns);
-                self.characters.extend(vec![vec![' '; columns]; difference]);
+                self.characters
+                    .extend(vec![vec![Cell::BLANK; columns]; difference]);
                 self.colors.extend(vec![vec![]; difference]);
                 self.backgrounds.extend(vec![vec![]; difference]);
             }
@@ -182,7 +183,7 @@ impl From<Vec<Yarn>> for Fabric {
         let size: Size = Size::new(row_count, column_count);
 
         // TODO: Only use one iteration here and don't clone?
-        let characters: Vec<Vec<char>> = rows.iter().map(|row| row.characters().clone()).collect();
+        let characters: Vec<Vec<Cell>> = rows.iter().map(|row| row.cells().clone()).collect();
         let colors: Vec<Vec<Option<Color>>> = rows.iter().map(|row| row.colors().clone()).collect();
         let backgrounds: Vec<Vec<Option<Color>>> =
             rows.iter().map(|row| row.backgrounds().clone()).collect();
@@ -204,7 +205,7 @@ impl From<Yarn> for Fabric {
             size = Size::new(1, columns);
         }
 
-        let characters = vec![row.characters().to_vec()];
+        let characters = vec![row.cells().to_vec()];
         let colors = vec![row.colors().to_vec()];
         let backgrounds = vec![row.backgrounds().to_vec()];
 

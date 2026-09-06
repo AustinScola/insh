@@ -122,7 +122,9 @@ fn main() {
     // Determine the starting term events.
     let starting_term_events: Option<Vec<TermEvent>> = args.starting_term_events();
 
-    let mut app: App = App::builder().build();
+    let mut app: App = App::builder()
+        .escape_timeout(config.input().escape_timeout())
+        .build();
 
     let insh_props: InshProps = InshProps::builder()
         .dir(args.dir().clone())

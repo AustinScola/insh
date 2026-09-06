@@ -28,7 +28,7 @@ log = { workspace = true }
 flexi_logger = { workspace = true }
 
 # Used for coloring the log records which are written to the terminal.
-crossterm = { workspace = true }
+ansi = { version = "0.1.0", path = "../ansi" }
 
 # Used for declaring lazily evaluated static values.
 lazy_static = { workspace = true }

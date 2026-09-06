@@ -17,7 +17,7 @@ use insh_api::{
     GetFileContentsRequestParams, GetFileContentsResponseParams, GetFilesResponseParams,
     GetFilesResult, Request, RequestParams, Response, ResponseParams,
 };
-use rend::{Fabric, Size, Yarn};
+use rend::{Cell, Fabric, Size, Yarn};
 use term::{Key, KeyEvent, KeyMods, TermEvent};
 use til::{CommandParser, Component, KeyPattern, Parsed};
 
@@ -399,7 +399,7 @@ impl Component<Props, Event, Effect> for Contents {
                     if self.state.metadata {
                         for entry in file_infos {
                             name_width =
-                                cmp::max(name_width, name_and_link_target(entry).chars().count());
+                                cmp::max(name_width, Cell::columns(&name_and_link_target(entry)));
 
                             let metadata = match entry.metadata() {
                                 Some(metadata) => metadata,
@@ -413,9 +413,9 @@ impl Component<Props, Event, Effect> for Contents {
                                 metadata.hard_links().to_string().chars().count(),
                             );
                             user_width =
-                                cmp::max(user_width, entry::user(metadata).chars().count());
+                                cmp::max(user_width, Cell::columns(&entry::user(metadata)));
                             group_width =
-                                cmp::max(group_width, entry::group(metadata).chars().count());
+                                cmp::max(group_width, Cell::columns(&entry::group(metadata)));
                             size_width =
                                 cmp::max(size_width, metadata.size().to_string().chars().count());
                         }
@@ -528,23 +528,35 @@ impl Contents {
                 [KeyPattern::exact(Key::Char('j'), KeyMods::NONE)],
                 Action::Down,
             )
+            .bind([KeyPattern::exact(Key::Down, KeyMods::NONE)], Action::Down)
             .bind(
                 [KeyPattern::exact(Key::Char('J'), KeyMods::SHIFT)],
+                Action::ReallyDown,
+            )
+            .bind(
+                [KeyPattern::exact(Key::End, KeyMods::NONE)],
                 Action::ReallyDown,
             )
             .bind(
                 [KeyPattern::exact(Key::Char('k'), KeyMods::NONE)],
                 Action::Up,
             )
+            .bind([KeyPattern::exact(Key::Up, KeyMods::NONE)], Action::Up)
             .bind(
                 [KeyPattern::exact(Key::Char('K'), KeyMods::SHIFT)],
+                Action::ReallyUp,
+            )
+            .bind(
+                [KeyPattern::exact(Key::Home, KeyMods::NONE)],
                 Action::ReallyUp,
             )
             .bind([KeyPattern::any(Key::Char('r'))], Action::Refresh)
             .bind([KeyPattern::any(Key::Char('l'))], Action::Push)
             .bind([KeyPattern::any(Key::CarriageReturn)], Action::Push)
+            .bind([KeyPattern::exact(Key::Right, KeyMods::NONE)], Action::Push)
             .bind([KeyPattern::any(Key::Char('h'))], Action::Pop)
             .bind([KeyPattern::any(Key::Backspace)], Action::Pop)
+            .bind([KeyPattern::exact(Key::Left, KeyMods::NONE)], Action::Pop)
             .bind(
                 [
                     KeyPattern::exact(Key::Char('y'), KeyMods::NONE),

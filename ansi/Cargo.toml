@@ -1,0 +1,9 @@
+[package]
+name = "ansi"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+
+[dev-dependencies]
+test-case = { workspace = true }

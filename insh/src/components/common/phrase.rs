@@ -48,7 +48,8 @@ mod phrase {
                         ..
                     }) => Some(Action::Quit),
                     TermEvent::KeyEvent(KeyEvent {
-                        key: Key::Delete, ..
+                        key: Key::Backspace,
+                        ..
                     }) => Some(Action::Pop),
                     TermEvent::KeyEvent(KeyEvent {
                         key: Key::HorizontalTab,
@@ -62,6 +63,7 @@ mod phrase {
                         key: Key::Char(character),
                         mods: KeyMods::NONE | KeyMods::SHIFT,
                     }) => Some(Action::Push { character }),
+                    TermEvent::Paste(text) => Some(Action::Paste { text }),
                     _ => None,
                 },
                 Event::Completion { uuid, completion } => {
@@ -193,6 +195,22 @@ mod state {
             self.request_completion()
         }
 
+        /// Append pasted text to the value.
+        ///
+        /// Only the first line of it is taken, because the value is a single line. The rest is
+        /// dropped rather than run together with it or treated as an enter, either of which would
+        /// do something surprising with a paste which spans lines.
+        fn paste(&mut self, text: String) -> Option<Effect> {
+            let line: &str = text.lines().next().unwrap_or_default();
+
+            if line.is_empty() {
+                return Some(Effect::Bell);
+            }
+
+            self.value.push_str(line);
+            self.request_completion()
+        }
+
         fn pop(&mut self) -> Option<Effect> {
             self.value.pop();
 
@@ -242,6 +260,7 @@ mod state {
                 Action::Focus => self.focus(),
                 Action::Unfocus => self.unfocus(),
                 Action::Push { character } => self.push(character),
+                Action::Paste { text } => self.paste(text),
                 Action::Pop => self.pop(),
                 Action::SetCompletion { uuid, completion } => self.set_completion(uuid, completion),
                 Action::Complete => self.complete(),
@@ -261,6 +280,9 @@ mod action {
         Unfocus,
         Push {
             character: char,
+        },
+        Paste {
+            text: String,
         },
         Pop,
         SetCompletion {

@@ -11,8 +11,9 @@ use crate::system_effect::SystemEffect;
 use crate::term_event_forwarder::TermEventForwarder;
 use crate::StdoutPipe;
 
+use ansi::{BracketedPaste, ControlFunction, EraseInDisplay, Mode};
 use rend::{Fabric, Renderer, Size};
-use term::{Term, TermEvent};
+use term::{SavedAttrs, Term, TermEvent};
 
 use std::collections::VecDeque;
 use std::ffi::{c_int, CString, OsString};
@@ -24,14 +25,10 @@ use std::os::fd::RawFd;
 use std::os::unix::ffi::OsStringExt;
 use std::panic;
 use std::thread::{self, JoinHandle};
+use std::time::Duration;
 
 use crossbeam::channel::{self, Receiver, Sender};
 use crossbeam::select;
-use crossterm::cursor::{Hide as HideCursor, MoveTo as MoveCursorTo, Show as ShowCursor};
-use crossterm::style::Print;
-use crossterm::terminal::{self, EnterAlternateScreen, LeaveAlternateScreen};
-use crossterm::terminal::{Clear as ClearTerminal, ClearType as TerminalClearType};
-use crossterm::{ExecutableCommand, QueueableCommand};
 use nix::libc;
 use nix::libc::{ioctl, setenv, winsize as WindowSize, TIOCSWINSZ};
 use nix::pty::{forkpty, ForkptyResult, Winsize};
@@ -54,9 +51,22 @@ pub struct App {
 
     #[builder(setter(skip), default)]
     size: Size,
+
+    /// How long to wait for the rest of an escape sequence before deciding that the escape key was
+    /// pressed on its own.
+    #[builder(default=Term::DEFAULT_ESCAPE_TIMEOUT)]
+    escape_timeout: Duration,
 }
 
 impl App {
+    /// The most events to handle before drawing the screen again.
+    ///
+    /// The events handled between one drawing of the screen and the next have all been superseded
+    /// by the ones after them, so there is no reason to stop at any particular number of them. This
+    /// is only so that events arriving without a pause — the results of a large search coming in
+    /// faster than they can be handled, say — cannot put drawing the screen off for ever.
+    const MAX_EVENTS_PER_RENDER: usize = 1024;
+
     pub fn run<Props, Request, Response>(
         &mut self,
         options: AppRunOptions<Props, Request, Response>,
@@ -119,8 +129,9 @@ impl App {
             };
 
             // Spawn the terminal event forwarder.
-            let mut term_event_forwarder = TermEventForwarder::builder()
+            let term_event_forwarder = TermEventForwarder::builder()
                 .term_event_tx(term_event_tx)
+                .escape_timeout(self.escape_timeout)
                 .build();
             _term_event_forwarder_handle = thread::Builder::new()
                 .name("input-forwarder".to_string())
@@ -130,7 +141,7 @@ impl App {
             #[cfg(feature = "logging")]
             log::info!("Running.");
 
-            self.size = Size::from(terminal::size().unwrap());
+            self.size = Term::size().unwrap();
 
             if let Some(effects) = starting_effects {
                 for effect in effects {
@@ -160,14 +171,16 @@ impl App {
                 }
             }
 
-            loop {
+            'app: loop {
                 let fabric: Fabric = root.render(self.size);
 
                 self.renderer.render(fabric);
 
+                // Wait for something to happen, however long it takes. Nothing is going to change
+                // until it does, so there is nothing to draw in the meantime.
                 let mut event: Event<Response>;
                 if let Some(term_event) = self.unused_term_events.pop_front() {
-                    event = Event::TermEvent(term_event);
+                    event = Event::TermEvent(self.note_resize(term_event));
                 } else {
                     select! {
                         recv(term_event_rx) -> term_event => {
@@ -177,13 +190,10 @@ impl App {
                                 Err(error) => {
                                     #[cfg(feature = "logging")]
                                     log::error!("Error receiving terminal event from channel: {}", error);
-                                    break;
+                                    break 'app;
                                 }
                             };
-                            if let TermEvent::Resize(size) = term_event {
-                                self.size = size;
-                            }
-                            event = Event::TermEvent(term_event);
+                            event = Event::TermEvent(self.note_resize(term_event));
                         },
                         recv(response_rx) -> response => {
                             let response: Response = match response {
@@ -192,7 +202,7 @@ impl App {
                                 Err(error) => {
                                     #[cfg(feature = "logging")]
                                     log::error!("Error receiving response from channel: {}", error);
-                                    break;
+                                    break 'app;
                                 }
                             };
                             event = Event::Response(response);
@@ -200,29 +210,55 @@ impl App {
                     }
                 }
 
-                let effect: Option<SystemEffect<Request>> = root.handle(event);
-                match effect {
-                    Some(SystemEffect::RunProgram { program }) => {
-                        let size_before = self.size;
-                        self.run_program(program, &term_event_rx);
-                        if self.size != size_before {
-                            // NOTE: We don't handle the effect if one is generated from the resize.
-                            event = Event::TermEvent(TermEvent::Resize(self.size));
-                            let _effect: Option<SystemEffect<Request>> = root.handle(event);
+                // Handle that and anything else which is already waiting, and only then draw.
+                //
+                // NOTE: Nothing is waited for here, so the screen is drawn as soon as there is
+                // nothing left to handle. The events which are skipped over are only ever ones
+                // which have already been superseded: drawing the screen for the first of a burst
+                // of key presses when the rest of them are already in hand would be drawing the
+                // selection somewhere it has already moved on from.
+                let mut handled: usize = 0;
+                loop {
+                    let effect: Option<SystemEffect<Request>> = root.handle(event);
+                    match effect {
+                        Some(SystemEffect::RunProgram { program }) => {
+                            let size_before = self.size;
+                            self.run_program(program, &term_event_rx);
+                            if self.size != size_before {
+                                // NOTE: We don't handle the effect if one is generated from the resize.
+                                let event = Event::TermEvent(TermEvent::Resize(self.size));
+                                let _effect: Option<SystemEffect<Request>> = root.handle(event);
+                            }
+
+                            // The program drew over the screen, so put it back before handling
+                            // anything else.
+                            break;
                         }
+                        Some(SystemEffect::Request(request)) => {
+                            request_tx.send(request).unwrap();
+                        }
+                        Some(SystemEffect::Bell) => {
+                            self.make_bell_sound();
+                        }
+                        Some(SystemEffect::Exit) => {
+                            #[cfg(feature = "logging")]
+                            log::info!("Exiting.");
+                            break 'app;
+                        }
+                        None => {}
                     }
-                    Some(SystemEffect::Request(request)) => {
-                        request_tx.send(request).unwrap();
-                    }
-                    Some(SystemEffect::Bell) => {
-                        self.make_bell_sound();
-                    }
-                    Some(SystemEffect::Exit) => {
-                        #[cfg(feature = "logging")]
-                        log::info!("Exiting.");
+
+                    handled += 1;
+                    if handled >= Self::MAX_EVENTS_PER_RENDER {
                         break;
                     }
-                    None => {}
+
+                    event = match self.pending_event(&term_event_rx, &response_rx) {
+                        Some(event) => event,
+                        None => {
+                            break;
+                        }
+                    };
                 }
             }
         }
@@ -264,10 +300,43 @@ impl App {
         self.teardown();
     }
 
+    /// Return an event which is already waiting to be handled, or `None` if there are none.
+    ///
+    /// Nothing here waits, so this says what there is to get on with rather than holding out for
+    /// more to turn up.
+    fn pending_event<Response>(
+        &mut self,
+        term_event_rx: &Receiver<TermEvent>,
+        response_rx: &Receiver<Response>,
+    ) -> Option<Event<Response>> {
+        if let Some(term_event) = self.unused_term_events.pop_front() {
+            return Some(Event::TermEvent(self.note_resize(term_event)));
+        }
+
+        if let Ok(term_event) = term_event_rx.try_recv() {
+            return Some(Event::TermEvent(self.note_resize(term_event)));
+        }
+
+        match response_rx.try_recv() {
+            Ok(response) => Some(Event::Response(response)),
+            Err(_) => None,
+        }
+    }
+
+    /// Take note of the size of the terminal if the event is that it was resized, and return the
+    /// event either way.
+    fn note_resize(&mut self, term_event: TermEvent) -> TermEvent {
+        if let TermEvent::Resize(size) = term_event {
+            self.size = size;
+        }
+        term_event
+    }
+
     fn set_up(&mut self) {
         self.lazy_enable_alternate_terminal();
         self.term.save_attrs().unwrap();
         self.term.enable_raw().unwrap();
+        self.lazy_enable_bracketed_paste();
         self.lazy_hide_cursor();
         self.lazy_clear_screen();
 
@@ -275,6 +344,7 @@ impl App {
     }
 
     fn teardown(&mut self) {
+        self.lazy_disable_bracketed_paste();
         self.lazy_disable_alternate_terminal();
         self.term.restore_attrs().unwrap();
         self.lazy_show_cursor();
@@ -450,48 +520,55 @@ impl App {
             };
 
             match event {
-                ProgramLoopEvent::TermEvent(term_event) => match &term_event {
-                    TermEvent::KeyEvent(key_event) => {
-                        let bytes: Vec<u8> = match TryInto::<Vec<u8>>::try_into(key_event) {
-                            Ok(bytes) => bytes,
-                            #[allow(unused_variables)]
-                            Err(error) => {
-                                #[cfg(feature = "logging")]
-                                log::warn!("Failed to convert input to bytes: {}", error);
-                                continue;
+                ProgramLoopEvent::TermEvent(term_event) => {
+                    let bytes: Option<Vec<u8>> = match &term_event {
+                        TermEvent::KeyEvent(key_event) => Some(Vec::from(key_event)),
+                        TermEvent::Paste(text) => {
+                            // NOTE: The terminal only wraps pasted text when the program which is
+                            // running has asked it to, so the markers go back on for it to find.
+                            let mut bytes: Vec<u8> = BracketedPaste::START.to_vec();
+                            bytes.extend_from_slice(text.as_bytes());
+                            bytes.extend_from_slice(BracketedPaste::END);
+                            Some(bytes)
+                        }
+                        TermEvent::Resize(size) => {
+                            self.size = *size;
+                            #[cfg(feature = "logging")]
+                            log::debug!("Signaling terminal resize to program...");
+                            let size: WindowSize = WindowSize {
+                                ws_row: size.rows.try_into().unwrap(),
+                                ws_col: size.columns.try_into().unwrap(),
+                                ws_xpixel: 0,
+                                ws_ypixel: 0,
+                            };
+                            let result: c_int;
+                            unsafe {
+                                result = ioctl(master, TIOCSWINSZ, &size);
                             }
-                        };
+                            if result == -1 {
+                                #[allow(unused_variables)]
+                                let error = IOError::last_os_error();
+                                #[cfg(feature = "logging")]
+                                log::warn!(
+                                    "Failed to signal terminal resize to program: {}",
+                                    error
+                                );
+                            } else {
+                                #[cfg(feature = "logging")]
+                                log::debug!("Signaled terminal resize to program.");
+                            };
 
-                        if let Err(_error) = master_stdin.write(&bytes) {
+                            None
+                        }
+                    };
+
+                    if let Some(bytes) = bytes {
+                        if let Err(_error) = master_stdin.write_all(&bytes) {
                             self.unused_term_events.push_back(term_event);
                             break;
                         }
                     }
-                    TermEvent::Resize(size) => {
-                        self.size = *size;
-                        #[cfg(feature = "logging")]
-                        log::debug!("Signaling terminal resize to program...");
-                        let size: WindowSize = WindowSize {
-                            ws_row: size.rows.try_into().unwrap(),
-                            ws_col: size.columns.try_into().unwrap(),
-                            ws_xpixel: 0,
-                            ws_ypixel: 0,
-                        };
-                        let result: c_int;
-                        unsafe {
-                            result = ioctl(master, TIOCSWINSZ, &size);
-                        }
-                        if result == -1 {
-                            #[allow(unused_variables)]
-                            let error = IOError::last_os_error();
-                            #[cfg(feature = "logging")]
-                            log::warn!("Failed to signal terminal resize to program: {}", error);
-                        } else {
-                            #[cfg(feature = "logging")]
-                            log::debug!("Signaled terminal resize to program.");
-                        };
-                    }
-                },
+                }
                 ProgramLoopEvent::ProgramEvent(program_event) => match program_event {
                     ProgramEvent::Done => {
                         #[cfg(feature = "logging")]
@@ -525,6 +602,11 @@ impl App {
     fn setup_program(&mut self, program_uuid: &Uuid, setup: ProgramSetup) {
         #[cfg(feature = "logging")]
         log::debug!("Setting up program {}...", program_uuid);
+
+        // NOTE: The program takes the terminal over while it runs, including saying for itself
+        // whether pasted text is wrapped, so stop asking for it on its behalf.
+        self.lazy_disable_bracketed_paste();
+
         if setup.clear_screen {
             self.lazy_clear_screen();
         }
@@ -534,9 +616,7 @@ impl App {
         if setup.cursor_visible == Some(true) {
             self.lazy_show_cursor();
         }
-        if setup.any() {
-            self.update_terminal();
-        }
+        self.update_terminal();
         #[cfg(feature = "logging")]
         log::debug!("Done setting up program {}.", program_uuid);
     }
@@ -553,42 +633,82 @@ impl App {
         if cleanup.enable_raw_terminal {
             self.term.enable_raw().unwrap();
         }
-        if cleanup.any() {
-            self.update_terminal();
-        }
+
+        // The program will have stopped the terminal from wrapping pasted text on its way out.
+        self.lazy_enable_bracketed_paste();
+
+        self.update_terminal();
 
         #[cfg(feature = "logging")]
         log::debug!("Done cleaning up program {}.", program_uuid);
     }
 
     fn lazy_enable_alternate_terminal(&mut self) {
-        self.stdout.queue(EnterAlternateScreen).unwrap();
+        self.lazy_control_function(&Self::alternate_terminal(true));
     }
 
     fn lazy_disable_alternate_terminal(&mut self) {
-        self.stdout.queue(LeaveAlternateScreen).unwrap();
+        self.lazy_control_function(&Self::alternate_terminal(false));
     }
 
     fn lazy_clear_screen(&mut self) {
-        self.stdout
-            .queue(ClearTerminal(TerminalClearType::All))
-            .unwrap();
+        self.lazy_control_function(&ControlFunction::EraseInDisplay(EraseInDisplay::All));
     }
 
     fn lazy_hide_cursor(&mut self) {
-        self.stdout.queue(HideCursor).unwrap();
+        self.lazy_control_function(&Self::cursor_visible(false));
     }
 
     fn lazy_show_cursor(&mut self) {
-        self.stdout.queue(ShowCursor).unwrap();
+        self.lazy_control_function(&Self::cursor_visible(true));
+    }
+
+    /// Ask the terminal to wrap pasted text so that it can be told apart from text which is typed.
+    fn lazy_enable_bracketed_paste(&mut self) {
+        self.lazy_control_function(&Self::bracketed_paste(true));
+    }
+
+    fn lazy_disable_bracketed_paste(&mut self) {
+        self.lazy_control_function(&Self::bracketed_paste(false));
     }
 
     fn lazy_move_cursor_home(&mut self) {
-        self.stdout.queue(MoveCursorTo(0, 0)).unwrap();
+        self.lazy_control_function(&ControlFunction::CursorPosition { row: 1, column: 1 });
+    }
+
+    /// Return the control function which switches to the second screen and back, remembering where
+    /// the cursor is on the way in and out.
+    fn alternate_terminal(set: bool) -> ControlFunction {
+        ControlFunction::SetMode {
+            modes: vec![Mode::AlternateScreenAndSaveCursor],
+            set,
+        }
+    }
+
+    /// Return the control function which shows and hides the cursor.
+    fn cursor_visible(set: bool) -> ControlFunction {
+        ControlFunction::SetMode {
+            modes: vec![Mode::CursorVisible],
+            set,
+        }
+    }
+
+    /// Return the control function which turns the wrapping of pasted text on and off.
+    fn bracketed_paste(set: bool) -> ControlFunction {
+        ControlFunction::SetMode {
+            modes: vec![Mode::BracketedPaste],
+            set,
+        }
+    }
+
+    /// Queue the escape code for the control function, but don't send it.
+    fn lazy_control_function(&mut self, function: &ControlFunction) {
+        self.stdout.write_all(&Vec::from(function)).unwrap();
     }
 
     fn make_bell_sound(&mut self) {
-        self.stdout.execute(Print(ASCII::Bell)).unwrap();
+        self.stdout.write_all(&[ASCII::Bell as u8]).unwrap();
+        self.update_terminal();
     }
 
     fn update_terminal(&mut self) {
@@ -597,12 +717,25 @@ impl App {
 
     fn change_panic_hook(&mut self) {
         let hook_before = panic::take_hook();
+
+        // NOTE: The attributes are taken a copy of because the hook has to be able to put the
+        // terminal back without the app, which is not reachable by the time it runs.
+        let saved_attrs: Option<SavedAttrs> = self.term.saved_attrs();
+
         panic::set_hook(Box::new(move |info| {
             let mut stdout = io::stdout();
-            stdout.queue(LeaveAlternateScreen).unwrap();
-            stdout.queue(ShowCursor).unwrap();
+            stdout
+                .write_all(&Vec::from(&Self::alternate_terminal(false)))
+                .unwrap();
+            stdout
+                .write_all(&Vec::from(&Self::cursor_visible(true)))
+                .unwrap();
             stdout.flush().unwrap();
-            terminal::disable_raw_mode().unwrap();
+
+            if let Some(saved_attrs) = saved_attrs {
+                saved_attrs.restore().unwrap();
+            }
+
             hook_before(info);
         }));
     }

@@ -21,7 +21,7 @@ mod contents {
     use crate::components::common::FooterInfo;
     use crate::stateful::Stateful;
 
-    use rend::{Fabric, Size, Yarn};
+    use rend::{Cell, Fabric, Size, Yarn};
     use term::{Key, KeyEvent, KeyMods, TermEvent};
     use til::{CommandParser, Component, KeyPattern, Parsed};
 
@@ -37,16 +37,26 @@ mod contents {
                     [KeyPattern::exact(Key::Char('j'), KeyMods::NONE)],
                     Action::Down,
                 )
+                .bind([KeyPattern::exact(Key::Down, KeyMods::NONE)], Action::Down)
                 .bind(
                     [KeyPattern::exact(Key::Char('J'), KeyMods::SHIFT)],
+                    Action::ReallyDown,
+                )
+                .bind(
+                    [KeyPattern::exact(Key::End, KeyMods::NONE)],
                     Action::ReallyDown,
                 )
                 .bind(
                     [KeyPattern::exact(Key::Char('k'), KeyMods::NONE)],
                     Action::Up,
                 )
+                .bind([KeyPattern::exact(Key::Up, KeyMods::NONE)], Action::Up)
                 .bind(
                     [KeyPattern::exact(Key::Char('K'), KeyMods::SHIFT)],
+                    Action::ReallyUp,
+                )
+                .bind(
+                    [KeyPattern::exact(Key::Home, KeyMods::NONE)],
                     Action::ReallyUp,
                 )
                 .bind(
@@ -55,6 +65,7 @@ mod contents {
                 )
                 .bind([KeyPattern::any(Key::Char('l'))], Action::Edit)
                 .bind([KeyPattern::any(Key::CarriageReturn)], Action::Edit)
+                .bind([KeyPattern::exact(Key::Right, KeyMods::NONE)], Action::Edit)
                 .bind(
                     [KeyPattern::exact(Key::Char('g'), KeyMods::NONE)],
                     Action::Goto,
@@ -104,6 +115,10 @@ mod contents {
                 Event::Find { phrase } => Action::Find { phrase },
                 Event::TermEvent(term_event) => match term_event {
                     TermEvent::Resize(size) => Action::Resize { size },
+                    // There is nothing to paste into a list of hits.
+                    TermEvent::Paste(_) => {
+                        return None;
+                    }
                     TermEvent::KeyEvent(key_event) => match self.command_parser.parse(key_event) {
                         Parsed::Command(action) => action,
                         Parsed::Pending => {
@@ -135,8 +150,16 @@ mod contents {
                         }
                         let mut yarn: Yarn = Yarn::from(string);
 
-                        let file_name_start: usize =
-                            yarn.len() - entry.file_name().expect("Entry is not a file").len();
+                        // NOTE: The file name has to be measured in columns like the yarn is.
+                        // Measuring it in bytes makes the colours land in the wrong place for a
+                        // name which is not all ASCII, and underflows when the file is directly in
+                        // the directory which was searched.
+                        let file_name: String = entry
+                            .file_name()
+                            .expect("Entry is not a file")
+                            .to_string_lossy()
+                            .to_string();
+                        let file_name_start: usize = yarn.len() - Cell::columns(&file_name);
 
                         if self.state.focussed() && Some(row) == self.state.selected() {
                             yarn.color_before(Color::InvertedGrayedText.into(), file_name_start);

@@ -1,21 +1,28 @@
 /*!
 This module contains the [`Yarn`] struct which is used for representing styled text.
 */
-use crossterm::style::Color as CrosstermColor;
+use super::cell::Cell;
+
 use std::cmp::Ordering;
+
+use ansi::Color;
 
 // MAYBE TODO: Store ranges instead of using `Vec` to save memory?
 /// A yarn is a string with text colors and background colors.
+///
+/// It is measured in columns of a terminal rather than in characters, which are not the same thing:
+/// a letter with a combining accent on it is several characters in the one column, and a character
+/// of an East Asian script is two columns. There is one [`Cell`] per column either way.
 #[derive(Default, Debug, PartialEq, Eq, Clone)]
 pub struct Yarn {
     // MAYBE TODO: Store the length seperately so we can represent a blank yarn without wasting mem?
-    /// The characters.
-    characters: Vec<char>,
+    /// The cells, one for each column.
+    cells: Vec<Cell>,
     // NOTE: The style vectors are Allowed to be shorter than the number of characters.
     /// The colors of the text.
-    colors: Vec<Option<CrosstermColor>>,
+    colors: Vec<Option<Color>>,
     /// The background colors of the text.
-    backgrounds: Vec<Option<CrosstermColor>>,
+    backgrounds: Vec<Option<Color>>,
 }
 
 impl Yarn {
@@ -29,12 +36,14 @@ impl Yarn {
 
     /// Return a yarn consisting of unstylized spaces of the given length.
     pub fn blank(len: usize) -> Self {
-        let characters = vec![' '; len];
         Self {
-            characters,
+            cells: vec![Cell::BLANK; len],
             ..Default::default()
         }
     }
+
+    /// How many columns the dots which stand for the part of a string which was cut off take up.
+    const ELLIPSIS_LEN: usize = 3;
 
     /// Return a yarn with string centered and truncated with dots if the string is longer than the
     /// the length.
@@ -43,43 +52,42 @@ impl Yarn {
             return Yarn::default();
         }
 
-        match string.len().cmp(&len) {
+        let mut cells: Vec<Cell> = Cell::all(string);
+
+        match cells.len().cmp(&len) {
             Ordering::Greater => {
-                if len <= 3 {
-                    return Yarn::from(vec!['.'; len]);
+                if len <= Self::ELLIPSIS_LEN {
+                    return Yarn::from(vec![Cell::Char('.'); len]);
                 }
-                let mut characters: Vec<char> = Vec::with_capacity(len);
-                characters.extend(string.chars().take(len - 3));
-                characters.append(&mut vec!['.'; 3]);
-                return Yarn::from(characters);
+
+                Cell::truncate(&mut cells, len - Self::ELLIPSIS_LEN);
+                cells.resize(len, Cell::Char('.'));
+
+                return Yarn::from(cells);
             }
             Ordering::Less => {
-                let mut characters: Vec<char> = Vec::with_capacity(len);
+                let before_len: usize = (len - cells.len()) / 2;
 
-                let before_len: usize = (len - string.len()) / 2;
-                characters.append(&mut vec![' '; before_len]);
+                let mut centered: Vec<Cell> = vec![Cell::BLANK; before_len];
+                centered.append(&mut cells);
+                centered.resize(len, Cell::BLANK);
 
-                characters.extend(string.chars());
-
-                let after_len: usize = len - string.len() - before_len;
-                characters.append(&mut vec![' '; after_len]);
-
-                return Yarn::from(characters);
+                return Yarn::from(centered);
             }
             Ordering::Equal => {
-                return Yarn::from(string);
+                return Yarn::from(cells);
             }
         };
     }
 
-    /// Return the length of the yarn.
+    /// Return how many columns the yarn takes up.
     pub fn len(&self) -> usize {
-        self.characters.len()
+        self.cells.len()
     }
 
     /// Return if the yarn is empty.
     pub fn is_empty(&self) -> bool {
-        self.characters.is_empty()
+        self.cells.is_empty()
     }
 
     /// Add the other yarn to the end of this one and return the new yarn.
@@ -87,7 +95,7 @@ impl Yarn {
     #[allow(dead_code)]
     pub fn concat(mut self, other: Self) -> Self {
         let len_before: usize = self.len();
-        self.characters.extend(other.characters);
+        self.cells.extend(other.cells);
 
         if !other.colors.is_empty() {
             self.colors.resize(len_before, None);
@@ -110,7 +118,7 @@ impl Yarn {
                 self.truncate(new_len);
             }
             Ordering::Less => {
-                self.characters.extend(vec![' '; new_len - len]);
+                self.cells.resize(new_len, Cell::BLANK);
             }
             Ordering::Equal => {}
         }
@@ -120,7 +128,7 @@ impl Yarn {
     ///
     /// If the yarn is already shorter than the `new_len` then this has no effect.
     pub fn truncate(&mut self, new_len: usize) {
-        self.characters.truncate(new_len);
+        Cell::truncate(&mut self.cells, new_len);
         self.colors.truncate(new_len);
         self.backgrounds.truncate(new_len);
     }
@@ -136,10 +144,10 @@ impl Yarn {
                 let difference = new_len - len;
                 let left_pad = difference / 2;
                 let right_pad = difference - left_pad;
-                self.characters = [
-                    vec![' '; left_pad],
-                    self.characters.to_owned(),
-                    vec![' '; right_pad],
+                self.cells = [
+                    vec![Cell::BLANK; left_pad],
+                    self.cells.to_owned(),
+                    vec![Cell::BLANK; right_pad],
                 ]
                 .concat();
                 self.colors = [vec![None; left_pad], self.colors.to_owned()].concat();
@@ -153,12 +161,12 @@ impl Yarn {
     }
 
     /// Set the text color of the entire yarn to the `color`.
-    pub fn color(&mut self, color: CrosstermColor) {
+    pub fn color(&mut self, color: Color) {
         self.colors = vec![Some(color); self.len()];
     }
 
     /// Change the color of all text before the given position.
-    pub fn color_before(&mut self, color: CrosstermColor, position: usize) {
+    pub fn color_before(&mut self, color: Color, position: usize) {
         if self.colors.len() < position {
             self.colors.clear();
             self.colors.resize(position, Some(color));
@@ -172,8 +180,8 @@ impl Yarn {
     /// Change the color of all text after (and including) the given position.
     ///
     /// The text before the position keeps the color it already has (if it has one).
-    pub fn color_after(&mut self, color: CrosstermColor, position: usize) {
-        let num_chars: usize = self.characters.len();
+    pub fn color_after(&mut self, color: Color, position: usize) {
+        let num_chars: usize = self.cells.len();
 
         if self.colors.len() < num_chars {
             self.colors.resize(num_chars, None);
@@ -185,50 +193,45 @@ impl Yarn {
     }
 
     /// Set the background color of the entire yarn to the `color`.
-    pub fn background(&mut self, color: CrosstermColor) {
+    pub fn background(&mut self, color: Color) {
         self.backgrounds = vec![Some(color); self.len()];
     }
 
-    /// Return the characters of the yarn.
-    pub fn characters(&self) -> &Vec<char> {
-        &self.characters
+    /// Return the cells of the yarn, one for each column.
+    pub fn cells(&self) -> &Vec<Cell> {
+        &self.cells
     }
 
     /// Return the text colors of the yarn.
-    pub fn colors(&self) -> &Vec<Option<CrosstermColor>> {
+    pub fn colors(&self) -> &Vec<Option<Color>> {
         &self.colors
     }
 
     /// Return the background colors of the yarn.
-    pub fn backgrounds(&self) -> &Vec<Option<CrosstermColor>> {
+    pub fn backgrounds(&self) -> &Vec<Option<Color>> {
         &self.backgrounds
     }
 }
 
 impl From<String> for Yarn {
     fn from(string: String) -> Self {
-        let characters: Vec<char> = string.chars().collect();
-        Yarn {
-            characters,
-            ..Default::default()
-        }
+        Self::from(string.as_str())
     }
 }
 
 impl From<&str> for Yarn {
     fn from(string: &str) -> Self {
-        let characters: Vec<char> = string.chars().collect();
         Yarn {
-            characters,
+            cells: Cell::all(string),
             ..Default::default()
         }
     }
 }
 
-impl From<Vec<char>> for Yarn {
-    fn from(characters: Vec<char>) -> Self {
+impl From<Vec<Cell>> for Yarn {
+    fn from(cells: Vec<Cell>) -> Self {
         Yarn {
-            characters,
+            cells,
             ..Default::default()
         }
     }
@@ -241,10 +244,10 @@ mod tests {
     use test_case::test_case;
 
     /// The color which is used for testing.
-    const COLOR: CrosstermColor = CrosstermColor::Red;
+    const COLOR: Color = Color::Red;
 
     /// Another color which is used for testing.
-    const OTHER_COLOR: CrosstermColor = CrosstermColor::Blue;
+    const OTHER_COLOR: Color = Color::Blue;
 
     /// Return a yarn with the text before the position colored the other color.
     fn colored_before(string: &str, position: usize) -> Yarn {
@@ -260,11 +263,7 @@ mod tests {
     #[test_case(Yarn::from("foobar"), 6, vec![None; 6]; "the position after the last character")]
     #[test_case(Yarn::from("foobar"), 9, vec![None; 6]; "a position past the end of the text")]
     #[test_case(Yarn::new(), 0, vec![]; "an empty yarn")]
-    fn test_color_after(
-        mut yarn: Yarn,
-        position: usize,
-        expected_colors: Vec<Option<CrosstermColor>>,
-    ) {
+    fn test_color_after(mut yarn: Yarn, position: usize, expected_colors: Vec<Option<Color>>) {
         yarn.color_after(COLOR, position);
 
         assert_eq!(yarn.colors, expected_colors);
@@ -284,12 +283,41 @@ mod tests {
     }
 
     #[test_case(Yarn::new(), Yarn::new(), Yarn::new(); "an empty yarn with an empty yarn is an empty yarn")]
-    #[test_case(Yarn::new(), Yarn {characters: vec![' '; 1], ..Default::default()}, Yarn {characters: vec![' '; 1], ..Default::default()}; "an empty yarn with a one space yarn is a one space yarn")]
-    #[test_case(Yarn {characters: vec![' '; 1], ..Default::default()}, Yarn::new(), Yarn {characters: vec![' '; 1], ..Default::default()}; "a one space yarn with an empty yarn is a one space yarn")]
-    #[test_case(Yarn {characters: vec![' '; 1], ..Default::default()}, Yarn {characters: vec![' '; 1], colors: vec![Some(CrosstermColor::Black)], ..Default::default()}, Yarn {characters: vec![' '; 2], colors: vec![None, Some(CrosstermColor::Black)], ..Default::default()}; "concatenating two one space yarns preserves colors")]
+    #[test_case(Yarn::new(), Yarn {cells: vec![Cell::BLANK; 1], ..Default::default()}, Yarn {cells: vec![Cell::BLANK; 1], ..Default::default()}; "an empty yarn with a one space yarn is a one space yarn")]
+    #[test_case(Yarn {cells: vec![Cell::BLANK; 1], ..Default::default()}, Yarn::new(), Yarn {cells: vec![Cell::BLANK; 1], ..Default::default()}; "a one space yarn with an empty yarn is a one space yarn")]
+    #[test_case(Yarn {cells: vec![Cell::BLANK; 1], ..Default::default()}, Yarn {cells: vec![Cell::BLANK; 1], colors: vec![Some(Color::Black)], ..Default::default()}, Yarn {cells: vec![Cell::BLANK; 2], colors: vec![None, Some(Color::Black)], ..Default::default()}; "concatenating two one space yarns preserves colors")]
     fn test_concat(yarn: Yarn, other: Yarn, expected_yarn: Yarn) {
         let result: Yarn = yarn.concat(other);
 
         assert_eq!(result, expected_yarn);
+    }
+
+    #[test_case("abc", 3; "plain characters")]
+    #[test_case("e\u{301}", 1; "a character with a combining accent")]
+    #[test_case("🦀😀", 4; "two wide characters")]
+    #[test_case("a🦀b", 4; "a wide character in amongst narrow ones")]
+    fn test_a_yarn_is_as_long_as_the_columns_it_takes_up(string: &str, len: usize) {
+        assert_eq!(Yarn::from(string).len(), len);
+    }
+
+    #[test]
+    fn test_resizing_a_yarn_which_ends_in_a_wide_character_does_not_overrun() {
+        // Cutting between the two halves of the wide character has to leave a blank behind, or the
+        // whole of it would be written in the one column which is left and push the row along.
+        let mut yarn = Yarn::from("a🦀b");
+        yarn.resize(2);
+
+        assert_eq!(yarn.len(), 2);
+        assert_eq!(yarn.cells(), &vec![Cell::Char('a'), Cell::BLANK]);
+    }
+
+    #[test]
+    fn test_a_yarn_is_resized_to_the_columns_asked_for_whatever_is_in_it() {
+        for string in ["abc", "🦀😀", "a🦀b", "e\u{301}x"] {
+            let mut yarn = Yarn::from(string);
+            yarn.resize(10);
+
+            assert_eq!(yarn.len(), 10, "resizing {:?}", string);
+        }
     }
 }

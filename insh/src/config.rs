@@ -4,7 +4,7 @@ Configuration options loaded from the YAML file `~/.insh-config` if it exists.
 
 /// Configuration options.
 mod config {
-    use super::{BrowserConfig, GeneralConfig};
+    use super::{BrowserConfig, GeneralConfig, InputConfig};
 
     use std::fmt::{Display, Formatter, Result as FormatResult};
     use std::fs::File;
@@ -20,6 +20,9 @@ mod config {
         /// General configuration.
         #[serde(default)]
         general: GeneralConfig,
+        /// Input configuration.
+        #[serde(default)]
+        input: InputConfig,
         /// Configuration of the Browser.
         #[serde(default)]
         browser: BrowserConfig,
@@ -72,6 +75,11 @@ mod config {
         /// Return the general configuration.
         pub fn general(&self) -> &GeneralConfig {
             &self.general
+        }
+
+        /// Return the configuration of how input is read.
+        pub fn input(&self) -> &InputConfig {
+            &self.input
         }
 
         /// Return the browser configuration.
@@ -193,6 +201,74 @@ mod general {
 }
 pub use general::GeneralConfig;
 
+/// Contains configuration of how input is read.
+mod input {
+    use std::time::Duration;
+
+    use serde::de::Error as DeserializeError;
+    use serde::{Deserialize, Deserializer};
+
+    /// Configuration of how input is read.
+    #[derive(Deserialize, Debug, Clone, Eq, PartialEq)]
+    pub struct InputConfig {
+        /// How many milliseconds to wait for the rest of an escape sequence before deciding that
+        /// the escape key was pressed on its own.
+        #[serde(
+            default = "default_escape_timeout",
+            deserialize_with = "deserialize_escape_timeout"
+        )]
+        escape_timeout: u64,
+    }
+
+    /// Return how long to wait for the rest of an escape sequence by default, in milliseconds.
+    fn default_escape_timeout() -> u64 {
+        50
+    }
+
+    /// Return how long to wait for the rest of an escape sequence, refusing to wait no time at all.
+    ///
+    /// Waiting is the only thing which tells a press of the escape key apart from the start of a
+    /// sequence, so not waiting means every sequence is read as an escape and then the rest of it
+    /// as the characters it is spelled with: an arrow key would type `[A`.
+    fn deserialize_escape_timeout<'de, D>(deserializer: D) -> Result<u64, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let milliseconds = u64::deserialize(deserializer)?;
+
+        if milliseconds == 0 {
+            return Err(D::Error::custom(
+                "the escape timeout cannot be zero, because then no escape sequence would ever be \
+                 read as the key it is for",
+            ));
+        }
+
+        Ok(milliseconds)
+    }
+
+    impl Default for InputConfig {
+        fn default() -> Self {
+            Self {
+                escape_timeout: default_escape_timeout(),
+            }
+        }
+    }
+
+    impl InputConfig {
+        /// Return how long to wait for the rest of an escape sequence before deciding that the
+        /// escape key was pressed on its own.
+        ///
+        /// Waiting is what tells a press of the escape key apart from the start of a sequence,
+        /// which look the same until the rest of the sequence does or does not turn up. Longer is
+        /// more reliable over a slow connection, at the cost of the escape key feeling that much
+        /// less responsive.
+        pub fn escape_timeout(&self) -> Duration {
+            Duration::from_millis(self.escape_timeout)
+        }
+    }
+}
+pub use input::InputConfig;
+
 /// Contains browser configuration.
 mod browser {
     use serde::Deserialize;
@@ -287,3 +363,44 @@ mod browser {
     }
 }
 pub use browser::{BrowserConfig, BrowserSortHiddenConfig};
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    use std::time::Duration;
+
+    #[test]
+    fn test_the_escape_timeout_can_be_set() {
+        let config: Config = serde_yaml_ng::from_str("input:\n  escape_timeout: 250\n").unwrap();
+
+        assert_eq!(config.input().escape_timeout(), Duration::from_millis(250));
+    }
+
+    #[test]
+    fn test_an_escape_timeout_of_zero_is_refused() {
+        let error = serde_yaml_ng::from_str::<Config>("input:\n  escape_timeout: 0\n")
+            .expect_err("An escape timeout of zero should not be allowed.");
+
+        assert!(
+            error.to_string().contains("cannot be zero"),
+            "unhelpful error: {}",
+            error
+        );
+    }
+
+    #[test]
+    fn test_the_escape_timeout_has_a_default() {
+        assert_eq!(
+            Config::default().input().escape_timeout(),
+            Duration::from_millis(50)
+        );
+        assert_eq!(
+            serde_yaml_ng::from_str::<Config>("input: {}\n")
+                .unwrap()
+                .input()
+                .escape_timeout(),
+            Duration::from_millis(50)
+        );
+    }
+}

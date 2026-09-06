@@ -19,6 +19,7 @@ logging = [
 ]
 
 [dependencies]
+ansi = { version = "0.1.0", path = "../ansi" }
 til = { version = "0.1.0", path = "../til" }
 term = { version = "0.1.0", path = "../term" }
 rend = { version = "0.1.0", path = "../rend" }
@@ -30,7 +31,6 @@ file-type = { version = "0.1.0", path = "../file-type" }
 file-info = { version = "0.1.0", path = "../file-info" }
 human-friendly = { version = "0.1.0", path = "../human-friendly" }
 
-crossterm = { workspace = true }
 regex = { workspace = true }
 clap = { workspace = true }
 dirs = { workspace = true }
