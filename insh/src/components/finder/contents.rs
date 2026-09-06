@@ -23,86 +23,101 @@ mod contents {
 
     use rend::{Fabric, Size, Yarn};
     use term::{Key, KeyEvent, KeyMods, TermEvent};
-    use til::Component;
+    use til::{CommandParser, Component, KeyPattern, Parsed};
+
+    impl Contents {
+        /// Return a parser for the keys which the contents responds to.
+        fn command_parser() -> CommandParser<Action> {
+            CommandParser::new()
+                .bind(
+                    [KeyPattern::exact(Key::Char('q'), KeyMods::CONTROL)],
+                    Action::Unfocus,
+                )
+                .bind(
+                    [KeyPattern::exact(Key::Char('j'), KeyMods::NONE)],
+                    Action::Down,
+                )
+                .bind(
+                    [KeyPattern::exact(Key::Char('J'), KeyMods::SHIFT)],
+                    Action::ReallyDown,
+                )
+                .bind(
+                    [KeyPattern::exact(Key::Char('k'), KeyMods::NONE)],
+                    Action::Up,
+                )
+                .bind(
+                    [KeyPattern::exact(Key::Char('K'), KeyMods::SHIFT)],
+                    Action::ReallyUp,
+                )
+                .bind(
+                    [KeyPattern::exact(Key::Char('r'), KeyMods::NONE)],
+                    Action::Refresh,
+                )
+                .bind([KeyPattern::any(Key::Char('l'))], Action::Edit)
+                .bind([KeyPattern::any(Key::CarriageReturn)], Action::Edit)
+                .bind(
+                    [KeyPattern::exact(Key::Char('g'), KeyMods::NONE)],
+                    Action::Goto,
+                )
+                .bind(
+                    [KeyPattern::exact(Key::Char('G'), KeyMods::SHIFT)],
+                    Action::ReallyGoto,
+                )
+                .bind(
+                    [
+                        KeyPattern::exact(Key::Char('y'), KeyMods::NONE),
+                        KeyPattern::exact(Key::Char('E'), KeyMods::SHIFT),
+                    ],
+                    Action::YankName,
+                )
+                .bind(
+                    [
+                        KeyPattern::exact(Key::Char('y'), KeyMods::NONE),
+                        KeyPattern::exact(Key::Char('y'), KeyMods::NONE),
+                    ],
+                    Action::YankPath,
+                )
+                .bind(
+                    [KeyPattern::exact(Key::Char('Y'), KeyMods::SHIFT)],
+                    Action::YankContents,
+                )
+        }
+    }
 
     pub struct Contents {
         state: State,
+        /// Parses the keys pressed into actions.
+        command_parser: CommandParser<Action>,
     }
 
     impl Component<Props, Event, Effect> for Contents {
         fn new(props: Props) -> Self {
             let state = State::from(props);
-            Self { state }
+            Self {
+                state,
+                command_parser: Self::command_parser(),
+            }
         }
 
         fn handle(&mut self, event: Event) -> Option<Effect> {
-            let action: Option<Action> = match event {
-                Event::Find { phrase } => Some(Action::Find { phrase }),
+            let action: Action = match event {
+                Event::Find { phrase } => Action::Find { phrase },
                 Event::TermEvent(term_event) => match term_event {
-                    TermEvent::Resize(size) => Some(Action::Resize { size }),
-                    TermEvent::KeyEvent(key_event) => match key_event {
-                        KeyEvent {
-                            key: Key::Char('q'),
-                            mods: KeyMods::CONTROL,
-                            ..
-                        } => Some(Action::Unfocus),
-                        KeyEvent {
-                            key: Key::Char('j'),
-                            mods: KeyMods::NONE,
-                        } => Some(Action::Down),
-                        KeyEvent {
-                            key: Key::Char('J'),
-                            mods: KeyMods::SHIFT,
-                        } => Some(Action::ReallyDown),
-                        KeyEvent {
-                            key: Key::Char('k'),
-                            mods: KeyMods::NONE,
-                        } => Some(Action::Up),
-                        KeyEvent {
-                            key: Key::Char('K'),
-                            mods: KeyMods::SHIFT,
-                        } => Some(Action::ReallyUp),
-                        KeyEvent {
-                            key: Key::Char('r'),
-                            mods: KeyMods::NONE,
-                        } => Some(Action::Refresh),
-                        KeyEvent {
-                            key: Key::Char('l'),
-                            ..
+                    TermEvent::Resize(size) => Action::Resize { size },
+                    TermEvent::KeyEvent(key_event) => match self.command_parser.parse(key_event) {
+                        Parsed::Command(action) => action,
+                        Parsed::Pending => {
+                            return None;
                         }
-                        | KeyEvent {
-                            key: Key::CarriageReturn,
-                            ..
-                        } => Some(Action::Edit),
-                        KeyEvent {
-                            key: Key::Char('g'),
-                            mods: KeyMods::NONE,
-                        } => Some(Action::Goto),
-                        KeyEvent {
-                            key: Key::Char('G'),
-                            mods: KeyMods::SHIFT,
-                        } => Some(Action::ReallyGoto),
-                        KeyEvent {
-                            key: Key::Char('y'),
-                            mods: KeyMods::NONE,
-                            ..
-                        } => Some(Action::Yank),
-                        KeyEvent {
-                            key: Key::Char('Y'),
-                            mods: KeyMods::SHIFT,
-                            ..
-                        } => Some(Action::ReallyYank),
-                        _ => None,
+                        Parsed::Unknown(keys) => Action::UnknownCommand {
+                            keys: keys.iter().map(KeyEvent::to_string).collect(),
+                        },
                     },
                 },
-                Event::Response(response) => Some(Action::HandleResponse(response)),
+                Event::Response(response) => Action::HandleResponse(response),
             };
 
-            if let Some(action) = action {
-                self.state.perform(action)
-            } else {
-                Some(Effect::Bell)
-            }
+            self.state.perform(action)
         }
 
         fn render(&self, size: Size) -> Fabric {
@@ -150,10 +165,25 @@ mod contents {
         }
     }
 
-    /// The footer shows how finding the files is going and which of the hits is selected.
     impl FooterInfo for Contents {
         fn text(&self) -> String {
-            self.state.progress()
+            let pending: String = self
+                .command_parser
+                .pending()
+                .iter()
+                .map(KeyEvent::to_string)
+                .collect();
+            if !pending.is_empty() {
+                return pending;
+            }
+
+            match self.state.message() {
+                Some(message) => message.text(),
+                // The contents of a file are on their way, so showing how the last search went
+                // again until they get here would only be a flash of what is already old news.
+                None if self.state.yanking() => String::new(),
+                None => self.state.progress(),
+            }
         }
 
         fn position(&self) -> String {
@@ -185,16 +215,20 @@ pub use event::Event;
 
 mod state {
     use std::cmp::{self, Ordering};
-    use std::path::{Path, PathBuf, MAIN_SEPARATOR as PATH_SEPARATOR};
+    use std::path::{Path, PathBuf};
     use std::time::Duration;
 
     use super::{Action, Effect, Props};
     use crate::clipboard::Clipboard;
+    use crate::command_message::CommandMessage;
     use crate::programs::{VimArgs, VimArgsBuilder};
     use crate::request_builders::find_files_request;
     use crate::stateful::Stateful;
 
-    use insh_api::{FindFilesResponseParams, Request, Response, ResponseParams};
+    use insh_api::{
+        FindFilesResponseParams, GetFileContentsRequestParams, GetFileContentsResponseParams,
+        Request, RequestParams, Response, ResponseParams,
+    };
     use path_finder::Entry;
     use rend::Size;
 
@@ -210,6 +244,10 @@ mod state {
         selected: Option<usize>,
         offset: usize,
         pending_request: Option<Uuid>,
+        /// The request for the contents of a file which are to be copied to the clipboard.
+        pending_yank_request: Option<Uuid>,
+        /// What the last command had to say for itself (if anything).
+        message: Option<CommandMessage>,
         received_first_resp: bool,
         /// The number of files which have been searched.
         files_searched: usize,
@@ -229,6 +267,8 @@ mod state {
                 selected: None,
                 offset: 0,
                 pending_request: None,
+                pending_yank_request: None,
+                message: None,
                 received_first_resp: false,
                 files_searched: 0,
                 duration: Duration::ZERO,
@@ -239,6 +279,17 @@ mod state {
     impl State {
         pub fn dir(&self) -> &PathBuf {
             &self.dir
+        }
+
+        /// Return what the last command had to say for itself (if anything).
+        pub fn message(&self) -> Option<&CommandMessage> {
+            self.message.as_ref()
+        }
+
+        /// Return whether or not the contents of a file are being read to be copied to the
+        /// clipboard.
+        pub fn yanking(&self) -> bool {
+            self.pending_yank_request.is_some()
         }
 
         /// Return how finding the files is going (or nothing if no files have been looked for).
@@ -449,35 +500,104 @@ mod state {
             }
         }
 
-        /// Copy the file path to the system clipboard.
-        fn yank(&mut self) -> Option<Effect> {
-            self._yank(false)
-        }
-
-        /// Copy the absolute file path to the system clipboard.
-        fn really_yank(&mut self) -> Option<Effect> {
-            self._yank(true)
-        }
-
-        fn _yank(&mut self, really: bool) -> Option<Effect> {
-            if let Some(entry) = self.entry_path() {
-                let mut path: String = entry.to_path_buf().to_string_lossy().to_string();
-                if !really {
-                    let dir_string: String = self.dir().to_string_lossy().to_string();
-                    path = path.strip_prefix(&dir_string).unwrap().to_string();
-                    if path.starts_with(PATH_SEPARATOR) {
-                        path = path.strip_prefix(PATH_SEPARATOR).unwrap().to_string();
-                    }
+        /// Copy the file name to the system clipboard.
+        fn yank_name(&mut self) -> Option<Effect> {
+            let entry: PathBuf = match self.entry_path() {
+                Some(entry) => entry.to_path_buf(),
+                None => {
+                    return None;
                 }
-                let mut clipboard = Clipboard::new();
-                clipboard.copy(path);
-            }
+            };
+
+            let name: String = match entry.file_name() {
+                Some(name) => name.to_string_lossy().to_string(),
+                None => {
+                    return None;
+                }
+            };
+
+            let mut clipboard = Clipboard::new();
+            clipboard.copy(name);
+
+            self.message = Some(CommandMessage::Ran(String::from("yanked file name")));
             None
+        }
+
+        /// Copy the file path to the system clipboard.
+        fn yank_path(&mut self) -> Option<Effect> {
+            let path: String = match self.entry_path() {
+                Some(entry) => entry.to_path_buf().to_string_lossy().to_string(),
+                None => {
+                    return None;
+                }
+            };
+
+            let mut clipboard = Clipboard::new();
+            clipboard.copy(path);
+
+            self.message = Some(CommandMessage::Ran(String::from("yanked path")));
+            None
+        }
+
+        /// Ask the daemon for the contents of the file so that they can be copied to the
+        /// clipboard.
+        fn yank_contents(&mut self) -> Option<Effect> {
+            let path: PathBuf = match self.entry_path() {
+                Some(entry) => entry.to_path_buf(),
+                None => {
+                    return None;
+                }
+            };
+
+            let request: Request = Request::builder()
+                .params(RequestParams::GetFileContents(
+                    GetFileContentsRequestParams::builder().path(path).build(),
+                ))
+                .build();
+            self.pending_yank_request = Some(*request.uuid());
+            Some(Effect::Request(request))
+        }
+
+        /// Remember that the keys pressed do not form a command.
+        fn unknown_command(&mut self, keys: String) -> Option<Effect> {
+            self.message = Some(CommandMessage::UnknownCommand(keys));
+            Some(Effect::Bell)
         }
 
         fn handle_response(&mut self, response: Response) -> Option<Effect> {
             #[cfg(feature = "logging")]
             log::debug!("Handling response...");
+
+            if Some(*response.uuid()) == self.pending_yank_request {
+                self.pending_yank_request = None;
+
+                let params: &GetFileContentsResponseParams = match response.params() {
+                    ResponseParams::GetFileContents(params) => params,
+                    _ => {
+                        #[cfg(feature = "logging")]
+                        log::error!("Unexpected response parameters.");
+                        return Some(Effect::Bell);
+                    }
+                };
+
+                return match params.result() {
+                    Ok(contents) => {
+                        let mut clipboard = Clipboard::new();
+                        clipboard.copy(contents.clone());
+
+                        self.message =
+                            Some(CommandMessage::Ran(String::from("yanked file contents")));
+                        None
+                    }
+                    Err(error) => {
+                        self.message = Some(CommandMessage::Failed(format!(
+                            "failed to read the file contents: {}",
+                            error
+                        )));
+                        Some(Effect::Bell)
+                    }
+                };
+            }
 
             let pending_request: Uuid = match self.pending_request {
                 Some(pending_request) => pending_request,
@@ -542,6 +662,12 @@ mod state {
 
     impl Stateful<Action, Effect> for State {
         fn perform(&mut self, action: Action) -> Option<Effect> {
+            // Running a command clears what the last one had to say. Responses are not commands,
+            // so they leave it alone.
+            if !matches!(action, Action::HandleResponse(_)) {
+                self.message = None;
+            }
+
             match action {
                 Action::Unfocus => self.unfocus(),
                 Action::Find { phrase } => self.find(&phrase),
@@ -554,8 +680,10 @@ mod state {
                 Action::Edit => self.edit(),
                 Action::Goto => self.goto(),
                 Action::ReallyGoto => self.really_goto(),
-                Action::Yank => self.yank(),
-                Action::ReallyYank => self.really_yank(),
+                Action::YankName => self.yank_name(),
+                Action::YankPath => self.yank_path(),
+                Action::YankContents => self.yank_contents(),
+                Action::UnknownCommand { keys } => self.unknown_command(keys),
                 Action::HandleResponse(response) => self.handle_response(response),
             }
         }
@@ -567,6 +695,7 @@ mod action {
     use insh_api::Response;
     use rend::Size;
 
+    #[derive(Clone)]
     pub enum Action {
         Unfocus,
         Find { phrase: String },
@@ -579,8 +708,10 @@ mod action {
         Edit,
         Goto,
         ReallyGoto,
-        Yank,
-        ReallyYank,
+        YankName,
+        YankPath,
+        YankContents,
+        UnknownCommand { keys: String },
         HandleResponse(Response),
     }
 }

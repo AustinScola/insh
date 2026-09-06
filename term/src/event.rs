@@ -10,10 +10,20 @@ pub enum TermEvent {
     Resize(Size),
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct KeyEvent {
     pub key: Key,
     pub mods: KeyMods,
+}
+
+impl Display for KeyEvent {
+    fn fmt(&self, formatter: &mut Formatter<'_>) -> Result<(), FmtError> {
+        // The shift key is not shown because the key itself is already shifted.
+        if self.mods.contains(KeyMods::CONTROL) {
+            write!(formatter, "<Ctrl>-")?;
+        }
+        write!(formatter, "{}", self.key)
+    }
 }
 
 impl TryFrom<&[u8]> for TermEvent {
@@ -1166,7 +1176,24 @@ impl Display for KeyEventToBytesError {
     }
 }
 
-#[derive(Debug, Clone)]
+impl Display for Key {
+    fn fmt(&self, formatter: &mut Formatter<'_>) -> Result<(), FmtError> {
+        match self {
+            Self::Char(character) => write!(formatter, "{}", character),
+            Self::Null => write!(formatter, "<Null>"),
+            Self::Backspace => write!(formatter, "<Backspace>"),
+            Self::HorizontalTab => write!(formatter, "<Tab>"),
+            Self::CarriageReturn => write!(formatter, "<Enter>"),
+            Self::Escape => write!(formatter, "<Escape>"),
+            Self::Delete => write!(formatter, "<Delete>"),
+            // The rest of the keys are control codes which the terminal is not expected to send
+            // since it sends them as characters held with the control key instead.
+            key => write!(formatter, "<{:?}>", key),
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Key {
     Null,
     /// Start of text (same as <Ctrl>-a)

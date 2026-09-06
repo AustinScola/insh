@@ -37,8 +37,9 @@ below. The currently selected entry is highlighed in yellow.
 | `f`                  | Open the file finder.                                                                                                                                                              |
 | `s`                  | Open the file contents searcher.                                                                                                                                                   |
 | `m`                  | Toggle showing the metadata of the entries.                                                                                                                                        |
-| `y`                  | Yank the selected entry. (Copy the file name of the selection to the clipboard.)                                                                                                   |
-| `Y`                  | Really yank the selected entry. (Copy the absolute path of the selected entry to the clipboard.)                                                                                   |
+| `yE`                 | Yank the selected entry filename to the clipboard.                                                                                                                                 |
+| `yy`                 | Yank the selected entry file path to the clipboard.                                                                                                                                |
+| `Y`                  | Yank the selected entry file contents to the clipboard.                                                                                                                            |
 
 ### File Creator Help
 
@@ -75,8 +76,9 @@ the file name.
 | `l` \| `<Enter>` | Open the hit in vim.                                                       |
 | `g`              | Go to the hit in the file browser.                                         |
 | `G`              | Go to the hit in the file browser and select it.                           |
-| `y`              | Yank the hit. (Copy the path of the hit to the clipboard.)                 |
-| `Y`              | Really yank the hit. (Copy the absolute path of the hit to the clipboard.) |
+| `yE`             | Yank the hit filename to the clipboard.                                    |
+| `yy`             | Yank the hit file path to the clipboard.                                   |
+| `Y`              | Yank the hit file contents to the clipboard.                               |
 
 ### Searcher Help
 
@@ -101,8 +103,9 @@ The commands for the input bar are the same as those for the Finder.
 | `l` \| `<Enter>` | Open the hit in vim. If the file path of a hit is selected, then open vim at the start of the file. Else, if an occurrence of the string is selected, then open vim at the line of the occurrence. |
 | `g`              | Go to the hit in the file browser.                                                                                                                                                                 |
 | `G`              | Go to the hit in the file browser and select it.                                                                                                                                                   |
-| `y`              | Yank the hit. If the file path of a hit is selected, yank the file path. Else, if an occurence of the string is selected, yank that line.                                                          |
-| `Y`              | Really yank the hit. If the file path of a hit is selected, yank the absolute file path. Else, if an occurence of the string is selected, yank that line.                                          |
+| `yE`             | Yank the hit to the end. If the file path of a hit is selected, yank the relative file path. Else, if an occurence of the string is selected, yank that line.                                      |
+| `yy`             | Yank the hit line. If the file path of a hit is selected, yank the full file path. Else, if an occurence of the string is selected, yank that line.                                                |
+| `Y`              | Yank the hit file contents to the clipboard.                                                                                                                                                       |
 
 
 ## Configuration

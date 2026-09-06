@@ -4,7 +4,7 @@ use crate::contexted_request::ContextedRequest;
 use crate::contexted_response::ContextedResponse;
 use crate::log_subscription::LogSubscription;
 use crate::request_handlers::{
-    CreateFile, FindFiles, GetFiles, SearchPhrase, StreamLogs, SuggestFindPattern,
+    CreateFile, FindFiles, GetFileContents, GetFiles, SearchPhrase, StreamLogs, SuggestFindPattern,
     SuggestSearchPhrase,
 };
 use crate::stop::Stop;
@@ -54,6 +54,7 @@ impl RequestHandler {
 
                     let response_params_and_last_iter: Box<dyn Iterator<Item = ResponseParamsAndLast>> = match request.params() {
                         RequestParams::GetFiles(params) => Box::new(GetFiles::new(params)),
+                        RequestParams::GetFileContents(params) => Box::new(GetFileContents::new(params)),
                         RequestParams::FindFiles(params) => {
                             Box::new(FindFiles::run(params, self.config.clone(), &self.db_conn_pool))
                         }
