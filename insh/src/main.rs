@@ -13,6 +13,7 @@ mod ansi_escaped_text;
 mod args;
 mod clipboard;
 mod color;
+mod command_message;
 mod components;
 mod config;
 mod current_dir;

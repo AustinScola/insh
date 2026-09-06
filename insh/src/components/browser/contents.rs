@@ -4,6 +4,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use crate::clipboard::Clipboard;
 use crate::color::Color;
+use crate::command_message::CommandMessage;
 use crate::components::common::FooterInfo;
 use crate::config::Config;
 use crate::programs::{VimArgs, VimArgsBuilder};
@@ -12,10 +13,13 @@ use crate::stateful::Stateful;
 
 use file_info::FileInfo;
 use file_type::FileType;
-use insh_api::{GetFilesResponseParams, GetFilesResult, Request, Response, ResponseParams};
+use insh_api::{
+    GetFileContentsRequestParams, GetFileContentsResponseParams, GetFilesResponseParams,
+    GetFilesResult, Request, RequestParams, Response, ResponseParams,
+};
 use rend::{Fabric, Size, Yarn};
 use term::{Key, KeyEvent, KeyMods, TermEvent};
-use til::Component;
+use til::{CommandParser, Component, KeyPattern, Parsed};
 
 use typed_builder::TypedBuilder;
 use uuid::Uuid;
@@ -335,19 +339,43 @@ pub struct Props {
 
 pub struct Contents {
     state: State,
+    /// Parses the keys pressed into actions.
+    command_parser: CommandParser<Action>,
 }
 
 impl Component<Props, Event, Effect> for Contents {
     fn new(props: Props) -> Self {
         let state = State::from(props);
-        Self { state }
+        Self {
+            state,
+            command_parser: Self::command_parser(),
+        }
     }
 
     fn handle(&mut self, event: Event) -> Option<Effect> {
-        match self.map(event) {
-            Some(action) => self.state.perform(action),
-            None => Some(Effect::Bell),
-        }
+        let action: Action = match event {
+            Event::Response(response) => Action::HandleResponse(response),
+            Event::Resize { size } => Action::Resize { size },
+            Event::Term { event } => {
+                let key_event = match event {
+                    TermEvent::KeyEvent(key_event) => key_event,
+                    _ => {
+                        return None;
+                    }
+                };
+                match self.command_parser.parse(key_event) {
+                    Parsed::Command(action) => action,
+                    Parsed::Pending => {
+                        return None;
+                    }
+                    Parsed::Unknown(keys) => Action::UnknownCommand {
+                        keys: keys.iter().map(KeyEvent::to_string).collect(),
+                    },
+                }
+            }
+        };
+
+        self.state.perform(action)
     }
 
     fn render(&self, size: Size) -> Fabric {
@@ -457,8 +485,24 @@ impl Component<Props, Event, Effect> for Contents {
     }
 }
 
-/// The footer shows which of the files of the directory is selected.
 impl FooterInfo for Contents {
+    fn text(&self) -> String {
+        let pending: String = self
+            .command_parser
+            .pending()
+            .iter()
+            .map(KeyEvent::to_string)
+            .collect();
+        if !pending.is_empty() {
+            return pending;
+        }
+
+        match self.state.message() {
+            Some(message) => message.text(),
+            None => String::new(),
+        }
+    }
+
     fn position(&self) -> String {
         let files: usize = match self.state.file_infos() {
             Some(Ok(file_infos)) => file_infos.len(),
@@ -477,92 +521,67 @@ impl FooterInfo for Contents {
 }
 
 impl Contents {
-    fn map(&self, event: Event) -> Option<Action> {
-        match event {
-            Event::Response(response) => Some(Action::HandleResponse(response)),
-            Event::Resize { size } => Some(Action::Resize { size }),
-            Event::Term { event } => {
-                if let TermEvent::KeyEvent(key_event) = event {
-                    match key_event {
-                        KeyEvent {
-                            key: Key::Char('j'),
-                            mods: KeyMods::NONE,
-                        } => Some(Action::Down),
-                        KeyEvent {
-                            key: Key::Char('J'),
-                            mods: KeyMods::SHIFT,
-                        } => Some(Action::ReallyDown),
-                        KeyEvent {
-                            key: Key::Char('k'),
-                            mods: KeyMods::NONE,
-                        } => Some(Action::Up),
-                        KeyEvent {
-                            key: Key::Char('K'),
-                            mods: KeyMods::SHIFT,
-                        } => Some(Action::ReallyUp),
-                        KeyEvent {
-                            key: Key::Char('r'),
-                            ..
-                        } => Some(Action::Refresh),
-                        KeyEvent {
-                            key: Key::Char('l'),
-                            ..
-                        }
-                        | KeyEvent {
-                            key: Key::CarriageReturn,
-                            ..
-                        } => Some(Action::Push),
-                        KeyEvent {
-                            key: Key::Char('h'),
-                            ..
-                        }
-                        | KeyEvent {
-                            key: Key::Backspace,
-                            ..
-                        } => Some(Action::Pop),
-                        KeyEvent {
-                            key: Key::Char('y'),
-                            mods: KeyMods::NONE,
-                        } => Some(Action::Yank),
-                        KeyEvent {
-                            key: Key::Char('Y'),
-                            mods: KeyMods::SHIFT,
-                        } => Some(Action::ReallyYank),
-                        KeyEvent {
-                            key: Key::Char('b'),
-                            ..
-                        } => Some(Action::RunBash),
-                        KeyEvent {
-                            key: Key::Char('c'),
-                            mods: KeyMods::NONE,
-                        } => Some(Action::OpenFileCreator {
-                            file_type: FileType::File,
-                        }),
-                        KeyEvent {
-                            key: Key::Char('C'),
-                            mods: KeyMods::SHIFT,
-                        } => Some(Action::OpenFileCreator {
-                            file_type: FileType::Dir,
-                        }),
-                        KeyEvent {
-                            key: Key::Char('f'),
-                            ..
-                        } => Some(Action::OpenFinder),
-                        KeyEvent {
-                            key: Key::Char('s'),
-                            ..
-                        } => Some(Action::OpenSearcher),
-                        KeyEvent {
-                            key: Key::Char('m'),
-                            mods: KeyMods::NONE,
-                        } => Some(Action::ToggleMetadata),
-                        _ => None,
-                    }
-                } else {
-                    None
-                }
-            }
-        }
+    /// Return a parser for the keys which the contents responds to.
+    fn command_parser() -> CommandParser<Action> {
+        CommandParser::new()
+            .bind(
+                [KeyPattern::exact(Key::Char('j'), KeyMods::NONE)],
+                Action::Down,
+            )
+            .bind(
+                [KeyPattern::exact(Key::Char('J'), KeyMods::SHIFT)],
+                Action::ReallyDown,
+            )
+            .bind(
+                [KeyPattern::exact(Key::Char('k'), KeyMods::NONE)],
+                Action::Up,
+            )
+            .bind(
+                [KeyPattern::exact(Key::Char('K'), KeyMods::SHIFT)],
+                Action::ReallyUp,
+            )
+            .bind([KeyPattern::any(Key::Char('r'))], Action::Refresh)
+            .bind([KeyPattern::any(Key::Char('l'))], Action::Push)
+            .bind([KeyPattern::any(Key::CarriageReturn)], Action::Push)
+            .bind([KeyPattern::any(Key::Char('h'))], Action::Pop)
+            .bind([KeyPattern::any(Key::Backspace)], Action::Pop)
+            .bind(
+                [
+                    KeyPattern::exact(Key::Char('y'), KeyMods::NONE),
+                    KeyPattern::exact(Key::Char('E'), KeyMods::SHIFT),
+                ],
+                Action::YankName,
+            )
+            .bind(
+                [
+                    KeyPattern::exact(Key::Char('y'), KeyMods::NONE),
+                    KeyPattern::exact(Key::Char('y'), KeyMods::NONE),
+                ],
+                Action::YankPath,
+            )
+            .bind(
+                [KeyPattern::exact(Key::Char('Y'), KeyMods::SHIFT)],
+                Action::YankContents,
+            )
+            .bind([KeyPattern::any(Key::Char('b'))], Action::RunBash)
+            .bind(
+                [KeyPattern::exact(Key::Char('c'), KeyMods::NONE)],
+                Action::OpenFileCreator {
+                    file_type: FileType::File,
+                },
+            )
+            .bind(
+                [KeyPattern::exact(Key::Char('C'), KeyMods::SHIFT)],
+                Action::OpenFileCreator {
+                    file_type: FileType::Dir,
+                },
+            )
+            .bind([KeyPattern::any(Key::Char('f'))], Action::OpenFinder)
+            .bind([KeyPattern::any(Key::Char('s'))], Action::OpenSearcher)
+            .bind(
+                [KeyPattern::exact(Key::Char('m'), KeyMods::NONE)],
+                Action::ToggleMetadata,
+            )
     }
 }
 
@@ -581,6 +600,10 @@ struct State {
     /// The offset to return to once the starting file is found (if possible).
     starting_offset: Option<usize>,
     pending_request: Option<Uuid>,
+    /// The request for the contents of a file which are to be copied to the clipboard.
+    pending_yank_request: Option<Uuid>,
+    /// What the last command had to say for itself (if anything).
+    message: Option<CommandMessage>,
 
     /// The dir entries (if they can be read).
     file_infos: Option<GetFilesResult>,
@@ -608,6 +631,8 @@ impl From<Props> for State {
             starting_file: props.file,
             starting_offset: None,
             pending_request: props.pending_request,
+            pending_yank_request: None,
+            message: None,
             file_infos: None,
             metadata,
             selected: None,
@@ -620,6 +645,11 @@ impl State {
     /// Return the entries of the dir.
     pub fn file_infos(&self) -> &Option<GetFilesResult> {
         &self.file_infos
+    }
+
+    /// Return what the last command had to say for itself (if anything).
+    pub fn message(&self) -> Option<&CommandMessage> {
+        self.message.as_ref()
     }
 
     fn visible_file_infos(&self) -> Option<&[FileInfo]> {
@@ -886,7 +916,7 @@ impl State {
     /// Copy the file name of the selected entry to the clipboard.
     ///
     /// If the entry is a directory, a trailing slash is added.
-    fn yank(&self) -> Option<Effect> {
+    fn yank_name(&mut self) -> Option<Effect> {
         let entry: &FileInfo = match self.entry() {
             Some(entry) => entry,
             None => {
@@ -902,13 +932,14 @@ impl State {
         let mut clipboard = Clipboard::new();
         clipboard.copy(contents);
 
+        self.message = Some(CommandMessage::Ran(String::from("yanked file name")));
         None
     }
 
     /// Copy the path of the selected entry to the clipboard.
     ///
     /// If the entry is a directory, a trailing slash is added.
-    fn really_yank(&self) -> Option<Effect> {
+    fn yank_path(&mut self) -> Option<Effect> {
         let entry: &FileInfo = match self.entry() {
             Some(entry) => entry,
             None => {
@@ -925,7 +956,41 @@ impl State {
         let mut clipboard = Clipboard::new();
         clipboard.copy(contents);
 
+        self.message = Some(CommandMessage::Ran(String::from("yanked path")));
         None
+    }
+
+    /// Ask the daemon for the contents of the selected file so that they can be copied to the
+    /// clipboard.
+    fn yank_contents(&mut self) -> Option<Effect> {
+        let entry: &FileInfo = match self.entry() {
+            Some(entry) => entry,
+            None => {
+                return None;
+            }
+        };
+
+        let path: PathBuf = entry.path().to_path_buf();
+        if path.is_dir() {
+            self.message = Some(CommandMessage::Failed(String::from(
+                "the entry is a directory",
+            )));
+            return Some(Effect::Bell);
+        }
+
+        let request: Request = Request::builder()
+            .params(RequestParams::GetFileContents(
+                GetFileContentsRequestParams::builder().path(path).build(),
+            ))
+            .build();
+        self.pending_yank_request = Some(*request.uuid());
+        Some(Effect::Request(request))
+    }
+
+    /// Remember that the keys pressed do not form a command.
+    fn unknown_command(&mut self, keys: String) -> Option<Effect> {
+        self.message = Some(CommandMessage::UnknownCommand(keys));
+        Some(Effect::Bell)
     }
 
     fn open_file_creator(&self, file_type: FileType) -> Option<Effect> {
@@ -975,6 +1040,36 @@ impl State {
     fn handle_response(&mut self, response: Response) -> Option<Effect> {
         #[cfg(feature = "logging")]
         log::debug!("Handling response...");
+
+        if Some(*response.uuid()) == self.pending_yank_request {
+            self.pending_yank_request = None;
+
+            let params: &GetFileContentsResponseParams = match response.params() {
+                ResponseParams::GetFileContents(params) => params,
+                _ => {
+                    #[cfg(feature = "logging")]
+                    log::error!("Unexpected response parameters.");
+                    return Some(Effect::Bell);
+                }
+            };
+
+            return match params.result() {
+                Ok(contents) => {
+                    let mut clipboard = Clipboard::new();
+                    clipboard.copy(contents.clone());
+
+                    self.message = Some(CommandMessage::Ran(String::from("yanked file contents")));
+                    None
+                }
+                Err(error) => {
+                    self.message = Some(CommandMessage::Failed(format!(
+                        "failed to read the file contents: {}",
+                        error
+                    )));
+                    Some(Effect::Bell)
+                }
+            };
+        }
 
         let pending_request: Uuid = match self.pending_request {
             Some(pending_request) => pending_request,
@@ -1060,6 +1155,12 @@ impl State {
 
 impl Stateful<Action, Effect> for State {
     fn perform(&mut self, action: Action) -> Option<Effect> {
+        // Running a command clears what the last one had to say. Responses are not commands, so
+        // they leave it alone.
+        if !matches!(action, Action::HandleResponse(_)) {
+            self.message = None;
+        }
+
         match action {
             Action::Resize { size } => self.resize(size),
             Action::Down => self.down(),
@@ -1069,18 +1170,21 @@ impl Stateful<Action, Effect> for State {
             Action::Refresh => self.refresh(),
             Action::Push => self.push(),
             Action::Pop => self.pop(),
-            Action::Yank => self.yank(),
-            Action::ReallyYank => self.really_yank(),
+            Action::YankName => self.yank_name(),
+            Action::YankPath => self.yank_path(),
+            Action::YankContents => self.yank_contents(),
             Action::OpenFileCreator { file_type } => self.open_file_creator(file_type),
             Action::OpenFinder => self.open_finder(),
             Action::OpenSearcher => self.open_searcher(),
             Action::RunBash => self.run_bash(),
             Action::ToggleMetadata => self.toggle_metadata(),
+            Action::UnknownCommand { keys } => self.unknown_command(keys),
             Action::HandleResponse(response) => self.handle_response(response),
         }
     }
 }
 
+#[derive(Clone)]
 enum Action {
     Resize { size: Size },
     Down,
@@ -1090,13 +1194,15 @@ enum Action {
     Refresh,
     Push,
     Pop,
-    Yank,
-    ReallyYank,
+    YankName,
+    YankPath,
+    YankContents,
     OpenFileCreator { file_type: FileType },
     OpenFinder,
     OpenSearcher,
     RunBash,
     ToggleMetadata,
+    UnknownCommand { keys: String },
     HandleResponse(Response),
 }
 

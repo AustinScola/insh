@@ -3,6 +3,7 @@
 
 mod app;
 mod ascii;
+mod command_parser;
 mod component;
 mod event;
 mod output_forwarder;
@@ -16,6 +17,7 @@ mod system_effect;
 mod term_event_forwarder;
 
 pub use app::{App, AppRunOptions};
+pub use command_parser::{CommandParser, KeyPattern, Parsed};
 pub use component::Component;
 pub use event::Event;
 pub use program::{EnvVar, Program, ProgramCleanup, ProgramSetup, StdoutPipe};

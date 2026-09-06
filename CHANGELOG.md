@@ -5,6 +5,7 @@
 - Add footer.
 - Add colored logs and `--color` and `--no-color` arguments to `inshd`.
 - Add finder suggestions.
+- Overhaul yanking commands.
 
 # 0.4.12
 - Add `inshd logs` command for streaming logs.

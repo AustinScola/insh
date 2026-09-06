@@ -33,6 +33,7 @@ impl Request {
 #[derive(Debug, Serialize, Deserialize)]
 pub enum RequestParams {
     GetFiles(GetFilesRequestParams),
+    GetFileContents(GetFileContentsRequestParams),
     FindFiles(FindFilesRequestParams),
     SuggestFindPattern(SuggestFindPatternRequestParams),
     CreateFile(CreateFileRequestParams),
@@ -98,6 +99,20 @@ pub enum HiddenFileSort {
     Last,
     /// Hidden files should be sorted among the other files as if they were not hidden.
     Mixed,
+}
+
+/// Request parameters for getting the contents of a file.
+#[derive(Debug, TypedBuilder, Serialize, Deserialize)]
+pub struct GetFileContentsRequestParams {
+    /// The path of the file to get the contents of.
+    path: PathBuf,
+}
+
+impl GetFileContentsRequestParams {
+    /// Return the path of the file to get the contents of.
+    pub fn path(&self) -> &Path {
+        &self.path
+    }
 }
 
 #[derive(Debug, TypedBuilder, Serialize, Deserialize)]
@@ -174,7 +189,7 @@ impl SuggestSearchPhraseRequestParams {
 #[derive(Debug, TypedBuilder, Serialize, Deserialize)]
 pub struct StreamLogsRequestParams {}
 
-#[derive(Debug, TypedBuilder, Serialize, Deserialize)]
+#[derive(Debug, Clone, TypedBuilder, Serialize, Deserialize)]
 pub struct Response {
     uuid: Uuid,
     #[builder(default)]
@@ -196,9 +211,10 @@ impl Response {
     }
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum ResponseParams {
     GetFiles(GetFilesResponseParams),
+    GetFileContents(GetFileContentsResponseParams),
     FindFiles(FindFilesResponseParams),
     SuggestFindPattern(SuggestFindPatternResponseParams),
     CreateFile(CreateFileResponseParams),
@@ -213,7 +229,7 @@ pub struct ResponseParamsAndLast {
     pub last: bool,
 }
 
-#[derive(Debug, TypedBuilder, Serialize, Deserialize)]
+#[derive(Debug, Clone, TypedBuilder, Serialize, Deserialize)]
 pub struct GetFilesResponseParams {
     result: GetFilesResult,
 }
@@ -243,7 +259,63 @@ impl Display for GetFilesError {
     }
 }
 
-#[derive(Debug, TypedBuilder, Serialize, Deserialize)]
+/// Response parameters for getting the contents of a file.
+#[derive(Debug, Clone, TypedBuilder, Serialize, Deserialize)]
+pub struct GetFileContentsResponseParams {
+    /// The contents of the file, or why they could not be read.
+    result: GetFileContentsResult,
+}
+
+impl GetFileContentsResponseParams {
+    /// Return the contents of the file, or why they could not be read.
+    pub fn result(&self) -> &GetFileContentsResult {
+        &self.result
+    }
+}
+
+/// The contents of a file, or why they could not be read.
+pub type GetFileContentsResult = Result<String, GetFileContentsError>;
+
+/// Why the contents of a file could not be read.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum GetFileContentsError {
+    /// The file does not exist.
+    DoesNotExist,
+    /// The file could not be read because permission was denied.
+    PermissionDenied,
+    /// The file is a directory.
+    IsADir,
+    /// The file is larger than the most which will be read.
+    TooBig {
+        /// The size of the file in bytes.
+        size: u64,
+        /// The size in bytes of the largest file which will be read.
+        max: u64,
+    },
+    /// The contents of the file are not valid UTF-8.
+    NotUtf8,
+    /// The file could not be read for some other reason.
+    OtherErrorReading(String),
+}
+
+impl Display for GetFileContentsError {
+    fn fmt(&self, formatter: &mut Formatter<'_>) -> Result<(), FmtError> {
+        match self {
+            Self::DoesNotExist => write!(formatter, "the file does not exist"),
+            Self::PermissionDenied => write!(formatter, "permission denied"),
+            Self::IsADir => write!(formatter, "the file is a directory"),
+            Self::TooBig { size, max } => write!(
+                formatter,
+                "the file is {} bytes which is larger than the maximum of {} bytes",
+                size, max
+            ),
+            Self::NotUtf8 => write!(formatter, "the file is not valid UTF-8"),
+            Self::OtherErrorReading(string) => write!(formatter, "{}", string),
+        }
+    }
+}
+
+#[derive(Debug, Clone, TypedBuilder, Serialize, Deserialize)]
 pub struct FindFilesResponseParams {
     entries: Vec<Entry>,
     /// The number of files which have been searched so far.
@@ -272,7 +344,7 @@ impl FindFilesResponseParams {
     }
 }
 
-#[derive(Debug, TypedBuilder, Serialize, Deserialize)]
+#[derive(Debug, Clone, TypedBuilder, Serialize, Deserialize)]
 pub struct SuggestFindPatternResponseParams {
     suggestion: Option<String>,
 }
@@ -285,7 +357,7 @@ impl SuggestFindPatternResponseParams {
 
 pub type CreateFileResult = Result<(), CreateFileError>;
 
-#[derive(Debug, TypedBuilder, Serialize, Deserialize)]
+#[derive(Debug, Clone, TypedBuilder, Serialize, Deserialize)]
 pub struct CreateFileResponseParams {
     result: CreateFileResult,
 }
@@ -296,7 +368,7 @@ impl CreateFileResponseParams {
     }
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum CreateFileError {
     AlreadyExists(PathBuf),
     UnsupportedFileType(FileType),
@@ -322,7 +394,7 @@ impl Display for CreateFileError {
     }
 }
 
-#[derive(Debug, TypedBuilder, Serialize, Deserialize)]
+#[derive(Debug, Clone, TypedBuilder, Serialize, Deserialize)]
 pub struct SearchPhraseResponseParams {
     hits: Vec<FileHit>,
     /// The number of files which have been searched so far.
@@ -351,7 +423,7 @@ impl SearchPhraseResponseParams {
     }
 }
 
-#[derive(Debug, TypedBuilder, Serialize, Deserialize)]
+#[derive(Debug, Clone, TypedBuilder, Serialize, Deserialize)]
 pub struct SuggestSearchPhraseResponseParams {
     suggestion: Option<String>,
 }
@@ -363,7 +435,7 @@ impl SuggestSearchPhraseResponseParams {
 }
 
 /// Response parameters for streaming logs.
-#[derive(Debug, TypedBuilder, Serialize, Deserialize)]
+#[derive(Debug, Clone, TypedBuilder, Serialize, Deserialize)]
 pub struct StreamLogsResponseParams {
     records: Vec<LogRecord>,
 }
