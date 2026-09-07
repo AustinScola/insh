@@ -1,4 +1,8 @@
 # 0.5.0
+- Add `inshd logs` command for streaming logs.
+- Change the searcher to use inshd to search for phrases and get search suggestions.
+- Add a configuration file for inshd (`~/.inshd-config.yaml`) and move the search history length to
+it.
 - Use PostgreSQL for data storage instead of a file.
     - Add `database.pool.size` inshd configuration option.
 - Add `server.request_handlers.num` inshd configuration option.
@@ -8,14 +12,6 @@
 - Overhaul yanking commands.
 - Add arrow key and `<Home>` and `<End>` key support.
 - Add `inshd database shell` command for opening a PostgreSQL shell.
-
-# 0.4.12
-- Add `inshd logs` command for streaming logs.
-
-# 0.4.11
-- Change the searcher to use inshd to search for phrases and get search suggestions.
-- Add a configuration file for inshd (`~/.inshd-config.yaml`) and move the search history length to
-it.
 
 # 0.4.10
 - Add the ability to show metadata in the browser.
