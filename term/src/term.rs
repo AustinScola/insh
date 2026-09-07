@@ -6,6 +6,10 @@ use std::os::fd::AsRawFd;
 use std::os::fd::{AsFd, BorrowedFd, IntoRawFd, RawFd};
 use std::time::Duration;
 
+use crate::event::{KeyEvent, ParsedTermEvent, TermEvent, TermEventParseError};
+
+use size::Size;
+
 use libc::{ioctl, winsize as WindowSize, TIOCGWINSZ};
 use nix::errno::Errno;
 use nix::libc;
@@ -15,9 +19,6 @@ use nix::unistd::{pipe, read, write};
 use nix::Result as NixResult;
 use termios::*;
 use typed_builder::TypedBuilder;
-
-use crate::event::{KeyEvent, ParsedTermEvent, TermEvent, TermEventParseError};
-use size::Size;
 
 // TODO: Make sure we close these?
 static mut RESIZED_RX: Option<RawFd> = None;

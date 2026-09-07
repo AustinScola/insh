@@ -1,5 +1,6 @@
-use serde::{Deserialize, Serialize};
 use std::fs::FileType as StdFileType;
+
+use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Copy, Clone, PartialEq, Serialize, Deserialize)]
 pub enum FileType {

@@ -503,7 +503,6 @@ impl Color {
 #[cfg(test)]
 mod tests {
     use super::*;
-
     use crate::sequence::{AnsiEscapeSequence, ControlSequence, ParsedAnsiEscapeSequence};
 
     /// Return the renditions which the bytes of a select graphic rendition sequence say to use.

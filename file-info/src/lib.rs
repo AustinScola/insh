@@ -1,10 +1,10 @@
 use std::ffi::OsStr;
 use std::path::{Path, PathBuf};
 
+use file_type::FileType;
+
 use serde::{Deserialize, Serialize};
 use typed_builder::TypedBuilder;
-
-use file_type::FileType;
 
 #[derive(Debug, Clone, TypedBuilder, Serialize, Deserialize)]
 pub struct FileInfo {

@@ -32,6 +32,7 @@ mod conjoin {
     #[cfg(test)]
     mod tests {
         use super::*;
+
         use test_case::test_case;
 
         #[test_case(vec![], "and", ""; "joining no strings")]
@@ -76,6 +77,7 @@ mod capitalize_first_letter {
     #[cfg(test)]
     mod tests {
         use super::*;
+
         use test_case::test_case;
 
         #[test_case("", ""; "capitalizing the first letter of an empty string")]

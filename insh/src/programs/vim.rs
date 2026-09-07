@@ -2,14 +2,14 @@
 Contains the [`Program`] [`Vim`].
 */
 
-use crate::ansi_escaped_text::{self, ANSIEscapeCode, ANSIEscapedText};
-
-use til::{Program, ProgramCleanup, StdoutPipe};
-
 use std::ffi::OsString;
 use std::fs::File;
 use std::io::{self, BufReader, Read, Write};
 use std::path::{Path, PathBuf};
+
+use crate::ansi_escaped_text::{self, ANSIEscapeCode, ANSIEscapedText};
+
+use til::{Program, ProgramCleanup, StdoutPipe};
 
 use nom::{Err as ParseError, IResult as ParseResult};
 

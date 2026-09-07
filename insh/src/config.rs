@@ -4,12 +4,12 @@ Configuration options loaded from the YAML file `~/.insh-config` if it exists.
 
 /// Configuration options.
 mod config {
-    use super::{BrowserConfig, GeneralConfig, InputConfig};
-
     use std::fmt::{Display, Formatter, Result as FormatResult};
     use std::fs::File;
     use std::io::{Error as IOError, ErrorKind as IOErrorKind};
     use std::path::PathBuf;
+
+    use super::{BrowserConfig, GeneralConfig, InputConfig};
 
     use serde::Deserialize;
     use serde_yaml_ng::Error as YamlParseError;
@@ -366,9 +366,9 @@ pub use browser::{BrowserConfig, BrowserSortHiddenConfig};
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-
     use std::time::Duration;
+
+    use super::*;
 
     #[test]
     fn test_the_escape_timeout_can_be_set() {

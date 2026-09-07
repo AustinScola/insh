@@ -2,11 +2,12 @@
 This module contains the [`Fabric`] struct which is used for representing a 2D rectangle of styled
 text.
 */
-use super::{Cell, Size, Yarn};
-
 use std::cmp::Ordering;
 
+use super::{Cell, Size, Yarn};
+
 use ansi::Color;
+
 use itertools::izip;
 
 // MAYBE TODO: Use ranges for storage to save memory when elements are sparse?

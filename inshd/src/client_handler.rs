@@ -1,14 +1,14 @@
 //! Handles a client.
+use std::io::{ErrorKind as IOErrorKind, Read};
+use std::os::fd::{AsRawFd, BorrowedFd, RawFd};
+use std::os::unix::net::UnixStream;
+
 use crate::client::Client;
 use crate::client_request::ClientRequest;
 use crate::contexted_request::ContextedRequest;
 use crate::disconnected_client::DisconnectedClient;
 
 use insh_api::Request;
-
-use std::io::{ErrorKind as IOErrorKind, Read};
-use std::os::fd::{AsRawFd, BorrowedFd, RawFd};
-use std::os::unix::net::UnixStream;
 
 use crossbeam::channel::Sender;
 use nix::sys::select::select;

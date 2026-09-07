@@ -1,11 +1,11 @@
 //! Monitors client handler threads.
-use crate::client_handler_handle::ClientHandlerHandle;
-use crate::disconnected_client::DisconnectedClient;
-use crate::stop::Stop;
-
 use std::collections::{HashMap, HashSet};
 use std::io::Write;
 use std::thread::JoinHandle;
+
+use crate::client_handler_handle::ClientHandlerHandle;
+use crate::disconnected_client::DisconnectedClient;
+use crate::stop::Stop;
 
 use crossbeam::channel::Receiver;
 use crossbeam::select;

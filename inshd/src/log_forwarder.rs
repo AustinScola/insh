@@ -1,12 +1,12 @@
 //! Forwards log records to clients which have subscribed to them.
+use std::collections::HashMap;
+
 use crate::contexted_response::ContextedResponse;
 use crate::disconnected_client::DisconnectedClient;
 use crate::log_subscription::LogSubscription;
 use crate::stop::Stop;
 
 use insh_api::{LogRecord, Response, ResponseParams, StreamLogsResponseParams};
-
-use std::collections::HashMap;
 
 use crossbeam::channel::{select, Receiver, Sender};
 use typed_builder::TypedBuilder;

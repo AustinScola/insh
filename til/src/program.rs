@@ -99,6 +99,7 @@ pub use stdout_pipe::StdoutPipe;
 
 mod env_var {
     use std::ffi::CString;
+
     use typed_builder::TypedBuilder;
 
     #[derive(TypedBuilder)]

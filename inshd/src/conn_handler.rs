@@ -1,11 +1,4 @@
 //! Handles incoming connections on the socket.
-use crate::client::Client;
-use crate::client_handler::ClientHandler;
-use crate::client_handler_handle::ClientHandlerHandle;
-use crate::client_request::ClientRequest;
-use crate::contexted_request::ContextedRequest;
-use crate::disconnected_client::DisconnectedClient;
-
 use std::io::Result as IOResult;
 use std::os::fd::AsRawFd;
 use std::os::fd::BorrowedFd;
@@ -14,6 +7,13 @@ use std::os::unix::net::UnixListener;
 use std::os::unix::net::UnixStream;
 use std::thread;
 use std::thread::JoinHandle;
+
+use crate::client::Client;
+use crate::client_handler::ClientHandler;
+use crate::client_handler_handle::ClientHandlerHandle;
+use crate::client_request::ClientRequest;
+use crate::contexted_request::ContextedRequest;
+use crate::disconnected_client::DisconnectedClient;
 
 use crossbeam::channel::Sender;
 use nix::sys::select::select;

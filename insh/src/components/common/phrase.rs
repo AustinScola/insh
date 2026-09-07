@@ -18,9 +18,8 @@ mod phrase {
     use crate::stateful::Stateful;
 
     use rend::{Fabric, Size, Yarn};
-    use til::Component;
-
     use term::{Key, KeyEvent, KeyMods, TermEvent};
+    use til::Component;
 
     #[derive(Default)]
     pub struct Phrase {
@@ -104,6 +103,7 @@ pub use phrase::Phrase;
 
 mod event {
     use term::TermEvent;
+
     use uuid::Uuid;
 
     #[allow(clippy::enum_variant_names)]

@@ -29,17 +29,6 @@ mod string;
 use std::os::unix::net::UnixStream;
 use std::process::exit;
 
-use clap::Parser;
-#[cfg(feature = "logging")]
-use flexi_logger::LoggerHandle;
-use uuid::Uuid;
-
-use common::paths::INSHD_SOCKET;
-use insh_api::{Request, Response};
-use inshd_client::{RequestWriter, ResponseReader};
-use term::TermEvent;
-use til::{App, AppRunOptions, Component, Requester, ResponseHandler, Stopper, SystemEffect};
-
 use crate::args::{Args, Command};
 use crate::components::{Insh, InshProps};
 use crate::config::Config;
@@ -49,6 +38,17 @@ use crate::request_builders::{get_files_request, search_phrase_request};
 use crate::requester::InshdRequester;
 use crate::response_handler::{InshdResponseHandler, InshdResponseHandlerStopper};
 use crate::stateful::Stateful;
+
+use common::paths::INSHD_SOCKET;
+use insh_api::{Request, Response};
+use inshd_client::{RequestWriter, ResponseReader};
+use term::TermEvent;
+use til::{App, AppRunOptions, Component, Requester, ResponseHandler, Stopper, SystemEffect};
+
+use clap::Parser;
+#[cfg(feature = "logging")]
+use flexi_logger::LoggerHandle;
+use uuid::Uuid;
 
 fn main() {
     let args: Args = Args::parse();

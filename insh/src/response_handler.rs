@@ -1,9 +1,9 @@
+use std::net::Shutdown;
+use std::os::unix::net::UnixStream;
+
 use insh_api::Response;
 use inshd_client::{ReceiveError, ResponseReader};
 use til::{ResponseHandler, Stopper};
-
-use std::net::Shutdown;
-use std::os::unix::net::UnixStream;
 
 use crossbeam::channel::Sender;
 use typed_builder::TypedBuilder;

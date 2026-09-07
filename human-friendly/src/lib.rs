@@ -100,6 +100,7 @@ mod mode {
     #[cfg(test)]
     mod tests {
         use super::*;
+
         use test_case::test_case;
 
         #[test_case(0o100644, "-rw-r--r--"; "a regular file")]
@@ -179,6 +180,7 @@ mod time {
     #[cfg(test)]
     mod tests {
         use super::*;
+
         use test_case::test_case;
 
         /// Return the number of seconds since the Unix epoch of a local date and time.

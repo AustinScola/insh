@@ -4,6 +4,7 @@ use crate::paths::INSHD_PID_FILE;
 use crate::server::{RunOptions, Server};
 
 use daemon::{Daemon, Outcome as DaemonOutcome};
+
 use flexi_logger::Duplicate as LogDuplicate;
 
 /// Starts inshd.

@@ -1,3 +1,5 @@
+use std::path::PathBuf;
+
 use crate::components::browser::{Browser, BrowserEffect, BrowserEvent, BrowserProps};
 use crate::components::file_creator::{
     FileCreator, FileCreatorEffect, FileCreatorEvent, FileCreatorProps,
@@ -16,16 +18,14 @@ use rend::{Fabric, Size};
 use term::{Key, KeyEvent, KeyMods, Term, TermEvent};
 use til::{Component, Event, SystemEffect};
 
-use std::path::PathBuf;
-
 mod props {
     use std::path::PathBuf;
 
-    use typed_builder::TypedBuilder;
-    use uuid::Uuid;
-
     use crate::args::Command;
     use crate::config::Config;
+
+    use typed_builder::TypedBuilder;
+    use uuid::Uuid;
 
     #[derive(TypedBuilder)]
     pub struct Props {

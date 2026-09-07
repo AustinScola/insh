@@ -1,3 +1,15 @@
+use std::collections::VecDeque;
+use std::ffi::{c_int, CString, OsString};
+use std::fs::File;
+use std::io::{self, Error as IOError, Stdout, Write};
+use std::os::fd::FromRawFd;
+use std::os::fd::IntoRawFd;
+use std::os::fd::RawFd;
+use std::os::unix::ffi::OsStringExt;
+use std::panic;
+use std::thread::{self, JoinHandle};
+use std::time::Duration;
+
 use crate::ascii::ASCII;
 use crate::component::Component;
 use crate::event::Event;
@@ -14,18 +26,6 @@ use crate::StdoutPipe;
 use ansi::{BracketedPaste, ControlFunction, EraseInDisplay, Mode};
 use rend::{Fabric, Renderer, Size};
 use term::{SavedAttrs, Term, TermEvent};
-
-use std::collections::VecDeque;
-use std::ffi::{c_int, CString, OsString};
-use std::fs::File;
-use std::io::{self, Error as IOError, Stdout, Write};
-use std::os::fd::FromRawFd;
-use std::os::fd::IntoRawFd;
-use std::os::fd::RawFd;
-use std::os::unix::ffi::OsStringExt;
-use std::panic;
-use std::thread::{self, JoinHandle};
-use std::time::Duration;
 
 use crossbeam::channel::{self, Receiver, Sender};
 use crossbeam::select;

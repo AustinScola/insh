@@ -1,11 +1,10 @@
 /*!
 This module contains the [`Renderer`] struct which is used for terminal rendering.
 */
-use super::fabric::Fabric;
-
 use std::io::{self, Stdout, Write};
 
 use super::cell::Cell;
+use super::fabric::Fabric;
 
 use ansi::{Color, ControlFunction, EraseInDisplay, GraphicRendition};
 
@@ -176,7 +175,6 @@ struct Style {
 #[cfg(test)]
 mod tests {
     use super::*;
-
     use crate::Yarn;
 
     /// Return what a renderer writes for the fabric.

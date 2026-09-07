@@ -1,4 +1,8 @@
 //! Handles sending responses to clients.
+use std::collections::HashMap;
+use std::io::Write;
+use std::os::unix::net::UnixStream;
+
 use crate::client::Client;
 use crate::client_request::ClientRequest;
 use crate::contexted_response::ContextedResponse;
@@ -6,10 +10,6 @@ use crate::disconnected_client::DisconnectedClient;
 use crate::stop::Stop;
 
 use insh_api::Response;
-
-use std::collections::HashMap;
-use std::io::Write;
-use std::os::unix::net::UnixStream;
 
 use crossbeam::channel::{select, Receiver};
 use typed_builder::TypedBuilder;
