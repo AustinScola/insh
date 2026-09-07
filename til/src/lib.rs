@@ -1,3 +1,10 @@
+/*!
+The terminal interface library which insh is built on.
+
+An [`App`] owns the terminal and runs a [`Component`] in it.
+*/
+#![deny(missing_docs)]
+#![deny(clippy::missing_docs_in_private_items)]
 #![allow(clippy::single_match)]
 #![allow(clippy::manual_map)]
 
@@ -7,7 +14,6 @@ mod command_parser;
 mod component;
 mod event;
 mod output_forwarder;
-mod paths;
 mod program;
 mod program_monitor;
 mod requester;
@@ -25,6 +31,3 @@ pub use requester::Requester;
 pub use response_handler::ResponseHandler;
 pub use stopper::Stopper;
 pub use system_effect::SystemEffect;
-
-#[macro_use]
-extern crate lazy_static;

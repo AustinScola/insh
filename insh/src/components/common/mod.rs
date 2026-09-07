@@ -1,3 +1,5 @@
+//! Common components.
+
 mod dir;
 pub use dir::{Dir, Event as DirEvent, Props as DirProps};
 

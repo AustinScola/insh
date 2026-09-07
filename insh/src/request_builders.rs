@@ -1,9 +1,8 @@
 /*!
-Functionality for building `insh_api::Request`s which is shared between the components and the
-entry point.
+Builds the requests which the components and the entry point both make.
 */
 
-/// Contains functionality for building requests for getting the files of a directory.
+/// Contains the [`get_files_request`] function.
 mod get_files {
     use std::path::PathBuf;
 
@@ -39,13 +38,13 @@ mod get_files {
 }
 pub use get_files::get_files_request;
 
-/// Contains functionality for building requests for finding files.
+/// Contains the [`find_files_request`] function.
 mod find_files {
     use std::path::PathBuf;
 
     use insh_api::{FindFilesRequestParams, Request, RequestParams};
 
-    /// Return a request for finding the files of the directory which match the pattern.
+    /// Return a request for finding the files matching the pattern.
     pub fn find_files_request(dir: PathBuf, pattern: String) -> Request {
         Request::builder()
             .params(RequestParams::FindFiles(
@@ -59,13 +58,13 @@ mod find_files {
 }
 pub use find_files::find_files_request;
 
-/// Contains functionality for building requests for searching files for a phrase.
+/// Contains the [`search_phrase_request`] function.
 mod search_phrase {
     use std::path::PathBuf;
 
     use insh_api::{Request, RequestParams, SearchPhraseRequestParams};
 
-    /// Return a request for searching the files of the directory for the phrase.
+    /// Return a request for searching the files for the phrase.
     pub fn search_phrase_request(dir: PathBuf, phrase: String) -> Request {
         Request::builder()
             .params(RequestParams::SearchPhrase(

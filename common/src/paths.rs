@@ -1,3 +1,5 @@
+//! The paths in the insh directory.
+
 use std::fs::{set_permissions, DirBuilder, Permissions};
 use std::io::{Error as IOError, ErrorKind as IOErrorKind};
 use std::os::unix::fs::{DirBuilderExt, PermissionsExt};
@@ -5,6 +7,7 @@ use std::path::{Path, PathBuf};
 
 lazy_static! {
 
+    /// The home directory of the user.
     pub static ref HOME_DIR: PathBuf = {
         dirs::home_dir().expect("Could not determine home directory for user.")
     };

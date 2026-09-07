@@ -7,7 +7,7 @@ use uuid::Uuid;
 pub struct LogSubscription {
     /// The UUID of the client which subscribed.
     client_uuid: Uuid,
-    /// The UUID of the request which the log records should be sent as responses to.
+    /// The UUID of the request to respond to.
     request_uuid: Uuid,
 }
 
@@ -17,7 +17,7 @@ impl LogSubscription {
         &self.client_uuid
     }
 
-    /// Return the UUID of the request which the log records should be sent as responses to.
+    /// Return the UUID of the request to respond to.
     pub fn request_uuid(&self) -> &Uuid {
         &self.request_uuid
     }

@@ -3,6 +3,7 @@ A graphical, interactive, terminal environment.
 */
 #![deny(warnings)]
 #![deny(missing_docs)]
+#![deny(clippy::missing_docs_in_private_items)]
 #![allow(clippy::module_inception)]
 #![allow(clippy::needless_return)]
 #![allow(clippy::while_let_loop)]
@@ -156,7 +157,7 @@ fn main() {
             .build(),
     );
 
-    // Create a respones handler for receiving responses from the unix stream socket.
+    // Create a response handler for receiving responses from the unix stream socket.
     let response_handler: Box<dyn ResponseHandler<Response>> = Box::new(
         InshdResponseHandler::builder()
             .reader(

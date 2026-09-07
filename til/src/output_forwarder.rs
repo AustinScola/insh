@@ -1,14 +1,19 @@
+//! Forwards the output of a program.
+
 use std::fs::File;
 use std::io::{self, Read, Write};
 
 use typed_builder::TypedBuilder;
 
+/// Forwards the output of a program.
 #[derive(TypedBuilder)]
 pub struct OutputForwarder {
+    /// The stdout of the program.
     master_stdout: File,
 }
 
 impl OutputForwarder {
+    /// Forward the output of the program.
     pub fn run(&mut self) {
         #[cfg(feature = "logging")]
         log::debug!("Output forwarder running...");

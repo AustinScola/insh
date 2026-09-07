@@ -16,7 +16,7 @@ use flexi_logger::{LevelFilter as LogLevelFilter, LogSpecification as LogSpec};
 #[derive(Parser, Debug)]
 #[command(name = "inshd", author, version, about)]
 pub struct Args {
-    /// File to write logs to (can be a unix socket)
+    /// File to write logs to (can be a unix socket).
     #[arg(long = "log-file", display_order = 0)]
     log_file_path: Option<PathBuf>,
 
@@ -47,7 +47,7 @@ impl Args {
         &self.command
     }
 
-    /// Return whether or not to color the logs.
+    /// Return whether to color the logs.
     pub fn color(&self) -> Color {
         if self.color {
             Color::Always

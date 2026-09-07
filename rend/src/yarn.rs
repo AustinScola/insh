@@ -15,7 +15,7 @@ use ansi::Color;
 /// of an East Asian script is two columns. There is one [`Cell`] per column either way.
 #[derive(Default, Debug, PartialEq, Eq, Clone)]
 pub struct Yarn {
-    // MAYBE TODO: Store the length seperately so we can represent a blank yarn without wasting mem?
+    // MAYBE TODO: Store the length separately so we can represent a blank yarn without wasting mem?
     /// The cells, one for each column.
     cells: Vec<Cell>,
     // NOTE: The style vectors are Allowed to be shorter than the number of characters.
@@ -42,7 +42,7 @@ impl Yarn {
         }
     }
 
-    /// How many columns the dots which stand for the part of a string which was cut off take up.
+    /// How many columns the dots standing for the cut off part take up.
     const ELLIPSIS_LEN: usize = 3;
 
     /// Return a yarn with string centered and truncated with dots if the string is longer than the
@@ -85,7 +85,7 @@ impl Yarn {
         self.cells.len()
     }
 
-    /// Return if the yarn is empty.
+    /// Return whether the yarn is empty.
     pub fn is_empty(&self) -> bool {
         self.cells.is_empty()
     }
@@ -243,10 +243,10 @@ mod tests {
 
     use test_case::test_case;
 
-    /// The color which is used for testing.
+    /// The color used for testing.
     const COLOR: Color = Color::Red;
 
-    /// Another color which is used for testing.
+    /// Another color used for testing.
     const OTHER_COLOR: Color = Color::Blue;
 
     /// Return a yarn with the text before the position colored the other color.
@@ -295,7 +295,7 @@ mod tests {
     #[test_case("abc", 3; "plain characters")]
     #[test_case("e\u{301}", 1; "a character with a combining accent")]
     #[test_case("🦀😀", 4; "two wide characters")]
-    #[test_case("a🦀b", 4; "a wide character in amongst narrow ones")]
+    #[test_case("a🦀b", 4; "a wide character in among narrow ones")]
     fn test_a_yarn_is_as_long_as_the_columns_it_takes_up(string: &str, len: usize) {
         assert_eq!(Yarn::from(string).len(), len);
     }

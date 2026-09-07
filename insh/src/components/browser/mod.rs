@@ -1,3 +1,5 @@
+//! A file browser.
+
 mod browser;
 mod contents;
 

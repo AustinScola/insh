@@ -14,11 +14,11 @@ pub enum OperatingSystemCommand {
     SetIconName(String),
     /// Set the title of the window (`2`).
     SetWindowTitle(String),
-    /// Set one of the colours of the palette, or ask what it is when the value is a `?` (`4`).
+    /// Set one of the colors of the palette, or ask what it is when the value is a `?` (`4`).
     SetPaletteColor {
-        /// Which of the two hundred and fifty six colours of the palette it is.
+        /// Which of the two hundred and fifty six colors of the palette it is.
         index: u8,
-        /// The colour, written the way X11 writes one, such as `rgb:ff/00/00`.
+        /// The color, written the way X11 writes one, such as `rgb:ff/00/00`.
         color: String,
     },
     /// Turn the text which follows into a link, or end one when the link is empty (`8`).
@@ -28,11 +28,11 @@ pub enum OperatingSystemCommand {
         /// What the link points at.
         uri: String,
     },
-    /// Set the colour text is written in by default (`10`).
+    /// Set the color text is written in by default (`10`).
     SetForegroundColor(String),
-    /// Set the colour text is written on by default (`11`).
+    /// Set the color text is written on by default (`11`).
     SetBackgroundColor(String),
-    /// Set the colour of the cursor (`12`).
+    /// Set the color of the cursor (`12`).
     SetCursorColor(String),
     /// Set the directory the shell is in, so that a new window can be opened in the same one (`7`).
     SetWorkingDirectory(String),
@@ -45,13 +45,13 @@ pub enum OperatingSystemCommand {
         /// The contents encoded as base64, or a `?` to ask what they are.
         data: String,
     },
-    /// Put one of the colours of the palette back to what it was (`104`).
+    /// Put one of the colors of the palette back to what it was (`104`).
     ResetPaletteColor(Option<u8>),
-    /// Put the colour text is written in by default back to what it was (`110`).
+    /// Put the color text is written in by default back to what it was (`110`).
     ResetForegroundColor,
-    /// Put the colour text is written on by default back to what it was (`111`).
+    /// Put the color text is written on by default back to what it was (`111`).
     ResetBackgroundColor,
-    /// Put the colour of the cursor back to what it was (`112`).
+    /// Put the color of the cursor back to what it was (`112`).
     ResetCursorColor,
     /// A command which is not one of the ones above.
     Unknown {
@@ -189,21 +189,21 @@ mod tests {
     #[test_case(b"1;a name", OperatingSystemCommand::SetIconName("a name".to_string()); "setting the icon name")]
     #[test_case(b"2;a title", OperatingSystemCommand::SetWindowTitle("a title".to_string()); "setting the window title")]
     #[test_case(b"7;file:///home", OperatingSystemCommand::SetWorkingDirectory("file:///home".to_string()); "setting the working directory")]
-    #[test_case(b"10;rgb:ff/ff/ff", OperatingSystemCommand::SetForegroundColor("rgb:ff/ff/ff".to_string()); "setting the foreground colour")]
-    #[test_case(b"11;rgb:00/00/00", OperatingSystemCommand::SetBackgroundColor("rgb:00/00/00".to_string()); "setting the background colour")]
-    #[test_case(b"12;red", OperatingSystemCommand::SetCursorColor("red".to_string()); "setting the cursor colour")]
-    #[test_case(b"110", OperatingSystemCommand::ResetForegroundColor; "resetting the foreground colour")]
-    #[test_case(b"111", OperatingSystemCommand::ResetBackgroundColor; "resetting the background colour")]
-    #[test_case(b"112", OperatingSystemCommand::ResetCursorColor; "resetting the cursor colour")]
-    #[test_case(b"104;7", OperatingSystemCommand::ResetPaletteColor(Some(7)); "resetting one palette colour")]
-    #[test_case(b"104", OperatingSystemCommand::ResetPaletteColor(None); "resetting every palette colour")]
+    #[test_case(b"10;rgb:ff/ff/ff", OperatingSystemCommand::SetForegroundColor("rgb:ff/ff/ff".to_string()); "setting the foreground color")]
+    #[test_case(b"11;rgb:00/00/00", OperatingSystemCommand::SetBackgroundColor("rgb:00/00/00".to_string()); "setting the background color")]
+    #[test_case(b"12;red", OperatingSystemCommand::SetCursorColor("red".to_string()); "setting the cursor color")]
+    #[test_case(b"110", OperatingSystemCommand::ResetForegroundColor; "resetting the foreground color")]
+    #[test_case(b"111", OperatingSystemCommand::ResetBackgroundColor; "resetting the background color")]
+    #[test_case(b"112", OperatingSystemCommand::ResetCursorColor; "resetting the cursor color")]
+    #[test_case(b"104;7", OperatingSystemCommand::ResetPaletteColor(Some(7)); "resetting one palette color")]
+    #[test_case(b"104", OperatingSystemCommand::ResetPaletteColor(None); "resetting every palette color")]
     fn test_a_command_is_read(payload: &[u8], command: OperatingSystemCommand) {
         assert_eq!(OperatingSystemCommand::from(payload), command);
         assert_eq!(Vec::<u8>::from(&command), payload);
     }
 
     #[test]
-    fn test_setting_a_palette_colour_is_read() {
+    fn test_setting_a_palette_color_is_read() {
         assert_eq!(
             OperatingSystemCommand::from(&b"4;196;rgb:ff/00/00"[..]),
             OperatingSystemCommand::SetPaletteColor {

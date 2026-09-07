@@ -1,5 +1,5 @@
 /*!
-This module contains the [`Program`] trait which is used to represent programs that can be run.
+The programs which can be run, taking over the terminal while they do.
 */
 use std::ffi::OsString;
 use std::path::PathBuf;
@@ -26,23 +26,23 @@ pub trait Program: Send {
         vec![]
     }
 
+    /// Return the directory to run the program in.
     fn cwd(&self) -> Option<PathBuf> {
         None
     }
 
+    /// Return the environment variables to run the program with.
     fn env(&self) -> Vec<EnvVar> {
         vec![]
     }
 
+    /// Return the pipe for the program's stdout.
     fn stdout_pipe(&self) -> Option<Box<dyn StdoutPipe>> {
         None
     }
 }
 
-/**
-This module contains the [`ProgramSetup`] struct which is used to represent set up that must occur
-before an associated [`Program`] is run.
-*/
+/// Contains the [`ProgramSetup`] struct.
 mod program_setup {
     /**
     Set up that must occur before an associated [`Program`](super::Program) is run.
@@ -58,7 +58,7 @@ mod program_setup {
     }
 
     impl ProgramSetup {
-        /// Return if set up must occur before the associated program is run.
+        /// Return whether any set up is needed.
         pub fn any(&self) -> bool {
             self.clear_screen | self.cursor_home | (self.cursor_visible == Some(true))
         }
@@ -66,8 +66,7 @@ mod program_setup {
 }
 pub use program_setup::ProgramSetup;
 
-/// This module contains the [`ProgramCleanup`] struct which is used to represent cleanup that must
-/// happen after a program runs.
+/// Contains the [`ProgramCleanup`] struct.
 mod program_cleanup {
 
     /// Cleanup after a program runs.
@@ -80,7 +79,7 @@ mod program_cleanup {
     }
 
     impl ProgramCleanup {
-        /// Return if any program cleanup must occur.
+        /// Return whether any cleanup is needed.
         pub fn any(&self) -> bool {
             self.hide_cursor | self.enable_raw_terminal
         }
@@ -88,23 +87,30 @@ mod program_cleanup {
 }
 pub use program_cleanup::ProgramCleanup;
 
+/// Contains the [`StdoutPipe`] trait.
 mod stdout_pipe {
     use std::fs::File;
 
+    /// A pipe for a program's stdout.
     pub trait StdoutPipe: Send {
+        /// Pass the output of the program through.
         fn run(&mut self, _stdout: &mut File) {}
     }
 }
 pub use stdout_pipe::StdoutPipe;
 
+/// Contains the [`EnvVar`] struct.
 mod env_var {
     use std::ffi::CString;
 
     use typed_builder::TypedBuilder;
 
+    /// An environment variable to run a program with.
     #[derive(TypedBuilder)]
     pub struct EnvVar {
+        /// The name of the variable.
         pub name: CString,
+        /// The value of the variable.
         pub value: CString,
     }
 }

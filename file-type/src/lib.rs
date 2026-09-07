@@ -1,12 +1,23 @@
+/*!
+The type of a file.
+*/
+#![deny(missing_docs)]
+#![deny(clippy::missing_docs_in_private_items)]
+
 use std::fs::FileType as StdFileType;
 
 use serde::{Deserialize, Serialize};
 
+/// The type of a file.
 #[derive(Debug, Copy, Clone, PartialEq, Serialize, Deserialize)]
 pub enum FileType {
+    /// A regular file.
     File,
+    /// A directory.
     Dir,
+    /// A symbolic link.
     Symlink,
+    /// Anything else.
     Other,
 }
 
@@ -26,6 +37,7 @@ impl From<StdFileType> for FileType {
 }
 
 impl FileType {
+    /// Return whether the file is a directory.
     pub fn is_dir(&self) -> bool {
         self == &Self::Dir
     }

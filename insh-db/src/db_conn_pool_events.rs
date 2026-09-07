@@ -4,7 +4,7 @@ use std::sync::atomic::{AtomicU32, Ordering};
 
 use diesel::r2d2::event::{CheckinEvent, CheckoutEvent, HandleEvent, TimeoutEvent};
 
-/// Logs how many connections to the database are in use whenever that changes.
+/// Logs how many connections to the database are in use.
 pub struct DbConnPoolEventHandler {
     /// The number of connections which are checked out of the pool.
     in_use: AtomicU32,

@@ -15,7 +15,7 @@ use ansi::{Color, ControlFunction, EraseInDisplay, GraphicRendition};
 pub struct Renderer<Writer: Write = Stdout> {
     /// What is written to.
     writer: Writer,
-    /// The colours which the terminal is writing text in and on, so that the sequence which sets
+    /// The colors which the terminal is writing text in and on, so that the sequence which sets
     /// them is only written when they actually change.
     style: Style,
 }
@@ -65,14 +65,14 @@ impl<Writer: Write> Renderer<Writer> {
                 match cell {
                     Some(cell) => {
                         // NOTE: The style vectors are allowed to be shorter than the row, and a
-                        // character which is off the end of them has no colour of its own.
+                        // character which is off the end of them has no color of its own.
                         let color: Option<Color> = row_colors_iter.next().copied().flatten();
                         let background: Option<Color> =
                             row_backgrounds_iter.next().copied().flatten();
 
                         // NOTE: A continuation is the second column of a cluster which is two wide,
                         // and writing that cluster covered both columns and moved the cursor past
-                        // them, so there is nothing to write and no colours to set for it.
+                        // them, so there is nothing to write and no colors to set for it.
                         if cell.is_continuation() {
                             continue;
                         }
@@ -90,9 +90,9 @@ impl<Writer: Write> Renderer<Writer> {
         self.update_terminal();
     }
 
-    /// Queue the sequence which sets the colours to write the text in and on, but don't send it.
+    /// Queue the sequence which sets the colors to write the text in and on, but don't send it.
     ///
-    /// Nothing is queued when the terminal is already writing in those colours, which is what most
+    /// Nothing is queued when the terminal is already writing in those colors, which is what most
     /// of the characters on a screen have in common with the one before them.
     fn lazy_style(&mut self, color: Option<Color>, background: Option<Color>) {
         let style = Style { color, background };
@@ -100,7 +100,7 @@ impl<Writer: Write> Renderer<Writer> {
             return;
         }
 
-        // The two colours go in the one sequence, which is shorter than one sequence each.
+        // The two colors go in the one sequence, which is shorter than one sequence each.
         let mut renditions: Vec<GraphicRendition> = Vec::with_capacity(2);
         if self.style.color != style.color {
             renditions.push(GraphicRendition::Foreground(
@@ -162,13 +162,13 @@ impl Default for Renderer<Stdout> {
     }
 }
 
-/// The colours which text is being written in and on, where `None` is whichever colour the terminal
+/// The colors which text is being written in and on, where `None` is whichever color the terminal
 /// uses when none has been picked.
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
 struct Style {
-    /// The colour the text is written in.
+    /// The color the text is written in.
     color: Option<Color>,
-    /// The colour the text is written on.
+    /// The color the text is written on.
     background: Option<Color>,
 }
 
@@ -185,7 +185,7 @@ mod tests {
         String::from_utf8(renderer.writer().clone()).unwrap()
     }
 
-    /// Return a yarn of the given text with the colours set on all of it.
+    /// Return a yarn of the given text with the colors set on all of it.
     fn styled(string: &str, color: Option<Color>, background: Option<Color>) -> Yarn {
         let mut yarn = Yarn::from(string);
         if let Some(color) = color {
@@ -198,7 +198,7 @@ mod tests {
     }
 
     #[test]
-    fn test_text_with_no_colours_is_written_without_any_styling() {
+    fn test_text_with_no_colors_is_written_without_any_styling() {
         let written = render(Fabric::from(Yarn::from("abc")));
 
         // The reset at the start, the cursor moved to the first row, and then just the text.
@@ -206,17 +206,17 @@ mod tests {
     }
 
     #[test]
-    fn test_the_colours_are_set_once_rather_than_for_every_character() {
+    fn test_the_colors_are_set_once_rather_than_for_every_character() {
         let yarn = styled("abc", Some(Color::Red), Some(Color::Blue));
 
         let written = render(Fabric::from(yarn));
 
-        // Both colours in the one sequence before the text, and one to put them back after it.
+        // Both colors in the one sequence before the text, and one to put them back after it.
         assert_eq!(written, "\x1b[m\x1b[H\x1b[31;44mabc\x1b[39;49m");
     }
 
     #[test]
-    fn test_the_colours_are_only_set_again_where_they_change() {
+    fn test_the_colors_are_only_set_again_where_they_change() {
         let mut yarn = Yarn::from("abcd");
         yarn.color_after(Color::Red, 2);
 
@@ -245,7 +245,7 @@ mod tests {
 
     #[test]
     fn test_a_screen_of_plain_text_costs_little_more_than_the_text() {
-        // NOTE: Setting the colours for every character rather than only where they change is what
+        // NOTE: Setting the colors for every character rather than only where they change is what
         // this guards against: doing that costs ten bytes a column, which is twenty thousand bytes
         // a frame on a screen this size and is what made holding a key down fall behind.
         let rows = 24;

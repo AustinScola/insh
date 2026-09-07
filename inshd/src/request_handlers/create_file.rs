@@ -14,7 +14,7 @@ pub struct CreateFile {
     path: PathBuf,
     /// The type of file to create.
     file_type: FileType,
-    /// Whether or not created the file is done.
+    /// Whether creating the file is done.
     done: bool,
 }
 

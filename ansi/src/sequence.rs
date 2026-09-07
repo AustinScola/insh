@@ -114,7 +114,7 @@ pub struct Parameter {
     /// The value, which is `None` when it was left out so that the default for the sequence is
     /// meant.
     pub value: Option<u16>,
-    /// The sub-parameters, which follow the value separated by colons. A colour given as its
+    /// The sub-parameters, which follow the value separated by colons. A color given as its
     /// components is the one of these which is used at all commonly.
     pub subs: Vec<Option<u16>>,
 }
@@ -176,7 +176,7 @@ impl From<&AnsiEscapeSequence> for Vec<u8> {
 }
 
 impl AnsiEscapeSequence {
-    /// Return the bytes of a sequence which carries a string, given the byte which introduces it.
+    /// Return the bytes of a sequence carrying a string, given its introducer.
     fn write_string(introducer: u8, payload: &[u8]) -> Vec<u8> {
         let mut bytes: Vec<u8> = vec![ESCAPE, introducer];
         bytes.extend_from_slice(payload);
@@ -221,10 +221,12 @@ impl Parameter {
     }
 }
 
-/// An escape sequence along with the number of bytes which it was parsed from.
+/// An escape sequence and how many bytes it was parsed from.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ParsedAnsiEscapeSequence {
+    /// The escape sequence.
     pub sequence: AnsiEscapeSequence,
+    /// How many bytes it was parsed from.
     pub len: usize,
 }
 

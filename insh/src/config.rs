@@ -103,24 +103,22 @@ mod config {
     /// An error loading the configuration file.
     #[allow(clippy::enum_variant_names)]
     pub enum ConfigLoadError {
-        /// An error when the there is a problem determining one of the default paths that is used
-        /// in determining the configuration file. For example, if the home directory cannot be
-        /// determined.
+        /// One of the default paths could not be determined, such as the home directory.
         ConfigDefaultPathError(ConfigDefaultPathError),
-        /// An error when permission is denied while trying to read the configuration file.
+        /// Permission was denied reading the configuration file.
         PermissionDeniedError(PathBuf),
-        /// An generic error with reading the configuration file.
+        /// The configuration file could not be read for some other reason.
         OtherFileReadError {
-            /// The path of the configuration file the there was a problem reading.
+            /// The path of the configuration file.
             path: PathBuf,
-            /// The IO error that was encountered while attempting to read the configuration file.
+            /// The IO error.
             error: IOError,
         },
         /// An error parsing the configuration file.
         ParseError {
-            /// The path of the configuration file the there was a problem parsing.
+            /// The path of the configuration file.
             path: PathBuf,
-            /// An error parsing the configuration file as YAML.
+            /// The YAML parse error.
             error: YamlParseError,
         },
     }
@@ -173,7 +171,7 @@ mod general {
         #[serde(default)]
         tab_width: usize,
 
-        /// Whether or not the bell sound should be made.
+        /// Whether the bell sound should be made.
         #[serde(default)]
         bell: bool,
     }
@@ -193,7 +191,7 @@ mod general {
             self.tab_width
         }
 
-        /// Return whether or not the bell sound should be made.
+        /// Return whether the bell sound should be made.
         pub fn bell(&self) -> bool {
             self.bell
         }
@@ -220,7 +218,7 @@ mod input {
         escape_timeout: u64,
     }
 
-    /// Return how long to wait for the rest of an escape sequence by default, in milliseconds.
+    /// Return how long to wait for the rest of an escape sequence by default.
     fn default_escape_timeout() -> u64 {
         50
     }
@@ -276,16 +274,16 @@ mod browser {
     /// Configuration for the Browser.
     #[derive(Deserialize, Debug, Clone, Eq, PartialEq)]
     pub struct BrowserConfig {
-        /// How the files shown in the Browser are sorted, or `None` if they are not sorted.
+        /// How the files shown in the browser are sorted.
         #[serde(default = "default_sort")]
         sort: Option<BrowserSortConfig>,
 
-        /// Whether or not the metadata of the files is shown in the Browser.
+        /// Whether the metadata of the files is shown.
         #[serde(default)]
         metadata: bool,
     }
 
-    /// Return how the files shown in the Browser are sorted by default.
+    /// Return how the files are sorted by default.
     fn default_sort() -> Option<BrowserSortConfig> {
         Some(BrowserSortConfig::default())
     }
@@ -300,21 +298,21 @@ mod browser {
     }
 
     impl BrowserConfig {
-        /// Return how the files shown in the Browser are sorted, or `None` if they are not sorted.
+        /// Return how the files shown in the browser are sorted.
         pub fn sort(&self) -> Option<&BrowserSortConfig> {
             self.sort.as_ref()
         }
 
-        /// Return whether or not the metadata of the files is shown in the Browser.
+        /// Return whether the metadata of the files is shown in the Browser.
         pub fn metadata(&self) -> bool {
             self.metadata
         }
     }
 
-    /// Configuration for how the files shown in the Browser are sorted.
+    /// Configuration for how the files are sorted.
     #[derive(Deserialize, Debug, Clone, Eq, PartialEq)]
     pub struct BrowserSortConfig {
-        /// Whether or not the case of filenames is ignored.
+        /// Whether the case of filenames is ignored.
         #[serde(default = "enabled")]
         case_insensitive: bool,
 
@@ -338,7 +336,7 @@ mod browser {
     }
 
     impl BrowserSortConfig {
-        /// Return whether or not the case of filenames is ignored.
+        /// Return whether the case of filenames is ignored.
         pub fn case_insensitive(&self) -> bool {
             self.case_insensitive
         }
@@ -358,7 +356,7 @@ mod browser {
         /// Hidden files are sorted after all of the other files.
         #[default]
         Last,
-        /// Hidden files are sorted among the other files as if they were not hidden.
+        /// Hidden files are sorted as if they were not hidden.
         Mixed,
     }
 }

@@ -1,3 +1,5 @@
+//! Terminal events.
+
 use std::fmt::{Display, Error as FmtError, Formatter};
 use std::str;
 
@@ -9,17 +11,23 @@ use size::Size;
 
 use bitflags::bitflags;
 
+/// A terminal event.
 #[derive(Debug, Clone)]
 pub enum TermEvent {
+    /// A key was pressed.
     KeyEvent(KeyEvent),
     /// Text which was pasted into the terminal.
     Paste(String),
+    /// The terminal was resized.
     Resize(Size),
 }
 
+/// A key event.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct KeyEvent {
+    /// The key which was pressed.
     pub key: Key,
+    /// The modifiers it was held with.
     pub mods: KeyMods,
 }
 
@@ -39,10 +47,12 @@ impl Display for KeyEvent {
     }
 }
 
-/// A terminal event along with the number of bytes which it was parsed from.
+/// A terminal event and how many bytes it was parsed from.
 #[derive(Debug, Clone)]
 pub struct ParsedTermEvent {
+    /// The event.
     pub event: TermEvent,
+    /// How many bytes it was parsed from.
     pub len: usize,
 }
 
@@ -233,7 +243,7 @@ impl ParsedTermEvent {
         Some(KeyEvent { key, mods })
     }
 
-    /// Parse text which was pasted into the terminal while it was in bracketed paste mode.
+    /// Parse text which was pasted into the terminal.
     fn parse_paste(bytes: &[u8]) -> Result<Self, TermEventParseError> {
         let text_start: usize = BracketedPaste::START.len();
 
@@ -295,6 +305,7 @@ impl ParsedTermEvent {
     }
 }
 
+/// A terminal event parse error.
 #[derive(Debug)]
 pub enum TermEventParseError {
     /// The given number of bytes are needed before an event can be parsed. Waiting for them can
@@ -848,7 +859,7 @@ impl From<&KeyEvent> for Vec<u8> {
             Key::Bell => vec![7],
             Key::HorizontalTab => vec![9],
             Key::LineFeed => vec![10],
-            Key::VertialTab => vec![11],
+            Key::VerticalTab => vec![11],
             Key::FormFeed => vec![12],
             Key::CarriageReturn => vec![13],
             Key::ShiftOut => vec![14],
@@ -975,64 +986,72 @@ impl Display for Key {
     }
 }
 
+/// A key.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Key {
+    /// Null (same as <Ctrl>-@).
     Null,
-    /// Start of text (same as <Ctrl>-a)
+    /// Start of heading (same as <Ctrl>-a).
     StartOfHeading,
-    /// Start of text (same as <Ctrl>-b)
+    /// Start of text (same as <Ctrl>-b).
     StartOfText,
-    /// End of text (same as <Ctrl>-c)
+    /// End of text (same as <Ctrl>-c).
     EndOfText,
-    /// End of transmission (same as <Ctrl>-d)
+    /// End of transmission (same as <Ctrl>-d).
     EndOfTransmission,
-    /// Enquiry (same as <Ctrl>-e)
+    /// Enquiry (same as <Ctrl>-e).
     Enquiry,
-    /// Acknowledgement (same as <Ctrl>-f)
+    /// Acknowledgment (same as <Ctrl>-f).
     Ack,
-    /// Bell (same as <Ctrl>-g)
+    /// Bell (same as <Ctrl>-g).
     Bell,
-    /// Horizontal tab (same as <Ctrl>-i)
+    /// Horizontal tab (same as <Ctrl>-i).
     HorizontalTab,
-    /// Line Feed (same as <Ctrl>-j)
+    /// Line Feed (same as <Ctrl>-j).
     LineFeed,
-    /// Vertical Tab (same as <Ctrl>-k)
-    VertialTab,
-    /// Form feed (same as <Ctrl>-l)
+    /// Vertical Tab (same as <Ctrl>-k).
+    VerticalTab,
+    /// Form feed (same as <Ctrl>-l).
     FormFeed,
-    /// Carriage Return (Enter) (same as <Ctrl>-m)
+    /// Carriage Return (Enter) (same as <Ctrl>-m).
     CarriageReturn,
-    /// Shift out (same as <Ctrl>-n)
+    /// Shift out (same as <Ctrl>-n).
     ShiftOut,
-    /// Shift in (same as <Ctrl>-o)
+    /// Shift in (same as <Ctrl>-o).
     ShiftIn,
-    /// Data link escape (same as <Ctrl>-p)
+    /// Data link escape (same as <Ctrl>-p).
     DataLinkEscape,
-    /// Device control 1 (same as <Ctrl>-q)
+    /// Device control 1 (same as <Ctrl>-q).
     DeviceControl1,
-    /// Device control 2 (same as <Ctrl>-r)
+    /// Device control 2 (same as <Ctrl>-r).
     DeviceControl2,
-    /// Device control 3 (same as <Ctrl>-s)
+    /// Device control 3 (same as <Ctrl>-s).
     DeviceControl3,
-    /// Device control 4 (same as <Ctrl>-t)
+    /// Device control 4 (same as <Ctrl>-t).
     DeviceControl4,
-    /// Negative acknowledgement (same as <Ctrl>-u)
+    /// Negative acknowledgment (same as <Ctrl>-u).
     Nack,
-    /// Synchronous idle (same as <Ctrl>-v)
+    /// Synchronous idle (same as <Ctrl>-v).
     SynchronousIdle,
-    /// End of transmission block (same as <Ctrl>-w)
+    /// End of transmission block (same as <Ctrl>-w).
     EndOfTransmissionBlock,
-    /// Cancel (same as <Ctrl>-x)
+    /// Cancel (same as <Ctrl>-x).
     Cancel,
-    /// End of medium (same as <Ctrl>-y)
+    /// End of medium (same as <Ctrl>-y).
     EndOfMedium,
-    /// Substitute (same as <Ctrl>-z)
+    /// Substitute (same as <Ctrl>-z).
     Substitute,
+    /// Escape (same as <Ctrl>-[).
     Escape,
+    /// File separator (same as <Ctrl>-\).
     FileSep,
+    /// Group separator (same as <Ctrl>-]).
     GroupSep,
+    /// Record separator (same as <Ctrl>-^).
     RecordSep,
+    /// Unit separator (same as <Ctrl>-_).
     UnitSep,
+    /// A character key.
     Char(char),
     /// The key which deletes the character before the cursor. Note that this is what the terminal
     /// sends for a press of the backspace key, which is a delete character and not the backspace
@@ -1040,19 +1059,29 @@ pub enum Key {
     Backspace,
     /// The key which deletes the character after the cursor.
     Delete,
+    /// The insert key.
     Insert,
+    /// The up arrow key.
     Up,
+    /// The down arrow key.
     Down,
+    /// The left arrow key.
     Left,
+    /// The right arrow key.
     Right,
+    /// The home key.
     Home,
+    /// The end key.
     End,
+    /// The page up key.
     PageUp,
+    /// The page down key.
     PageDown,
     /// Tab held with shift.
     BackTab,
     /// A function key, numbered from one.
     Function(u8),
+    /// An unrecognized byte.
     Unknown(u8),
 }
 
@@ -1060,10 +1089,15 @@ bitflags! {
     /// Key modifiers.
     #[derive(Debug, PartialEq, Eq, Clone)]
     pub struct KeyMods: u8 {
+        /// No modifiers.
         const NONE = 0b0000_0000;
+        /// The shift key.
         const SHIFT = 0b0000_0001;
+        /// The control key.
         const CONTROL = 0b0000_0010;
+        /// The alt key.
         const ALT = 0b0000_0100;
+        /// The super key.
         const SUPER = 0b0000_1000;
     }
 }

@@ -1,3 +1,5 @@
+//! Contains the [`Contents`] component.
+
 use std::cmp::{self, Ordering};
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -24,7 +26,7 @@ use til::{CommandParser, Component, KeyPattern, Parsed};
 use typed_builder::TypedBuilder;
 use uuid::Uuid;
 
-/// Contains functionality for rendering the entries of a directory.
+/// Renders the entries of a directory.
 mod entry {
     use file_info::{FileInfo, FileMetadata};
     use human_friendly::{
@@ -37,7 +39,7 @@ mod entry {
     /// The character used for metadata which is not known.
     const UNKNOWN: char = '?';
 
-    /// Return the name of the entry (with a trailing slash if the entry is a directory).
+    /// Return the name of the entry, with a trailing slash for a directory.
     pub fn name(file_info: &FileInfo) -> String {
         let mut name: String = match file_info.name() {
             Some(name) => name.to_string_lossy().to_string(),
@@ -53,7 +55,7 @@ mod entry {
         name
     }
 
-    /// Return the name of the entry along with the target of the entry if it is a symlink.
+    /// Return the name of the entry and its target if it is a symlink.
     pub fn name_and_link_target(file_info: &FileInfo) -> String {
         let mut string: String = name(file_info);
 
@@ -328,16 +330,24 @@ mod entry {
 }
 use entry::{name, name_and_link_target};
 
+/// The properties of the contents.
 #[derive(TypedBuilder)]
 pub struct Props {
+    /// The configuration.
     config: Config,
+    /// The directory to show the files in.
     dir: PathBuf,
+    /// The size of the contents.
     size: Size,
+    /// The file to select.
     file: Option<PathBuf>,
+    /// The pending request for the files.
     pending_request: Option<Uuid>,
 }
 
+/// The files in a directory.
 pub struct Contents {
+    /// The state of the contents.
     state: State,
     /// Parses the keys pressed into actions.
     command_parser: CommandParser<Action>,
@@ -597,22 +607,38 @@ impl Contents {
     }
 }
 
+/// A contents event.
 pub enum Event {
+    /// A response.
     Response(Response),
-    Resize { size: Size },
-    Term { event: TermEvent },
+    /// The contents were resized.
+    Resize {
+        /// The new size.
+        size: Size,
+    },
+    /// A terminal event.
+    Term {
+        /// The terminal event.
+        event: TermEvent,
+    },
 }
 
+/// The state of the contents.
 struct State {
+    /// The configuration.
     config: Config,
+    /// The size of the contents.
     size: Size,
+    /// The directory the files are shown from.
     dir: PathBuf,
 
+    /// The file to select once the files arrive.
     starting_file: Option<PathBuf>,
     /// The offset to return to once the starting file is found (if possible).
     starting_offset: Option<usize>,
+    /// The pending request for the files.
     pending_request: Option<Uuid>,
-    /// The request for the contents of a file which are to be copied to the clipboard.
+    /// The pending request for the contents to yank.
     pending_yank_request: Option<Uuid>,
     /// What the last command had to say for itself (if anything).
     message: Option<CommandMessage>,
@@ -620,10 +646,12 @@ struct State {
     /// The dir entries (if they can be read).
     file_infos: Option<GetFilesResult>,
 
-    /// Whether or not the entries are shown with their metadata.
+    /// Whether the entries are shown with their metadata.
     metadata: bool,
 
+    /// Which of the shown files is selected.
     selected: Option<usize>,
+    /// How far down the files are scrolled.
     offset: usize,
 }
 
@@ -664,6 +692,7 @@ impl State {
         self.message.as_ref()
     }
 
+    /// Return the files shown.
     fn visible_file_infos(&self) -> Option<&[FileInfo]> {
         let file_infos: &GetFilesResult = match &self.file_infos {
             Some(file_infos) => file_infos,
@@ -688,10 +717,12 @@ impl State {
         Some(&file_infos[start..end])
     }
 
+    /// Return which of all the files is selected.
     fn entry_number(&self) -> Option<usize> {
         self.selected.map(|selected| self.offset + selected)
     }
 
+    /// Return the selected file.
     fn entry(&self) -> Option<&FileInfo> {
         let file_infos: &GetFilesResult = match &self.file_infos {
             Some(file_infos) => file_infos,
@@ -714,7 +745,7 @@ impl State {
         get_files_request(self.dir.clone(), &self.config, self.metadata)
     }
 
-    /// Return whether or not the entries which are known have their metadata.
+    /// Return whether the entries which are known have their metadata.
     fn have_metadata(&self) -> bool {
         match &self.file_infos {
             Some(Ok(file_infos)) => file_infos
@@ -742,17 +773,20 @@ impl State {
         self.starting_offset = Some(self.offset);
     }
 
+    /// Set the directory.
     fn set_dir(&mut self, dir: &Path) -> Option<Effect> {
         self.dir = dir.to_path_buf();
         None
     }
 
+    /// Forget the files shown.
     fn reset_file_infos(&mut self) {
         self.file_infos = None;
         self.selected = None;
         self.offset = 0;
     }
 
+    /// Take note of a new size.
     fn resize(&mut self, new_size: Size) -> Option<Effect> {
         if let Some(selected) = self.selected {
             if let Some(Ok(file_infos)) = &self.file_infos {
@@ -791,6 +825,7 @@ impl State {
         None
     }
 
+    /// Select the next file.
     fn down(&mut self) -> Option<Effect> {
         let file_infos: &GetFilesResult = match &self.file_infos {
             Some(file_infos) => file_infos,
@@ -858,6 +893,7 @@ impl State {
         None
     }
 
+    /// Select the previous file.
     fn up(&mut self) -> Option<Effect> {
         if let Some(selected) = self.selected {
             if selected > 0 {
@@ -877,7 +913,7 @@ impl State {
         None
     }
 
-    /// Refresh the contents of the browser to reflect the current state of the file system.
+    /// Get the files again.
     fn refresh(&mut self) -> Option<Effect> {
         self.remember_position();
         self.reset_file_infos();
@@ -887,6 +923,7 @@ impl State {
         Some(Effect::Request(request))
     }
 
+    /// Go into the selected directory, or edit the selected file.
     fn push(&mut self) -> Option<Effect> {
         if let Some(entry) = self.entry() {
             let path: PathBuf = entry.path().to_path_buf();
@@ -910,6 +947,7 @@ impl State {
         None
     }
 
+    /// Go to the directory above.
     fn pop(&mut self) -> Option<Effect> {
         let popped: bool = self.dir.pop();
         if popped {
@@ -1000,11 +1038,13 @@ impl State {
     }
 
     /// Remember that the keys pressed do not form a command.
+    /// Remember that the keys pressed do not form a command.
     fn unknown_command(&mut self, keys: String) -> Option<Effect> {
         self.message = Some(CommandMessage::UnknownCommand(keys));
         Some(Effect::Bell)
     }
 
+    /// Make a new file.
     fn open_file_creator(&self, file_type: FileType) -> Option<Effect> {
         Some(Effect::OpenFileCreator {
             dir: self.dir.clone(),
@@ -1012,25 +1052,28 @@ impl State {
         })
     }
 
+    /// Find files by name.
     fn open_finder(&self) -> Option<Effect> {
         Some(Effect::OpenFinder {
             dir: self.dir.clone(),
         })
     }
 
+    /// Search files for a phrase.
     fn open_searcher(&self) -> Option<Effect> {
         Some(Effect::OpenSearcher {
             dir: self.dir.clone(),
         })
     }
 
+    /// Run a shell.
     fn run_bash(&self) -> Option<Effect> {
         Some(Effect::RunBash {
             dir: self.dir.clone(),
         })
     }
 
-    /// Toggle whether or not the entries are shown with their metadata.
+    /// Toggle whether the entries are shown with their metadata.
     ///
     /// If the entries are now shown with their metadata but it is not known yet, then request the
     /// entries again. The entries which are already known are kept so that they remain shown
@@ -1049,6 +1092,7 @@ impl State {
         Some(Effect::Request(request))
     }
 
+    /// Handle a response.
     fn handle_response(&mut self, response: Response) -> Option<Effect> {
         #[cfg(feature = "logging")]
         log::debug!("Handling response...");
@@ -1196,54 +1240,100 @@ impl Stateful<Action, Effect> for State {
     }
 }
 
+/// A contents action.
 #[derive(Clone)]
 enum Action {
-    Resize { size: Size },
+    /// Take note of a new size.
+    Resize {
+        /// The new size.
+        size: Size,
+    },
+    /// Select the next file.
     Down,
+    /// Select the last file.
     ReallyDown,
+    /// Select the previous file.
     Up,
+    /// Select the first file.
     ReallyUp,
+    /// Get the files again.
     Refresh,
+    /// Go into the selected directory, or edit the selected file.
     Push,
+    /// Go to the directory above.
     Pop,
+    /// Copy the name of the selected file to the clipboard.
     YankName,
+    /// Copy the path of the selected file to the clipboard.
     YankPath,
+    /// Copy the contents of the selected file to the clipboard.
     YankContents,
-    OpenFileCreator { file_type: FileType },
+    /// Make a new file.
+    OpenFileCreator {
+        /// The type of file to make.
+        file_type: FileType,
+    },
+    /// Find files by name.
     OpenFinder,
+    /// Search files for a phrase.
     OpenSearcher,
+    /// Run a shell.
     RunBash,
+    /// Show or hide the metadata of the files.
     ToggleMetadata,
-    UnknownCommand { keys: String },
+    /// Remember that the keys pressed do not form a command.
+    UnknownCommand {
+        /// The keys pressed.
+        keys: String,
+    },
+    /// Handle a response from inshd.
     HandleResponse(Response),
 }
 
+/// A contents effect.
 pub enum Effect {
+    /// Show the files in a different directory.
     SetDir {
+        /// The directory to show the files in.
         dir: PathBuf,
         // NOTE: We only jam this in here for now because we can only emit a single effect right
         // now.
+        /// The request to get them with.
         get_files_request: Request,
     },
+    /// Show the files in the directory above.
     PopDir {
         // NOTE: We only jam this in here for now because we can only emit a single effect right
         // now.
+        /// The request to get them with.
         get_files_request: Request,
     },
+    /// Make a new file.
     OpenFileCreator {
+        /// The directory to make it in.
         dir: PathBuf,
+        /// The type of file to make.
         file_type: FileType,
     },
+    /// Find files by name.
     OpenFinder {
+        /// The directory to look in.
         dir: PathBuf,
     },
+    /// Search files for a phrase.
     OpenSearcher {
+        /// The directory to search in.
         dir: PathBuf,
     },
+    /// Edit a file.
     OpenVim(VimArgs),
+    /// Run a shell.
     RunBash {
+        /// The directory to run it in.
         dir: PathBuf,
     },
+    /// Ring the bell.
     Bell,
+    /// Send a request.
     Request(Request),
 }

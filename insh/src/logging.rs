@@ -1,3 +1,5 @@
+//! Sets up logging.
+
 /// Logging for debug purposes.
 use std::fmt::{Display, Error as FormatError, Formatter};
 use std::path::PathBuf;

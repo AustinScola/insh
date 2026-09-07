@@ -8,7 +8,7 @@ use typed_builder::TypedBuilder;
 pub struct ContextedResponse {
     /// The response.
     response: Response,
-    /// Whether or not handling the response should be logged.
+    /// Whether handling the response should be logged.
     ///
     /// Responses which carry log records are not logged. If they were, then sending one would emit
     /// log records, which would be sent as more responses, which would emit more log records, and
@@ -23,7 +23,7 @@ impl ContextedResponse {
         &self.response
     }
 
-    /// Return whether or not handling the response should be logged.
+    /// Return whether handling the response should be logged.
     pub fn log(&self) -> bool {
         self.log
     }

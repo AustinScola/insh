@@ -1,3 +1,5 @@
+//! Forwards terminal events.
+
 use std::time::Duration;
 
 use term::{Term, TermEvent};
@@ -5,8 +7,10 @@ use term::{Term, TermEvent};
 use crossbeam::channel::Sender;
 use typed_builder::TypedBuilder;
 
+/// Forwards terminal events.
 #[derive(TypedBuilder)]
 pub struct TermEventForwarder {
+    /// Where the events are sent.
     term_event_tx: Sender<TermEvent>,
     /// How long to wait for the rest of an escape sequence before deciding that the escape key was
     /// pressed on its own.
@@ -15,6 +19,7 @@ pub struct TermEventForwarder {
 }
 
 impl TermEventForwarder {
+    /// Forward terminal events.
     pub fn run(&self) {
         #[cfg(feature = "logging")]
         log::info!("Terminal event forwarder running...");

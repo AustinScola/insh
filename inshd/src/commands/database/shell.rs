@@ -101,7 +101,7 @@ mod database_shell_error {
         FailedToSendRequest(SendError),
         /// Failed to receive a response.
         FailedToReceiveResponse(ReceiveError),
-        /// Inshd responded with something other than information about the database.
+        /// The response was not information about the database.
         UnexpectedResponse,
         /// Failed to run the shell.
         FailedToRunShell(PsqlRunError),

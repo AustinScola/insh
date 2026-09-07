@@ -1,3 +1,6 @@
+//! Contains the [`Contents`] component.
+
+/// Contains the [`Props`] struct.
 mod props {
     use std::path::PathBuf;
 
@@ -7,15 +10,22 @@ mod props {
 
     use uuid::Uuid;
 
+    /// The properties of the contents.
     pub struct Props {
+        /// The configuration.
         pub config: Config,
+        /// The directory to search in.
         pub dir: PathBuf,
+        /// The size of the contents.
         pub size: Size,
+        /// The phrase to search for.
         pub phrase: Option<String>,
+        /// The pending request for the hits.
         pub pending_request: Option<Uuid>,
     }
 
     impl Props {
+        /// Return new properties.
         pub fn new(
             config: Config,
             dir: PathBuf,
@@ -35,6 +45,7 @@ mod props {
 }
 pub use props::Props;
 
+/// Contains the [`Contents`] component.
 mod contents {
     use std::path::MAIN_SEPARATOR as PATH_SEPARATOR;
 
@@ -136,8 +147,11 @@ mod contents {
         }
     }
 
+    /// The hits found.
     pub struct Contents {
+        /// The configuration.
         config: Config,
+        /// The state of the contents.
         state: State,
         /// Parses the keys pressed into actions.
         command_parser: CommandParser<Action>,
@@ -218,7 +232,7 @@ mod contents {
                                 let mut yarn = Yarn::from(path);
                                 yarn.resize(columns);
 
-                                if self.state.focussed()
+                                if self.state.focused()
                                     && !self.state.is_line_selected()
                                     && file_hit_is_focused
                                 {
@@ -249,7 +263,7 @@ mod contents {
 
                                 let mut yarn = Yarn::from(string);
                                 yarn.resize(columns);
-                                if self.state.focussed()
+                                if self.state.focused()
                                     && file_hit_is_focused
                                     && self.state.is_line_selected()
                                     && self.state.line_hit_number().unwrap() == line_hit_number
@@ -322,18 +336,27 @@ mod contents {
 }
 pub use contents::Contents;
 
+/// Contains the [`Event`] enum.
 mod event {
     use insh_api::Response;
     use term::TermEvent;
 
+    /// A contents event.
     pub enum Event {
+        /// A terminal event.
         TermEvent(TermEvent),
-        Search { phrase: String },
+        /// Search for a phrase.
+        Search {
+            /// The phrase to search for.
+            phrase: String,
+        },
+        /// A response.
         Response(Response),
     }
 }
 pub use event::Event;
 
+/// Contains the [`State`] struct.
 mod state {
     use std::cmp::{self, Ordering};
     use std::path::{Path, PathBuf};
@@ -355,20 +378,32 @@ mod state {
 
     use uuid::Uuid;
 
+    /// The state of the contents.
     #[derive(Debug, PartialEq, Eq, Default)]
     pub struct State {
+        /// The size of the contents.
         size: Size,
+        /// The directory being searched.
         dir: PathBuf,
+        /// The phrase being searched for.
         phrase: Option<String>,
-        focussed: bool,
+        /// Whether the events go to the contents.
+        focused: bool,
+        /// Whether anything has been searched for yet.
         searched: bool,
+        /// The files with hits.
         hits: Vec<FileHit>,
+        /// How far down the files are scrolled.
         file_offset: usize,
+        /// How far down the lines of the first shown file are scrolled.
         line_offset: Option<usize>,
+        /// Which of the shown files is selected.
         file_selected: usize,
+        /// Which line of the selected file is selected.
         line_selected: Option<usize>,
+        /// The pending request for the hits.
         pending_request: Option<Uuid>,
-        /// The request for the contents of a file which are to be copied to the clipboard.
+        /// The pending request for the contents to yank.
         pending_yank_request: Option<Uuid>,
         /// What the last command had to say for itself (if anything).
         message: Option<CommandMessage>,
@@ -386,7 +421,7 @@ mod state {
                 // of using From &Props?
                 dir: props.dir.clone(),
                 phrase: props.phrase.clone(),
-                focussed: props.pending_request.is_some(),
+                focused: props.pending_request.is_some(),
                 searched: props.pending_request.is_some(),
                 hits: Vec::new(),
                 file_offset: 0,
@@ -403,6 +438,7 @@ mod state {
     }
 
     impl State {
+        /// Return the directory being searched.
         pub fn dir(&self) -> &Path {
             &self.dir
         }
@@ -412,13 +448,13 @@ mod state {
             self.message.as_ref()
         }
 
-        /// Return whether or not the contents of a file are being read to be copied to the
+        /// Return whether the contents of a file are being read to be copied to the
         /// clipboard.
         pub fn yanking(&self) -> bool {
             self.pending_yank_request.is_some()
         }
 
-        /// Return how searching the files is going (or nothing if the files were not searched).
+        /// Return how the search is going.
         pub fn progress(&self) -> String {
             if !self.searched {
                 return String::new();
@@ -463,21 +499,22 @@ mod state {
             return Some(before + line_hit_number);
         }
 
-        /// Return if the search contents are currently foccused on.
-        pub fn focussed(&self) -> bool {
-            self.focussed
+        /// Return whether the events go to the contents.
+        pub fn focused(&self) -> bool {
+            self.focused
         }
 
+        /// Return whether anything has been searched for yet.
         pub fn searched(&self) -> bool {
             self.searched
         }
 
-        /// Return if a search request is pending.
+        /// Return whether a search is pending.
         pub fn is_pending(&self) -> bool {
             self.pending_request.is_some()
         }
 
-        /// The number of the currently selected file hit.
+        /// The number of the selected file hit.
         pub fn hit_number(&self) -> Option<usize> {
             let number: usize = self.file_offset + self.file_selected;
             if number < self.hits().len() {
@@ -487,14 +524,17 @@ mod state {
             }
         }
 
+        /// Return how far down the files are scrolled.
         pub fn file_offset(&self) -> usize {
             self.file_offset
         }
 
+        /// Return how far down the lines of the first shown file are scrolled.
         pub fn line_offset(&self) -> Option<usize> {
             self.line_offset
         }
 
+        /// Return which line of the selected file is selected.
         pub fn line_hit_number(&self) -> Option<usize> {
             match self.line_selected {
                 Some(line_selected) => match self.file_selected {
@@ -508,7 +548,7 @@ mod state {
             }
         }
 
-        /// Return the currently selected file hit.
+        /// Return the selected file hit.
         pub fn hit(&self) -> Option<&FileHit> {
             match self.hit_number() {
                 Some(hit_number) => Some(&self.hits[hit_number]),
@@ -516,11 +556,12 @@ mod state {
             }
         }
 
+        /// Return the files with hits.
         pub fn hits(&self) -> &Vec<FileHit> {
             &self.hits
         }
 
-        /// Return if a line is selected or not.
+        /// Return whether a line is selected.
         pub fn is_line_selected(&self) -> bool {
             self.line_selected.is_some()
         }
@@ -561,6 +602,7 @@ mod state {
             }
         }
 
+        /// Take note of a new size.
         fn resize(&mut self, new_size: Size) -> Option<Effect> {
             let rows_before = self.size.rows;
             let selected_row_number = self.selected_row_number();
@@ -583,15 +625,18 @@ mod state {
             None
         }
 
+        /// Send the events to the contents.
         fn focus(&mut self) {
-            self.focussed = true;
+            self.focused = true;
         }
 
+        /// Stop sending the events to the contents.
         fn unfocus(&mut self) -> Option<Effect> {
-            self.focussed = false;
+            self.focused = false;
             Some(Effect::Unfocus)
         }
 
+        /// Ask inshd for the files containing a phrase.
         fn search(&mut self, phrase: &str) -> Option<Effect> {
             self.focus();
             self.phrase = Some(phrase.to_string());
@@ -613,6 +658,7 @@ mod state {
             Some(Effect::Request(request))
         }
 
+        /// Select the next hit.
         fn down(&mut self) -> Option<Effect> {
             match self.line_selected {
                 None => {
@@ -636,6 +682,7 @@ mod state {
         }
 
         /// Select the last file hit and adjust the scroll if necessary.
+        /// Select the last hit.
         fn really_down(&mut self) -> Option<Effect> {
             if self.hits.is_empty() {
                 return None;
@@ -653,7 +700,7 @@ mod state {
                 up_adjustment = self.size.rows.saturating_sub(number_of_line_hits + 1);
             }
             // For now, scroll up one line at a time b/c there seems to be a bug w/ scrolling too
-            // many lines at a time
+            // many lines at a time.
             for _ in 0..up_adjustment {
                 self.scroll_up(1);
             }
@@ -661,6 +708,7 @@ mod state {
             None
         }
 
+        /// Scroll down the given number of rows.
         fn scroll_down(&mut self, rows: usize) -> Option<Effect> {
             for _ in 0..rows {
                 match self.line_offset {
@@ -687,6 +735,7 @@ mod state {
             None
         }
 
+        /// Select the previous hit.
         fn up(&mut self) -> Option<Effect> {
             match self.line_selected {
                 None => match self.file_selected {
@@ -751,6 +800,7 @@ mod state {
         }
 
         /// Select the first file hit and adjust the scroll position if necessary.
+        /// Select the first hit.
         fn really_up(&mut self) -> Option<Effect> {
             if self.hits.is_empty() {
                 return None;
@@ -764,6 +814,7 @@ mod state {
             None
         }
 
+        /// Scroll up the given number of rows.
         fn scroll_up(&mut self, mut rows: usize) -> Option<Effect> {
             while rows > 0 {
                 match self.line_offset {
@@ -817,6 +868,7 @@ mod state {
         }
 
         /// Refresh the hits by searching for the phrase again.
+        /// Search for the phrase again.
         fn refresh(&mut self) -> Option<Effect> {
             if let Some(phrase) = self.phrase.clone() {
                 return self.search(&phrase);
@@ -824,6 +876,7 @@ mod state {
             None
         }
 
+        /// Edit the selected file.
         fn edit(&mut self) -> Option<Effect> {
             let file_hit: &FileHit = self.hit().unwrap();
             let path: &Path = file_hit.path();
@@ -840,14 +893,17 @@ mod state {
             Some(Effect::OpenVim(vim_args))
         }
 
+        /// Browse the directory the selected file is in.
         fn goto(&mut self) -> Option<Effect> {
             self._goto(false)
         }
 
+        /// Browse to the selected file.
         fn really_goto(&mut self) -> Option<Effect> {
             self._goto(true)
         }
 
+        /// Browse the directory the selected file is in.
         fn _goto(&mut self, really: bool) -> Option<Effect> {
             if let Some(file_hit) = self.hit() {
                 let path: &Path = file_hit.path();
@@ -867,6 +923,7 @@ mod state {
         ///
         /// The cursor is on the name of the file when a line of a file is not selected, and on the
         /// first word of the line when one is.
+        /// Copy the phrase to the clipboard.
         fn yank_word(&mut self) -> Option<Effect> {
             let file_hit: &FileHit = match self.hit() {
                 Some(file_hit) => file_hit,
@@ -904,6 +961,7 @@ mod state {
         ///
         /// The path of a file is the line which is shown for it, so that is what is copied when a
         /// line of a file is not selected.
+        /// Copy the selected line to the clipboard.
         fn yank_line(&mut self) -> Option<Effect> {
             let file_hit: &FileHit = match self.hit() {
                 Some(file_hit) => file_hit,
@@ -932,6 +990,7 @@ mod state {
 
         /// Ask the daemon for the contents of the file so that they can be copied to the
         /// clipboard.
+        /// Ask inshd for the contents of the selected file.
         fn yank_contents(&mut self) -> Option<Effect> {
             let path: PathBuf = match self.hit() {
                 Some(file_hit) => file_hit.path().to_path_buf(),
@@ -950,11 +1009,13 @@ mod state {
         }
 
         /// Remember that the keys pressed do not form a command.
+        /// Remember that the keys pressed do not form a command.
         fn unknown_command(&mut self, keys: String) -> Option<Effect> {
             self.message = Some(CommandMessage::UnknownCommand(keys));
             Some(Effect::Bell)
         }
 
+        /// Handle a response.
         fn handle_response(&mut self, response: Response) -> Option<Effect> {
             #[cfg(feature = "logging")]
             log::debug!("Handling response...");
@@ -1117,34 +1178,64 @@ mod state {
 }
 use state::State;
 
+/// Contains the [`Action`] enum.
 mod action {
     use insh_api::Response;
     use rend::Size;
 
+    /// A contents action.
     #[derive(Clone)]
     pub enum Action {
-        Resize { size: Size },
+        /// Take note of a new size.
+        Resize {
+            /// The new size.
+            size: Size,
+        },
+        /// Stop sending the events to the contents.
         Unfocus,
-        Search { phrase: String },
+        /// Search for a phrase.
+        Search {
+            /// The phrase to search for.
+            phrase: String,
+        },
+        /// Select the next hit.
         Down,
+        /// Select the last hit.
         ReallyDown,
+        /// Scroll down a row.
         ScrollDown,
+        /// Select the previous hit.
         Up,
+        /// Select the first hit.
         ReallyUp,
+        /// Scroll up a row.
         ScrollUp,
+        /// Search for the phrase again.
         Refresh,
+        /// Edit the selected file.
         Edit,
+        /// Browse the directory the selected file is in.
         Goto,
+        /// Browse to the selected file.
         ReallyGoto,
+        /// Copy the phrase to the clipboard.
         YankWord,
+        /// Copy the selected line to the clipboard.
         YankLine,
+        /// Copy the contents of the selected file to the clipboard.
         YankContents,
-        UnknownCommand { keys: String },
+        /// Remember that the keys pressed do not form a command.
+        UnknownCommand {
+            /// The keys pressed.
+            keys: String,
+        },
+        /// Handle a response from inshd.
         HandleResponse(Response),
     }
 }
 use action::Action;
 
+/// Contains the [`Effect`] enum.
 mod effect {
     use std::path::PathBuf;
 
@@ -1152,11 +1243,22 @@ mod effect {
 
     use insh_api::Request;
 
+    /// A contents effect.
     pub enum Effect {
+        /// Stop sending the events to the contents.
         Unfocus,
-        Goto { dir: PathBuf, file: Option<PathBuf> },
+        /// Browse a directory.
+        Goto {
+            /// The directory to browse.
+            dir: PathBuf,
+            /// The file to select.
+            file: Option<PathBuf>,
+        },
+        /// Edit a file.
         OpenVim(VimArgs),
+        /// Ring the bell.
         Bell,
+        /// Send a request.
         Request(Request),
     }
 }

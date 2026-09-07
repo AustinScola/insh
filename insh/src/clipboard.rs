@@ -1,10 +1,13 @@
+//! The system clipboard.
+
 use copypasta::{ClipboardContext as CopyPastaClipboardContext, ClipboardProvider};
 
+/// The system clipboard.
 pub struct Clipboard {
+    /// The clipboard.
     context: CopyPastaClipboardContext,
 }
 
-/// Manages access to the system clipboard.
 impl Clipboard {
     /// Return a new clipboard.
     pub fn new() -> Self {
@@ -15,7 +18,7 @@ impl Clipboard {
     /// Set the contents of the clipboard.
     pub fn copy(&mut self, contents: String) {
         #[cfg(feature = "logging")]
-        log::debug!("Setting the clipboard conents to \"{}\"...", contents);
+        log::debug!("Setting the clipboard contents to \"{}\"...", contents);
 
         #[allow(clippy::redundant_clone)]
         self.context.set_contents(contents.clone()).unwrap();

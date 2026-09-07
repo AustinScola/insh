@@ -8,6 +8,7 @@ directions are separate here, and [`InshdClient`] puts them back together for ca
 need them apart.
 */
 #![deny(missing_docs)]
+#![deny(clippy::missing_docs_in_private_items)]
 #![allow(clippy::needless_return)]
 
 mod client;
@@ -18,5 +19,5 @@ pub use client::{ConnectError, InshdClient};
 pub use request_writer::{RequestWriter, SendError};
 pub use response_reader::{ReceiveError, ResponseReader};
 
-/// The number of bytes which the length of a request or a response is encoded in.
+/// The number of bytes the length is encoded in.
 const LENGTH_SIZE: usize = 8;

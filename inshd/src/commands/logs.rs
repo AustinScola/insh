@@ -13,7 +13,7 @@ pub struct Logs {}
 impl Logs {
     /// Stream the logs of inshd.
     ///
-    /// Only the log records which are emitted from this point onwards are streamed.
+    /// Only the log records which are emitted from this point onward are streamed.
     pub fn run(color: Color) -> Result<(), LogsError> {
         let color: bool = color.color_stdout();
 

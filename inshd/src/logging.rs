@@ -96,18 +96,18 @@ pub struct LogOptions {
     log_spec: LogSpec,
     /// The path for log files.
     log_file_path: Option<PathBuf>,
-    /// Whether or not to only log to stdout.
+    /// Whether to only log to stdout.
     ///
     /// Commands which do not run the daemon should not attach the log file writer of the daemon.
     /// Doing so can rotate the log file the running daemon is writing to out from under it.
     #[builder(default = false)]
     stdout_only: bool,
-    /// Whether or not to color the logs.
+    /// Whether to color the logs.
     #[builder(default = Color::Auto)]
     color: Color,
 }
 
-/// Whether or not to color the logs.
+/// Whether to color the logs.
 #[derive(Clone, Copy, Debug)]
 pub enum Color {
     /// Always color the logs.
@@ -119,7 +119,7 @@ pub enum Color {
 }
 
 impl Color {
-    /// Return whether or not the logs written to standard output should be colored.
+    /// Return whether the logs written to standard output should be colored.
     pub fn color_stdout(&self) -> bool {
         match self {
             Self::Always => true,
@@ -156,7 +156,7 @@ impl LogWriter for LogRecordSender {
     }
 }
 
-/// Return the log record which a record of the logging framework corresponds to.
+/// Return the log record for a record of the logging framework.
 fn log_record(now: &mut DeferredNow, record: &Record) -> LogRecord {
     LogRecord::builder()
         .timestamp(now.now().format("%d-%m-%Y %H:%M.%S").to_string())

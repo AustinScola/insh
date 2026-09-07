@@ -1,11 +1,17 @@
+//! Contains the [`Dir`] component.
+
+/// Contains the [`Props`] struct.
 mod props {
     use std::path::PathBuf;
 
+    /// The properties of the directory.
     pub struct Props {
+        /// The directory to show.
         pub dir: PathBuf,
     }
 
     impl Props {
+        /// Return new properties.
         pub fn new(dir: PathBuf) -> Self {
             Self { dir }
         }
@@ -13,6 +19,7 @@ mod props {
 }
 pub use props::Props;
 
+/// Contains the [`Dir`] component.
 mod dir {
     use super::{Action, Effect, Event, Props, State};
     use crate::color::Color;
@@ -21,7 +28,9 @@ mod dir {
     use rend::{Fabric, Size, Yarn};
     use til::Component;
 
+    /// The directory bar.
     pub struct Dir {
+        /// The state of the directory.
         state: State,
     }
 
@@ -50,6 +59,7 @@ mod dir {
     }
 
     impl Dir {
+        /// Return the action to perform for an event.
         fn map(&self, event: Event) -> Option<Action> {
             match event {
                 Event::SetDir { dir } => Some(Action::SetDir { dir }),
@@ -67,16 +77,24 @@ mod dir {
 }
 pub use dir::Dir;
 
+/// Contains the [`Event`] enum.
 mod event {
     use std::path::PathBuf;
 
+    /// A directory event.
     pub enum Event {
-        SetDir { dir: PathBuf },
+        /// Show a different directory.
+        SetDir {
+            /// The directory to show.
+            dir: PathBuf,
+        },
+        /// Show the directory above.
         PopDir,
     }
 }
 pub use event::Event;
 
+/// Contains the [`State`] struct.
 mod state {
     use std::path::{PathBuf, MAIN_SEPARATOR as PATH_SEPARATOR};
 
@@ -84,12 +102,16 @@ mod state {
     use crate::current_dir;
     use crate::stateful::Stateful;
 
+    /// The state of the directory.
     pub struct State {
+        /// The directory which is shown.
         dir: PathBuf,
+        /// The home directory, which is shown as a tilde.
         home: Option<PathBuf>,
     }
 
     impl State {
+        /// Return the directory as it is shown.
         pub fn dir_string(&self) -> String {
             if let Some(home) = &self.home {
                 if let Ok(path) = self.dir.strip_prefix(home) {
@@ -113,10 +135,12 @@ mod state {
             string
         }
 
+        /// Show a different directory.
         fn set_dir(&mut self, dir: PathBuf) {
             self.dir = dir;
         }
 
+        /// Show the directory above.
         fn pop_dir(&mut self) {
             self.dir.pop();
         }
@@ -155,17 +179,26 @@ mod state {
 }
 use state::State;
 
+/// Contains the [`Action`] enum.
 mod action {
     use std::path::PathBuf;
 
+    /// A directory action.
     pub enum Action {
-        SetDir { dir: PathBuf },
+        /// Show a different directory.
+        SetDir {
+            /// The directory to show.
+            dir: PathBuf,
+        },
+        /// Show the directory above.
         PopDir,
     }
 }
 use action::Action;
 
+/// Contains the [`Effect`] enum.
 mod effect {
+    /// A directory effect.
     pub enum Effect {}
 }
 pub use effect::Effect;

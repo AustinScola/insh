@@ -22,7 +22,7 @@ pub struct GetFiles {
     dir: PathBuf,
     /// How the files should be sorted, or `None` if they should not be sorted.
     sort: Option<FileSortOptions>,
-    /// Whether or not the metadata of the files should be included.
+    /// Whether the metadata of the files should be included.
     metadata: bool,
     /// If getting files is done.
     done: bool,

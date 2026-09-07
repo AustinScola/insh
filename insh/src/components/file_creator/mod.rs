@@ -1,3 +1,5 @@
+//! A file creator.
+
 mod file_creator;
 
 pub use file_creator::{

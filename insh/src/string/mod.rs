@@ -1,18 +1,18 @@
 /*!
-Extentioned functionality for [`String`] provided via extension traits.
+Extension traits for strings.
 */
 
-/// Contains functionality for conjoining strings.
+/// Contains the [`ConjoinExt`] trait.
 mod conjoin {
-    /// An extension trait for [`Vec<String>`] to join together using commas and a conjunction.
+    /// Joins strings together with commas and a conjunction.
     pub trait ConjoinExt {
-        /// Join together using commas, (an Oxoford comma if necessary), and the `conjuction`.
+        /// Join with commas (an Oxford comma if necessary) and the `conjunction`.
         fn conjoin(&self, conjunction: &str) -> String;
     }
 
     impl ConjoinExt for Vec<String> {
-        /// Return the strings joined together using commas, (an Oxoford comma if necessary), and
-        /// the `conjuction`.
+        /// Return the strings joined with commas (an Oxford comma if necessary) and the
+        /// `conjunction`.
         fn conjoin(&self, conjunction: &str) -> String {
             match &self.len() {
                 0 => String::new(),
@@ -48,17 +48,16 @@ mod conjoin {
 }
 pub use conjoin::ConjoinExt;
 
-/// Contains functionality for capitalizing the first letter of a string.
+/// Contains the [`CapitalizeFirstLetterExt`] trait.
 mod capitalize_first_letter {
-    /// An extension trait implmented for [`String`] and [`&str`] to return the string with the
-    /// frist letter capitalized.
+    /// Capitalizes the first letter of a string.
     pub trait CapitalizeFirstLetterExt {
-        /// Return the string with the first letter capitalized (if there is a first letter).
+        /// Return the string with the first letter capitalized.
         fn capitalize_first_letter(&self) -> String;
     }
 
     impl CapitalizeFirstLetterExt for &str {
-        /// Return the string with the first letter capitalized (if there is a first letter).
+        /// Return the string with the first letter capitalized.
         fn capitalize_first_letter(&self) -> String {
             if self.is_empty() {
                 return String::new();
@@ -68,7 +67,7 @@ mod capitalize_first_letter {
     }
 
     impl CapitalizeFirstLetterExt for String {
-        /// Return the string with the first letter capitalized (if there is a first letter).
+        /// Return the string with the first letter capitalized.
         fn capitalize_first_letter(&self) -> String {
             self.as_str().capitalize_first_letter()
         }
@@ -94,9 +93,9 @@ mod capitalize_first_letter {
 }
 pub use capitalize_first_letter::CapitalizeFirstLetterExt;
 
-/// Contains functionality for removing tabs from strings.
+/// Contains the [`DetabExt`] trait.
 mod detab {
-    /// An extension trait for strings to remove tabs.
+    /// Removes tabs from a string.
     pub trait DetabExt {
         /// Remove tab characters.
         fn detab(&self, tab_width: usize) -> String;
@@ -115,7 +114,7 @@ mod detab {
                 return String::new();
             }
 
-            // The resuling string will be at least as long as the input string, so reserve the
+            // The resulting string will be at least as long as the input string, so reserve the
             // capacity for that many characters.
             let mut result: String = String::with_capacity(self.len());
 

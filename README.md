@@ -7,5 +7,5 @@ Insh is a graphical, interactive, terminal environment.
 cargo install --git https://github.com/AustinScola/insh --tag latest insh inshd
 ```
 
-## Documenation
+## Documentation
 https://austinscola.com/insh/latest/

@@ -28,16 +28,10 @@ log = { workspace = true, optional = true }
 # Used for globally unique identifiers.
 uuid = { workspace = true }
 
-# Used for declaring lazily evaluated static values.
-lazy_static = { workspace = true }
-
-# Used for determining platform-specific directories.
-dirs = { workspace = true }
-
 # Provides friendly bindings for *nix platform APIs.
 #
 # Used for:
-#   - sinding terminal resizes to programs.
+#   - sending terminal resizes to programs.
 nix = { workspace = true }
 
 

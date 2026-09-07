@@ -1,3 +1,5 @@
+//! Contains the [`Browser`] component.
+
 use std::path::PathBuf;
 
 use super::{Contents, ContentsEffect, ContentsEvent, ContentsProps};
@@ -16,18 +18,26 @@ use til::Component;
 use typed_builder::TypedBuilder;
 use uuid::Uuid;
 
+/// The properties of the browser.
 #[derive(TypedBuilder)]
 pub struct Props {
+    /// The configuration.
     config: Config,
+    /// The directory to browse.
     dir: PathBuf,
+    /// The size of the browser.
     size: Size,
+    /// The file to select.
     #[builder(default)]
     file: Option<PathBuf>,
+    /// The pending request for the files.
     #[builder(default)]
     pending_request: Option<Uuid>,
 }
 
+/// A file browser.
 pub struct Browser {
+    /// The state of the browser.
     state: State,
 }
 
@@ -137,9 +147,13 @@ impl Component<Props, Event, Effect> for Browser {
     }
 }
 
+/// The state of the browser.
 struct State {
+    /// The directory bar.
     dir: Dir,
+    /// The files in the directory.
     contents: Contents,
+    /// What is focused on.
     focus: Focus,
 }
 
@@ -174,25 +188,53 @@ impl Stateful<Action, Effect> for State {
     }
 }
 
+/// What the browser is focused on.
 #[derive(Default)]
 enum Focus {
+    /// The files in the directory.
     #[default]
     Contents,
 }
 
+/// A browser event.
 pub enum Event {
+    /// A response.
     Response(Response),
+    /// A terminal event.
     TermEvent(TermEvent),
 }
 
+/// A browser action.
 enum Action {}
 
+/// A browser effect.
 pub enum Effect {
-    OpenFileCreator { dir: PathBuf, file_type: FileType },
-    OpenFinder { dir: PathBuf },
-    OpenSearcher { dir: PathBuf },
+    /// Make a new file.
+    OpenFileCreator {
+        /// The directory to make it in.
+        dir: PathBuf,
+        /// The type of file to make.
+        file_type: FileType,
+    },
+    /// Find files by name.
+    OpenFinder {
+        /// The directory to look in.
+        dir: PathBuf,
+    },
+    /// Search files for a phrase.
+    OpenSearcher {
+        /// The directory to search in.
+        dir: PathBuf,
+    },
+    /// Edit a file.
     OpenVim(VimArgs),
-    RunBash { dir: PathBuf },
+    /// Run a shell.
+    RunBash {
+        /// The directory to run it in.
+        dir: PathBuf,
+    },
+    /// Ring the bell.
     Bell,
+    /// Send a request.
     Request(Request),
 }

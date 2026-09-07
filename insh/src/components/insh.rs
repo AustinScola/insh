@@ -1,3 +1,5 @@
+//! Contains the [`Insh`] component.
+
 use std::path::PathBuf;
 
 use crate::components::browser::{Browser, BrowserEffect, BrowserEvent, BrowserProps};
@@ -18,6 +20,7 @@ use rend::{Fabric, Size};
 use term::{Key, KeyEvent, KeyMods, Term, TermEvent};
 use til::{Component, Event, SystemEffect};
 
+/// Contains the [`Props`] struct.
 mod props {
     use std::path::PathBuf;
 
@@ -27,43 +30,65 @@ mod props {
     use typed_builder::TypedBuilder;
     use uuid::Uuid;
 
+    /// The properties of insh.
     #[derive(TypedBuilder)]
     pub struct Props {
+        /// What to start in.
         start: Start,
+        /// The directory to start in.
         dir: Option<PathBuf>,
+        /// The pending request for the files.
         #[builder(default)]
         pending_browser_request: Option<Uuid>,
+        /// The pending request for the hits.
         #[builder(default)]
         pending_search_request: Option<Uuid>,
+        /// The configuration.
         config: Config,
     }
 
     impl Props {
+        /// Return what to start in.
         pub fn start(&self) -> &Start {
             &self.start
         }
 
+        /// Return the directory to start in.
         pub fn dir(&self) -> &Option<PathBuf> {
             &self.dir
         }
 
+        /// Return the pending request for the files.
         pub fn pending_browser_request(&self) -> &Option<Uuid> {
             &self.pending_browser_request
         }
 
+        /// Return the pending request for the hits.
         pub fn pending_search_request(&self) -> &Option<Uuid> {
             &self.pending_search_request
         }
 
+        /// Return the configuration.
         pub fn config(&self) -> &Config {
             &self.config
         }
     }
 
+    /// What insh starts in.
     pub enum Start {
+        /// The browser.
         Browser,
-        Finder { phrase: Option<String> },
-        Searcher { phrase: Option<String> },
+        /// The finder.
+        Finder {
+            /// The pattern to start with.
+            phrase: Option<String>,
+        },
+        /// The searcher.
+        Searcher {
+            /// The phrase to start with.
+            phrase: Option<String>,
+        },
+        /// Nothing, because a program is being run instead.
         Nothing,
     }
 
@@ -83,7 +108,9 @@ mod props {
 }
 pub use props::{Props, Start};
 
+/// The root component.
 pub struct Insh {
+    /// The state of insh.
     state: State,
 }
 
@@ -236,12 +263,19 @@ impl Component<Props, Event<Response>, SystemEffect<Request>> for Insh {
     }
 }
 
+/// The state of insh.
 struct State {
+    /// Which mode insh is in.
     mode: Mode,
+    /// The browser.
     browser: Option<Browser>,
+    /// The file creator.
     file_creator: Option<FileCreator>,
+    /// The finder.
     finder: Option<Finder>,
+    /// The searcher.
     searcher: Option<Searcher>,
+    /// The configuration.
     config: Config,
 }
 
@@ -313,6 +347,7 @@ impl From<Props> for State {
 }
 
 impl State {
+    /// Browse a directory.
     fn browse(&mut self, dir: PathBuf, file: Option<PathBuf>) -> Option<SystemEffect<Request>> {
         // Create a request for getting the files in the dir.
         let request =
@@ -332,6 +367,7 @@ impl State {
         Some(SystemEffect::Request(request))
     }
 
+    /// Make a new file.
     fn create_file(&mut self, dir: PathBuf, file_type: FileType) -> Option<SystemEffect<Request>> {
         self.mode = Mode::FileCreator;
         let file_creator_props = FileCreatorProps::builder()
@@ -342,6 +378,7 @@ impl State {
         None
     }
 
+    /// Find files by name.
     fn find(&mut self, dir: PathBuf) -> Option<SystemEffect<Request>> {
         self.mode = Mode::Finder;
         let size: Size = Term::size().unwrap();
@@ -355,6 +392,7 @@ impl State {
         None
     }
 
+    /// Search files for a phrase.
     fn search(&mut self, dir: PathBuf) -> Option<SystemEffect<Request>> {
         self.mode = Mode::Searcher;
         let size: Size = Term::size().unwrap();
@@ -364,11 +402,13 @@ impl State {
         None
     }
 
+    /// Go back to the browser from the finder.
     fn quit_finder(&mut self) -> Option<SystemEffect<Request>> {
         self.mode = Mode::Browse;
         None
     }
 
+    /// Go back to the browser from the searcher.
     fn quit_searcher(&mut self) -> Option<SystemEffect<Request>> {
         self.mode = Mode::Browse;
         None
@@ -398,22 +438,52 @@ impl Stateful<Action, SystemEffect<Request>> for State {
     }
 }
 
+/// Which mode insh is in.
 #[derive(Default)]
 enum Mode {
+    /// Browsing the files in a directory.
     #[default]
     Browse,
+    /// Making a new file.
     FileCreator,
+    /// Finding files by name.
     Finder,
+    /// Searching files for a phrase.
     Searcher,
+    /// Nothing, so insh exits when anything happens.
     Nothing,
 }
 
+/// An insh action.
 enum Action {
-    Browse { dir: PathBuf, file: Option<PathBuf> },
-    CreateFile { dir: PathBuf, file_type: FileType },
-    Find { dir: PathBuf },
-    Search { dir: PathBuf },
+    /// Browse a directory.
+    Browse {
+        /// The directory to browse.
+        dir: PathBuf,
+        /// The file to select.
+        file: Option<PathBuf>,
+    },
+    /// Make a new file.
+    CreateFile {
+        /// The directory to make it in.
+        dir: PathBuf,
+        /// The type of file to make.
+        file_type: FileType,
+    },
+    /// Find files by name.
+    Find {
+        /// The directory to look in.
+        dir: PathBuf,
+    },
+    /// Search files for a phrase.
+    Search {
+        /// The directory to search in.
+        dir: PathBuf,
+    },
+    /// Ring the bell.
     Bell,
+    /// Go back to the browser from the finder.
     QuitFinder,
+    /// Go back to the browser from the searcher.
     QuitSearcher,
 }

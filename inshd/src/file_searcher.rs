@@ -95,7 +95,7 @@ pub struct FileSearcherOptions {
     pub update_interval: Duration,
 }
 
-/// The hits which have been found since the last result (and the progress of searching files).
+/// The hits found since the last result, and the progress so far.
 #[derive(TypedBuilder)]
 pub struct FoundHits {
     /// The hits which have been found since the last result.
@@ -104,7 +104,7 @@ pub struct FoundHits {
     pub searched: usize,
     /// The duration of the search so far.
     pub duration: Duration,
-    /// Whether or not there are any more files to search.
+    /// Whether there are any more files to search.
     pub done: bool,
 }
 

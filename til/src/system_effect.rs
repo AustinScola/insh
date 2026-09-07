@@ -1,9 +1,9 @@
 /*!
-System effects are side-effect that components can emit which the application framework will handle.
+The side effects which a component can ask the app to perform.
 */
 use crate::program::Program;
 
-/// A side-effect that components can emit which the application framework will handle.
+/// A side effect for the app to perform.
 pub enum SystemEffect<Request> {
     /// Run a program.
     RunProgram {

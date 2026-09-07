@@ -1,3 +1,6 @@
+//! Common command line arguments.
+
+/// Contains the [`ModuleLogLevelFilter`] struct.
 mod module_log_level_filter {
     use std::str::FromStr;
 
@@ -15,10 +18,12 @@ mod module_log_level_filter {
     }
 
     impl ModuleLogLevelFilter {
+        /// Return the name of the module.
         pub fn module_name(&self) -> &str {
             &self.module_name
         }
 
+        /// Return the log level filter for the module.
         pub fn log_level_filter(&self) -> &LogLevelFilter {
             &self.log_level_filter
         }
@@ -57,6 +62,7 @@ mod module_log_level_filter {
 }
 pub use module_log_level_filter::ModuleLogLevelFilter;
 
+/// Contains the [`ModuleLevelFilterParseError`] enum.
 mod module_log_level_filter_parse_error {
     use std::error::Error;
     use std::fmt::{Display, Error as FmtError, Formatter};
@@ -64,11 +70,16 @@ mod module_log_level_filter_parse_error {
     /// An error for parsing a module level filter from a string.
     #[derive(Debug)]
     pub enum ModuleLevelFilterParseError {
+        /// The module log level does not contain an equals sign.
         NoEqualsSign {
+            /// The module log level which could not be parsed.
             bad_module_log_level: String,
         },
+        /// The log level is not a valid one.
         BadLogLevel {
+            /// The module log level which could not be parsed.
             bad_module_log_level: String,
+            /// The part of it which is not a valid log level.
             bad_log_level: String,
         },
     }
