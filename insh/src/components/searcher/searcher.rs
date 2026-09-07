@@ -1,3 +1,6 @@
+//! Contains the [`Searcher`] component.
+
+/// Contains the [`Props`] struct.
 mod props {
     use std::path::PathBuf;
 
@@ -7,15 +10,22 @@ mod props {
 
     use uuid::Uuid;
 
+    /// The properties of the searcher.
     pub struct Props {
+        /// The configuration.
         pub config: Config,
+        /// The directory to search in.
         pub dir: PathBuf,
+        /// The size of the searcher.
         pub size: Size,
+        /// The phrase to start with.
         pub phrase: Option<String>,
+        /// The pending request for the hits.
         pub pending_request: Option<Uuid>,
     }
 
     impl Props {
+        /// Return new properties.
         pub fn new(
             config: Config,
             dir: PathBuf,
@@ -35,6 +45,7 @@ mod props {
 }
 pub use props::Props;
 
+/// Contains the [`Searcher`] component.
 mod searcher {
     use super::super::{ContentsEffect, ContentsEvent};
     use super::{Action, Effect, Focus, Props, State};
@@ -48,7 +59,9 @@ mod searcher {
     use term::TermEvent;
     use til::{Component, Event};
 
+    /// A file contents searcher.
     pub struct Searcher {
+        /// The state of the searcher.
         state: State,
     }
 
@@ -194,6 +207,7 @@ mod searcher {
 }
 pub use searcher::Searcher;
 
+/// Contains the [`Effect`] enum.
 mod effect {
     use std::path::PathBuf;
 
@@ -201,16 +215,28 @@ mod effect {
 
     use insh_api::Request;
 
+    /// A searcher effect.
     pub enum Effect {
-        Goto { dir: PathBuf, file: Option<PathBuf> },
+        /// Browse a directory.
+        Goto {
+            /// The directory to browse.
+            dir: PathBuf,
+            /// The file to select.
+            file: Option<PathBuf>,
+        },
+        /// Edit a file.
         OpenVim(VimArgs),
+        /// Ring the bell.
         Bell,
+        /// Send a request.
         Request(Request),
+        /// Quit.
         Quit,
     }
 }
 pub use effect::Effect;
 
+/// Contains the [`State`] struct.
 mod state {
     use std::path::PathBuf;
 
@@ -223,47 +249,61 @@ mod state {
     use rend::Size;
     use til::Component;
 
+    /// The state of the searcher.
     pub struct State {
+        /// What is focused on.
         focus: Focus,
+        /// The directory bar.
         dir: Dir,
+        /// The phrase typed in.
         pub phrase: Phrase,
+        /// The hits found.
         pub contents: Contents,
     }
 
     impl State {
+        /// Return what is focused on.
         pub fn focus(&self) -> &Focus {
             &self.focus
         }
+        /// Return the directory bar.
         pub fn dir(&self) -> &Dir {
             &self.dir
         }
 
+        /// Return the phrase typed in.
         pub fn phrase(&self) -> &Phrase {
             &self.phrase
         }
 
+        /// Return the hits found.
         pub fn contents(&self) -> &Contents {
             &self.contents
         }
 
+        /// Send the events to the phrase.
         fn focus_phrase(&mut self) -> Option<Effect> {
             self.focus = Focus::Phrase;
             None
         }
 
+        /// Send the events to the hits.
         fn focus_contents(&mut self) -> Option<Effect> {
             self.focus = Focus::Contents;
             None
         }
 
+        /// Browse a directory.
         fn goto(&mut self, dir: PathBuf, file: Option<PathBuf>) -> Option<Effect> {
             Some(Effect::Goto { dir, file })
         }
 
+        /// Edit a file.
         fn open_vim(&mut self, vim_args: VimArgs) -> Option<Effect> {
             Some(Effect::OpenVim(vim_args))
         }
 
+        /// Quit.
         fn quit(&mut self) -> Option<Effect> {
             Some(Effect::Quit)
         }
@@ -318,25 +358,40 @@ mod state {
         }
     }
 
+    /// What the searcher is focused on.
     #[derive(Default)]
     pub enum Focus {
+        /// The phrase typed in.
         #[default]
         Phrase,
+        /// The hits found.
         Contents,
     }
 }
 use state::{Focus, State};
 
+/// Contains the [`Action`] enum.
 mod action {
     use std::path::PathBuf;
 
     use crate::programs::VimArgs;
 
+    /// A searcher action.
     pub enum Action {
+        /// Send the events to the phrase.
         FocusPhrase,
+        /// Send the events to the hits.
         FocusContents,
-        Goto { dir: PathBuf, file: Option<PathBuf> },
+        /// Browse a directory.
+        Goto {
+            /// The directory to browse.
+            dir: PathBuf,
+            /// The file to select.
+            file: Option<PathBuf>,
+        },
+        /// Edit a file.
         OpenVim(VimArgs),
+        /// Quit.
         Quit,
     }
 }

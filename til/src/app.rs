@@ -1,3 +1,5 @@
+//! The app.
+
 use std::collections::VecDeque;
 use std::ffi::{c_int, CString, OsString};
 use std::fs::File;
@@ -37,18 +39,24 @@ use nix::unistd::{chdir, execvp};
 use typed_builder::TypedBuilder;
 use uuid::Uuid;
 
+/// Runs a component in the terminal.
 #[derive(TypedBuilder)]
 pub struct App {
+    /// The terminal.
     #[builder(setter(skip), default=Term::new())]
     term: Term,
+    /// What is written to the terminal.
     #[builder(setter(skip), default=io::stdout())]
     stdout: Stdout,
+    /// Draws the component on the screen.
     #[builder(setter(skip), default=Renderer::new())]
     renderer: Renderer,
 
+    /// The unhandled terminal events.
     #[builder(setter(skip), default)]
     unused_term_events: VecDeque<TermEvent>,
 
+    /// The size of the terminal.
     #[builder(setter(skip), default)]
     size: Size,
 
@@ -67,6 +75,7 @@ impl App {
     /// faster than they can be handled, say — cannot put drawing the screen off for ever.
     const MAX_EVENTS_PER_RENDER: usize = 1024;
 
+    /// Run the app.
     pub fn run<Props, Request, Response>(
         &mut self,
         options: AppRunOptions<Props, Request, Response>,
@@ -109,7 +118,7 @@ impl App {
                 // Spawn the requester.
                 requester_handle = Some(
                     thread::Builder::new()
-                        .name("requster".to_string())
+                        .name("requester".to_string())
                         .spawn(move || requester.run(request_rx))
                         .unwrap(),
                 );
@@ -332,6 +341,7 @@ impl App {
         term_event
     }
 
+    /// Set up the terminal.
     fn set_up(&mut self) {
         self.lazy_enable_alternate_terminal();
         self.term.save_attrs().unwrap();
@@ -343,6 +353,7 @@ impl App {
         self.change_panic_hook();
     }
 
+    /// Teardown the terminal.
     fn teardown(&mut self) {
         self.lazy_disable_bracketed_paste();
         self.lazy_disable_alternate_terminal();
@@ -350,6 +361,7 @@ impl App {
         self.lazy_show_cursor();
     }
 
+    /// Run a program.
     // NOTE: clippy gets confused by the fork and complains some code is unreachable b/c of it.
     #[allow(unreachable_code)]
     fn run_program(&mut self, program: Box<dyn Program>, term_event_rx: &Receiver<TermEvent>) {
@@ -379,7 +391,7 @@ impl App {
         #[cfg(feature = "logging")]
         log::debug!("Program has filename {:?} and args {:?}", filename, args);
 
-        // Open a psuedo terminal.
+        // Open a pseudo terminal.
         let window_size: Winsize = Winsize {
             ws_row: self.size.rows.try_into().unwrap(),
             ws_col: self.size.columns.try_into().unwrap(),
@@ -406,7 +418,7 @@ impl App {
                 child = child_;
             }
             Ok(ForkptyResult::Child) => {
-                // Set the working dir
+                // Set the working dir.
                 if let Some(cwd) = program.cwd() {
                     chdir(&cwd).unwrap();
                 }
@@ -643,35 +655,42 @@ impl App {
         log::debug!("Done cleaning up program {}.", program_uuid);
     }
 
+    /// Queue switching to the second screen.
     fn lazy_enable_alternate_terminal(&mut self) {
         self.lazy_control_function(&Self::alternate_terminal(true));
     }
 
+    /// Queue switching back to the first screen.
     fn lazy_disable_alternate_terminal(&mut self) {
         self.lazy_control_function(&Self::alternate_terminal(false));
     }
 
+    /// Queue clearing the screen.
     fn lazy_clear_screen(&mut self) {
         self.lazy_control_function(&ControlFunction::EraseInDisplay(EraseInDisplay::All));
     }
 
+    /// Queue hiding the cursor.
     fn lazy_hide_cursor(&mut self) {
         self.lazy_control_function(&Self::cursor_visible(false));
     }
 
+    /// Queue showing the cursor.
     fn lazy_show_cursor(&mut self) {
         self.lazy_control_function(&Self::cursor_visible(true));
     }
 
-    /// Ask the terminal to wrap pasted text so that it can be told apart from text which is typed.
+    /// Queue asking the terminal to wrap pasted text.
     fn lazy_enable_bracketed_paste(&mut self) {
         self.lazy_control_function(&Self::bracketed_paste(true));
     }
 
+    /// Queue asking the terminal to stop wrapping pasted text.
     fn lazy_disable_bracketed_paste(&mut self) {
         self.lazy_control_function(&Self::bracketed_paste(false));
     }
 
+    /// Queue moving the cursor to the top left of the screen.
     fn lazy_move_cursor_home(&mut self) {
         self.lazy_control_function(&ControlFunction::CursorPosition { row: 1, column: 1 });
     }
@@ -693,7 +712,7 @@ impl App {
         }
     }
 
-    /// Return the control function which turns the wrapping of pasted text on and off.
+    /// Return the control function for wrapping pasted text.
     fn bracketed_paste(set: bool) -> ControlFunction {
         ControlFunction::SetMode {
             modes: vec![Mode::BracketedPaste],
@@ -706,15 +725,18 @@ impl App {
         self.stdout.write_all(&Vec::from(function)).unwrap();
     }
 
+    /// Ring the bell.
     fn make_bell_sound(&mut self) {
         self.stdout.write_all(&[ASCII::Bell as u8]).unwrap();
         self.update_terminal();
     }
 
+    /// Send everything which is queued to the terminal.
     fn update_terminal(&mut self) {
         self.stdout.flush().unwrap();
     }
 
+    /// Change the panic hook so that the terminal is put back first.
     fn change_panic_hook(&mut self) {
         let hook_before = panic::take_hook();
 
@@ -741,17 +763,21 @@ impl App {
     }
 }
 
+/// The options for running an app.
 #[derive(TypedBuilder)]
 pub struct AppRunOptions<Props, Request, Response>
 where
     Request: Send,
     Response: Send,
 {
+    /// The root component.
     root: Box<dyn Component<Props, Event<Response>, SystemEffect<Request>>>,
 
+    /// The starting effects.
     #[builder(default, setter(into))]
     starting_effects: Option<Vec<SystemEffect<Request>>>,
 
+    /// The starting terminal events.
     #[builder(default, setter(into))]
     starting_term_events: Option<Vec<TermEvent>>,
 
@@ -763,16 +789,19 @@ where
     #[builder(default, setter(into))]
     requester_stopper: Option<Box<dyn Stopper>>,
 
-    /// Handles responses and sends them to the app.
+    /// Handles responses.
     #[builder(default, setter(into))]
     response_handler: Option<Box<dyn ResponseHandler<Response>>>,
 
-    /// Stops the responses handler.
+    /// Stops the response handler.
     #[builder(default, setter(into))]
     response_handler_stopper: Option<Box<dyn Stopper>>,
 }
 
+/// A program loop event.
 enum ProgramLoopEvent {
+    /// A terminal event.
     TermEvent(TermEvent),
+    /// A program event.
     ProgramEvent(ProgramEvent),
 }

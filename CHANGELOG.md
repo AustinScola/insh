@@ -80,7 +80,7 @@ option `general.bell`.
 `general.tab_width` to enable changing the width that is used for tabs.
 
 # 0.3.14
-- Add logging as a complile feature.
+- Add logging as a compile feature.
 
 # 0.3.13
 - Fix the crash in the browser when permission is denied or the directory cannot be read for some other
@@ -135,7 +135,7 @@ means that symbolic links are no longer resolved.
 
 # 0.3.1
 - Add help information to the README.
-- Fix highlighting of searcher contents when unfocussed.
+- Fix highlighting of searcher contents when unfocused.
 - Change the finder to show relative paths in addition to file names.
 
 # 0.3.0

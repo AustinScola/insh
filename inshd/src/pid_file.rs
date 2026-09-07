@@ -39,13 +39,13 @@ impl PidFile {
 }
 
 mod read_error {
-    //! An error getting the prcocess id of inshd.
+    //! An error getting the process id of inshd.
 
     use std::fmt::{Display, Error as FmtError, Formatter};
     use std::io::Error as IOError;
     use std::num::ParseIntError;
 
-    /// An error getting the prcocess id of inshd.
+    /// An error getting the process id of inshd.
     pub enum ReadError {
         /// The pid file does not exist.
         PidFileNotFound,

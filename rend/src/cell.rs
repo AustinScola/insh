@@ -98,7 +98,7 @@ impl Cell {
         }
     }
 
-    /// Return whether the cell is the second column of a cluster which is two wide.
+    /// Return whether the cell is the second column of a wide cluster.
     pub fn is_continuation(&self) -> bool {
         matches!(self, Self::Continuation)
     }
@@ -180,7 +180,7 @@ mod tests {
 
     #[test_case("abc"; "plain characters")]
     #[test_case("e\u{301}"; "a character with a combining accent")]
-    #[test_case("a🦀b"; "a wide character in amongst narrow ones")]
+    #[test_case("a🦀b"; "a wide character in among narrow ones")]
     #[test_case("\u{200d}"; "a cluster written in no columns")]
     #[test_case(""; "nothing at all")]
     fn test_the_columns_of_a_string_are_how_many_cells_it_takes(string: &str) {

@@ -47,7 +47,7 @@ pub fn add(
     return Ok(());
 }
 
-/// Return the most recently searched for phrase which starts with a partial phrase.
+/// Return the most recent phrase starting with a partial one.
 pub fn suggest(
     db_conn_pool: &DbConnPool,
     partial: &str,

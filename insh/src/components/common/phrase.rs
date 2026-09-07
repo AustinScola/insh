@@ -1,17 +1,23 @@
+//! Contains the [`Phrase`] component.
+
+/// Contains the [`Props`] struct.
 mod props {
     use typed_builder::TypedBuilder;
 
+    /// The properties of a phrase.
     #[derive(TypedBuilder)]
     pub struct Props {
-        /// Whether or not completions should be requested for the phrase as it is typed.
+        /// Whether completions should be requested for the phrase as it is typed.
         #[builder(default)]
         pub completable: bool,
+        /// The phrase to start with.
         #[builder(default, setter(into))]
         pub value: Option<String>,
     }
 }
 pub use props::Props;
 
+/// Contains the [`Phrase`] component.
 mod phrase {
     use super::{Action, Effect, Event, Props, State};
     use crate::color::Color;
@@ -21,8 +27,10 @@ mod phrase {
     use term::{Key, KeyEvent, KeyMods, TermEvent};
     use til::Component;
 
+    /// A phrase.
     #[derive(Default)]
     pub struct Phrase {
+        /// The state of the phrase.
         state: State,
     }
 
@@ -101,25 +109,33 @@ mod phrase {
 }
 pub use phrase::Phrase;
 
+/// Contains the [`Event`] enum.
 mod event {
     use term::TermEvent;
 
     use uuid::Uuid;
 
+    /// A phrase event.
     #[allow(clippy::enum_variant_names)]
     pub enum Event {
+        /// The phrase is being typed in.
         Focus,
+        /// The phrase is no longer being typed in.
         Unfocus,
+        /// A terminal event.
         TermEvent(TermEvent),
-        /// A completion (or lack thereof) requested via `Effect::RequestCompletion` has arrived.
+        /// A completion arrived.
         Completion {
+            /// The unique identifier of the request.
             uuid: Uuid,
+            /// The completion.
             completion: Option<String>,
         },
     }
 }
 pub use event::Event;
 
+/// Contains the [`State`] struct.
 mod state {
     use super::{Action, Effect};
     use crate::stateful::Stateful;
@@ -127,16 +143,22 @@ mod state {
     use typed_builder::TypedBuilder;
     use uuid::Uuid;
 
+    /// The state of a phrase.
     #[derive(TypedBuilder)]
     pub struct State {
+        /// What has been typed in.
         #[builder(default, setter(into))]
         value: String,
+        /// The completion.
         #[builder(default, setter(into))]
         completion: Option<String>,
+        /// Whether the phrase is being typed in.
         #[builder(default = true, setter(into))]
         focus: bool,
+        /// Whether completions should be requested for the phrase as it is typed.
         #[builder(default)]
         completable: bool,
+        /// The pending request for a completion.
         #[builder(default)]
         pending_completion_request: Option<Uuid>,
     }
@@ -154,23 +176,28 @@ mod state {
     }
 
     impl State {
+        /// Return what has been typed in.
         pub fn value(&self) -> &str {
             &self.value
         }
 
+        /// Return the completion.
         pub fn completion(&self) -> &Option<String> {
             &self.completion
         }
 
+        /// Return whether the phrase is being typed in.
         pub fn is_focused(&self) -> bool {
             self.focus
         }
 
+        /// Start typing in the phrase.
         pub fn focus(&mut self) -> Option<Effect> {
             self.focus = true;
             None
         }
 
+        /// Stop typing in the phrase.
         pub fn unfocus(&mut self) -> Option<Effect> {
             self.focus = false;
             None
@@ -190,6 +217,7 @@ mod state {
             })
         }
 
+        /// Add a character to the end of the phrase.
         fn push(&mut self, character: char) -> Option<Effect> {
             self.value.push(character);
             self.request_completion()
@@ -211,6 +239,7 @@ mod state {
             self.request_completion()
         }
 
+        /// Take the last character off the phrase.
         fn pop(&mut self) -> Option<Effect> {
             self.value.pop();
 
@@ -223,6 +252,7 @@ mod state {
             self.request_completion()
         }
 
+        /// Take note of a completion.
         fn set_completion(&mut self, uuid: Uuid, completion: Option<String>) -> Option<Effect> {
             if self.pending_completion_request != Some(uuid) {
                 return None;
@@ -234,6 +264,7 @@ mod state {
             None
         }
 
+        /// Take the completion as the phrase.
         fn complete(&mut self) -> Option<Effect> {
             if let Some(completion) = &self.completion {
                 self.value = completion.to_string();
@@ -242,6 +273,7 @@ mod state {
             None
         }
 
+        /// Enter the phrase.
         fn find(&mut self) -> Option<Effect> {
             self.focus = false;
             Some(Effect::Enter {
@@ -249,6 +281,7 @@ mod state {
             })
         }
 
+        /// Quit.
         fn quit(&mut self) -> Option<Effect> {
             Some(Effect::Quit)
         }
@@ -272,37 +305,66 @@ mod state {
 }
 pub use state::State;
 
+/// Contains the [`Action`] enum.
 mod action {
     use uuid::Uuid;
 
+    /// A phrase action.
     pub enum Action {
+        /// Start typing in the phrase.
         Focus,
+        /// Stop typing in the phrase.
         Unfocus,
+        /// Add a character to the end of the phrase.
         Push {
+            /// The character to add.
             character: char,
         },
+        /// Add pasted text to the end of the phrase.
         Paste {
+            /// The pasted text.
             text: String,
         },
+        /// Take the last character off the phrase.
         Pop,
+        /// Take note of a completion.
         SetCompletion {
+            /// The unique identifier of the request.
             uuid: Uuid,
+            /// The completion.
             completion: Option<String>,
         },
+        /// Take the completion as the phrase.
         Complete,
+        /// Enter the phrase.
         Enter,
+        /// Quit.
         Quit,
     }
 }
 pub use action::Action;
 
+/// Contains the [`Effect`] enum.
 mod effect {
     use uuid::Uuid;
 
+    /// A phrase effect.
     pub enum Effect {
-        RequestCompletion { uuid: Uuid, partial: String },
-        Enter { phrase: String },
+        /// Ask for a completion for what has been typed in so far.
+        RequestCompletion {
+            /// The unique identifier to ask for it with.
+            uuid: Uuid,
+            /// What has been typed in so far.
+            partial: String,
+        },
+        /// The phrase was entered.
+        Enter {
+            /// The phrase.
+            phrase: String,
+        },
+        /// Ring the bell.
         Bell,
+        /// Quit.
         Quit,
     }
 }

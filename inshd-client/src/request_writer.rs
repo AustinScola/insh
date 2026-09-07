@@ -16,7 +16,7 @@ pub struct RequestWriter {
 }
 
 impl RequestWriter {
-    /// Send a request to inshd.
+    /// Send a request.
     pub fn send(&mut self, request: &Request) -> Result<(), SendError> {
         let bytes: Vec<u8> = postcard::to_stdvec(request).map_err(SendError::FailedToSerialize)?;
 

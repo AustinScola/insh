@@ -27,7 +27,7 @@ impl SuggestFindPattern {
         }
     }
 
-    /// Return the most recently used pattern which starts with the partial pattern.
+    /// Return the most recent pattern starting with the partial one.
     fn suggest(&self) -> Result<Option<String>, Box<dyn Error + Send + Sync>> {
         return find_history::suggest(&self.db_conn_pool, &self.partial);
     }

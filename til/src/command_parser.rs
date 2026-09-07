@@ -1,3 +1,5 @@
+//! Parses key presses into commands.
+
 use term::{Key, KeyEvent, KeyMods};
 
 /// A key which a key event is matched against.
@@ -10,7 +12,7 @@ pub struct KeyPattern {
 }
 
 impl KeyPattern {
-    /// Return a pattern which matches a key pressed with exactly the given modifiers.
+    /// Return a pattern for a key pressed with exactly the given modifiers.
     pub fn exact(key: Key, mods: KeyMods) -> Self {
         Self {
             key,
@@ -23,7 +25,7 @@ impl KeyPattern {
         Self { key, mods: None }
     }
 
-    /// Return whether or not a key event matches the pattern.
+    /// Return whether a key event matches the pattern.
     fn matches(&self, key_event: &KeyEvent) -> bool {
         if key_event.key != self.key {
             return false;
@@ -40,7 +42,7 @@ impl KeyPattern {
 pub enum Parsed<Command> {
     /// The keys pressed so far form a command.
     Command(Command),
-    /// The keys pressed so far are the beginning of one or more commands, so more keys are needed.
+    /// The keys pressed so far begin a command, so more keys are needed.
     Pending,
     /// The keys pressed are not the beginning of any command.
     Unknown(Vec<KeyEvent>),
@@ -56,7 +58,7 @@ struct Binding<Command> {
 }
 
 impl<Command> Binding<Command> {
-    /// Return whether or not the keys pressed so far match the beginning of the binding.
+    /// Return whether the keys pressed match the beginning of the binding.
     fn matches(&self, pending: &[KeyEvent]) -> bool {
         self.keys
             .iter()
@@ -73,7 +75,7 @@ impl<Command> Binding<Command> {
 pub struct CommandParser<Command> {
     /// The commands which can be parsed.
     bindings: Vec<Binding<Command>>,
-    /// The keys which have been pressed but have not formed a command yet.
+    /// The keys pressed which have not formed a command yet.
     pending: Vec<KeyEvent>,
 }
 
@@ -103,7 +105,7 @@ impl<Command: Clone> CommandParser<Command> {
         self
     }
 
-    /// Return the keys which have been pressed but have not formed a command yet.
+    /// Return the keys pressed which have not formed a command yet.
     pub fn pending(&self) -> &[KeyEvent] {
         &self.pending
     }

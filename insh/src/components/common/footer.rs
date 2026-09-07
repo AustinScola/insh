@@ -2,6 +2,7 @@
 The bar which is shown along the bottom of a component.
 */
 
+/// Contains the [`Info`] trait.
 mod info {
     /// What a component shows in its footer.
     ///
@@ -21,11 +22,13 @@ mod info {
 }
 pub use info::Info;
 
+/// Contains the [`Props`] struct.
 mod props {
     use super::Info;
 
     use typed_builder::TypedBuilder;
 
+    /// The properties of a footer.
     #[derive(TypedBuilder)]
     pub struct Props<'a, I: Info> {
         /// The name of the component the footer is for.
@@ -37,6 +40,7 @@ mod props {
 }
 pub use props::Props;
 
+/// Contains the [`Footer`] component.
 mod footer {
     use super::{Effect, Event, Info, Props, State};
     use crate::color::Color;
@@ -44,7 +48,9 @@ mod footer {
     use rend::{Cell, Fabric, Size, Yarn};
     use til::Component;
 
+    /// The bar which is shown along the bottom of a component.
     pub struct Footer<'a, I: Info> {
+        /// The state of the footer.
         state: State<'a, I>,
     }
 
@@ -103,7 +109,9 @@ mod footer {
 
         /// What a component shows in its footer for testing.
         struct TestInfo {
+            /// What is shown on the left.
             text: String,
+            /// Where you are in what is shown.
             position: String,
         }
 
@@ -148,14 +156,18 @@ mod footer {
 }
 pub use footer::Footer;
 
+/// Contains the [`Event`] enum.
 mod event {
+    /// A footer event.
     pub enum Event {}
 }
 pub use event::Event;
 
+/// Contains the [`State`] struct.
 mod state {
     use super::{Info, Props};
 
+    /// The state of a footer.
     pub struct State<'a, I: Info> {
         /// The name of the component the footer is for.
         name: String,
@@ -186,7 +198,9 @@ mod state {
 }
 use state::State;
 
+/// Contains the [`Effect`] enum.
 mod effect {
+    /// A footer effect.
     pub enum Effect {}
 }
 pub use effect::Effect;

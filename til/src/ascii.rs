@@ -1,5 +1,5 @@
 /*!
-This module contains an enum [`ASCII`] for different ASCII codes.
+ASCII codes.
 */
 use std::fmt::{Display, Formatter, Result as FmtResult};
 

@@ -1,8 +1,12 @@
+//! A component.
+
 use std::any::type_name;
 
 use rend::{Fabric, Size};
 
+/// A component.
 pub trait Component<Props, Event, Effect> {
+    /// Return a new component.
     fn new(props: Props) -> Self
     where
         Self: Sized;
@@ -21,12 +25,15 @@ pub trait Component<Props, Event, Effect> {
         name.to_lowercase()
     }
 
+    /// Return the effects for when the component is created.
     fn on_created(&mut self) -> Option<Box<dyn Iterator<Item = Effect>>> {
         None
     }
 
+    /// Handle an event, returning the effect to perform for it.
     fn handle(&mut self, event: Event) -> Option<Effect>;
 
+    /// Render the component at the given size.
     fn render(&self, size: Size) -> Fabric;
 }
 

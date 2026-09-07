@@ -34,7 +34,7 @@ impl InshdClient {
             .build());
     }
 
-    /// Send a request to inshd.
+    /// Send a request.
     pub fn send(&mut self, request: &Request) -> Result<(), SendError> {
         return self.writer.send(request);
     }

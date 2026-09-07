@@ -27,7 +27,7 @@ impl SuggestSearchPhrase {
         }
     }
 
-    /// Return the most recent phrase which was searched for that starts with the partial phrase.
+    /// Return the most recent phrase starting with the partial one.
     fn suggest(&self) -> Result<Option<String>, Box<dyn Error + Send + Sync>> {
         return search_history::suggest(&self.db_conn_pool, &self.partial);
     }

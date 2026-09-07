@@ -1,3 +1,5 @@
+//! A file contents searcher.
+
 mod contents;
 mod searcher;
 

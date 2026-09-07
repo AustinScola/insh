@@ -49,10 +49,10 @@ const POSTMASTER_PID_FILE_NAME: &str = "postmaster.pid";
 /// The name of the file that PostgreSQL writes its start up logs to.
 const START_LOG_FILE_NAME: &str = "start.log";
 
-/// The name of the file that PostgreSQL reads the password from when creating the database.
+/// The name of the file PostgreSQL reads the password from.
 const PWFILE_NAME: &str = "pwfile";
 
-/// The name of the file that PostgreSQL reads the rules for authenticating connections from.
+/// The name of the file PostgreSQL reads the authentication rules from.
 const HBA_FILE_NAME: &str = "pg_hba.conf";
 
 /// The name of the file that PostgreSQL reads the mapping of operating system users to database
@@ -367,7 +367,7 @@ mod start_error {
 
     /// An error starting the database.
     pub enum StartError {
-        /// The path of the directory to create the unix socket in is not valid unicode.
+        /// The path of the unix socket directory is not valid unicode.
         SocketDirNotUnicode(PathBuf),
         /// The path of the directory to create the unix socket in is too long.
         SocketDirTooLong(PathBuf),
@@ -384,7 +384,7 @@ mod start_error {
         NoSuchUser(u32),
         /// An error installing the database server.
         SetupFailed(PostgresError),
-        /// The directory that the database server is installed in is not named after a version.
+        /// The directory the server is installed in is not named after a version.
         UnknownVersion(PathBuf),
         /// An error starting the database server, along with the start up logs if they could be
         /// read.

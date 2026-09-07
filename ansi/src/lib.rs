@@ -1,5 +1,5 @@
 /*!
-The ANSI escape sequences which both a terminal and the programs running in it send, and the colours
+The ANSI escape sequences which both a terminal and the programs running in it send, and the colors
 and styles which they carry.
 
 There are two layers to this. [`AnsiEscapeSequence`] is the structure of a sequence: which sort it
@@ -44,6 +44,8 @@ Where a control function is not from ECMA-48 the doc comment for it says so.
 [ctlseqs]: https://invisible-island.net/xterm/ctlseqs/ctlseqs.html
 [wikipedia]: https://en.wikipedia.org/wiki/ANSI_escape_code
 */
+#![deny(missing_docs)]
+#![deny(clippy::missing_docs_in_private_items)]
 #![allow(clippy::needless_return)]
 
 mod control_function;

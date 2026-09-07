@@ -1,3 +1,5 @@
+//! A file finder.
+
 mod contents;
 mod finder;
 

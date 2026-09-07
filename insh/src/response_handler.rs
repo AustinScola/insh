@@ -1,3 +1,5 @@
+//! Handles responses from inshd.
+
 use std::net::Shutdown;
 use std::os::unix::net::UnixStream;
 
@@ -10,8 +12,10 @@ use typed_builder::TypedBuilder;
 #[cfg(feature = "logging")]
 use uuid::Uuid;
 
+/// Handles responses from inshd.
 #[derive(TypedBuilder)]
 pub struct InshdResponseHandler {
+    /// The response reader.
     reader: ResponseReader,
 }
 
@@ -30,7 +34,7 @@ impl ResponseHandler<Response> for InshdResponseHandler {
                 Err(error) => {
                     match error {
                         // NOTE: We can get here if either inshd disconnects or when til calls
-                        // the response handler stopper which shutsdown the socket.
+                        // the response handler stopper which shuts down the socket.
                         ReceiveError::Disconnected => {
                             #[cfg(feature = "logging")]
                             log::warn!("Disconnected from inshd.");
@@ -62,8 +66,10 @@ impl ResponseHandler<Response> for InshdResponseHandler {
     }
 }
 
+/// Stops the response handler.
 #[derive(TypedBuilder)]
 pub struct InshdResponseHandlerStopper {
+    /// The socket.
     socket: UnixStream,
 }
 

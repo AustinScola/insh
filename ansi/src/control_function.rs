@@ -43,7 +43,12 @@ pub enum ControlFunction {
     LinePositionForward(u16),
     /// Move the cursor to the given row and column, both counting from one (`CSI n ; m H`, and
     /// `CSI n ; m f`, which does the same thing).
-    CursorPosition { row: u16, column: u16 },
+    CursorPosition {
+        /// The row to move the cursor to.
+        row: u16,
+        /// The column to move the cursor to.
+        column: u16,
+    },
     /// Move the cursor forward the given number of tab stops (`CSI n I`).
     CursorForwardTabulation(u16),
     /// Move the cursor back the given number of tab stops (`CSI n Z`).
@@ -67,7 +72,12 @@ pub enum ControlFunction {
     /// Report where the cursor is (`CSI 6 n`).
     RequestCursorPosition,
     /// Where the cursor is, which is the reply to being asked (`CSI n ; m R`).
-    CursorPositionReport { row: u16, column: u16 },
+    CursorPositionReport {
+        /// The row of the cursor.
+        row: u16,
+        /// The column of the cursor.
+        column: u16,
+    },
 
     /// Erase part of the screen (`CSI n J`).
     EraseInDisplay(EraseInDisplay),
@@ -101,7 +111,12 @@ pub enum ControlFunction {
     /// screen when there is no bottom (DECSTBM, `CSI n ; m r`).
     ///
     /// NOTE: This one is not in ECMA-48. It is a DEC control function which every terminal has.
-    SetScrollingRegion { top: u16, bottom: Option<u16> },
+    SetScrollingRegion {
+        /// The first row of the scrolling region.
+        top: u16,
+        /// The last row of it, or `None` for the bottom of the screen.
+        bottom: Option<u16>,
+    },
     /// Move on the given number of pages (NP, `CSI n U`).
     NextPage(u16),
     /// Move back the given number of pages (PP, `CSI n V`).
@@ -124,6 +139,7 @@ pub enum ControlFunction {
     /// Turn the given modes on or off (`CSI n h` and `CSI n l`, and `CSI ? n h` and `CSI ? n l`
     /// for the ones which are private to a terminal).
     SetMode {
+        /// The modes being turned on or off.
         modes: Vec<Mode>,
         /// Whether the modes are being turned on rather than off.
         set: bool,
@@ -173,7 +189,7 @@ impl AnsiEscapeSequence {
 }
 
 impl Display for ControlFunction {
-    /// Write the sequence for the control function, so that it can be put in amongst text which is
+    /// Write the sequence for the control function, so that it can be put in among text which is
     /// being formatted.
     ///
     /// The only one which cannot be written this way is an operating system command which was not
@@ -454,7 +470,7 @@ impl From<&ControlFunction> for Vec<u8> {
 }
 
 impl ControlFunction {
-    /// The four slots which a character set can be picked for, in the order they are numbered.
+    /// The four slots which a character set can be picked for, in order.
     const CHARACTER_SET_SLOTS: &'static [u8] = b"()*+";
 
     /// Return the value as a parameter, or nothing at all when it is the given default, which is
@@ -535,7 +551,7 @@ impl ControlFunction {
         }
     }
 
-    /// Return what a sequence which sets modes says to do, or `None` if it names none.
+    /// Return what a sequence which sets modes says to do.
     fn of_mode(control: &ControlSequence, private: bool) -> Option<Self> {
         // NOTE: Setting and resetting modes are the two control sequences whose parameter has no
         // default, so a sequence which names no mode is not saying to do anything.
@@ -773,7 +789,7 @@ impl From<u16> for CursorTabulationControl {
     }
 }
 
-/// What to do with an auxiliary device, which is a printer on the terminals which have one.
+/// What to do with an auxiliary device.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum MediaCopy {
     /// Start sending to the primary device (`0`).
@@ -859,7 +875,7 @@ impl From<u16> for ClearTabStops {
     }
 }
 
-/// Something about the terminal which can be turned on and off.
+/// A terminal mode.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Mode {
     /// Writing a character makes room for it rather than writing over what is there (`4`).
@@ -915,7 +931,7 @@ pub enum Mode {
     Unknown {
         /// Which mode it is.
         number: u16,
-        /// Whether it is one which is private to a terminal rather than a standard one.
+        /// Whether the mode is private to a terminal.
         private: bool,
     },
 }
@@ -951,7 +967,7 @@ impl Mode {
         }
     }
 
-    /// Return whether the mode is one which is private to a terminal rather than a standard one.
+    /// Return whether the mode is private to a terminal.
     pub fn is_private(&self) -> bool {
         match self {
             Self::Insert | Self::SendReceive | Self::LineFeedNewLine => false,
@@ -1093,8 +1109,8 @@ mod tests {
     #[test_case(b"\x1b[0c", b"\x1b[c"; "asking what sort of terminal it is")]
     #[test_case(b"\x1b[0A", b"\x1b[A"; "a count of zero, which means one")]
     #[test_case(b"\x1b[0m", b"\x1b[m"; "a reset of how text is styled")]
-    #[test_case(b"\x1b[38;5;1m", b"\x1b[31m"; "a basic colour written as a palette entry")]
-    #[test_case(b"\x1b[38;5;9m", b"\x1b[91m"; "a bright colour written as a palette entry")]
+    #[test_case(b"\x1b[38;5;1m", b"\x1b[31m"; "a basic color written as a palette entry")]
+    #[test_case(b"\x1b[38;5;9m", b"\x1b[91m"; "a bright color written as a palette entry")]
     #[test_case(b"\x1b[38:5:196m", b"\x1b[38;5;196m"; "a palette entry written as sub-parameters")]
     #[test_case(b"\x1b[38:2::255:0:0m", b"\x1b[38;2;255;0;0m"; "components written as sub-parameters")]
     #[test_case(b"\x1b[4:2m", b"\x1b[21m"; "an underline of two lines")]
@@ -1130,9 +1146,9 @@ mod tests {
     #[test_case(b"\x1b[4h"; "turning a standard mode on")]
     #[test_case(b"\x1b[?9999h"; "turning a mode which is not known on")]
     #[test_case(b"\x1b[1;4;7;31;44m"; "styling the text several ways")]
-    #[test_case(b"\x1b[38;2;255;128;0m"; "a colour given as components")]
-    #[test_case(b"\x1b[58;5;196m"; "the colour of an underline")]
-    #[test_case(b"\x1b[58;5;1m"; "a basic colour for an underline, which has no short spelling")]
+    #[test_case(b"\x1b[38;2;255;128;0m"; "a color given as components")]
+    #[test_case(b"\x1b[58;5;196m"; "the color of an underline")]
+    #[test_case(b"\x1b[58;5;1m"; "a basic color for an underline, which has no short spelling")]
     #[test_case(b"\x1b[4:3m"; "a curly underline")]
     #[test_case(b"\x1b[4:0m"; "an underline turned off by its sub-parameter")]
     #[test_case(b"\x1b[24m"; "an underline turned off by its own parameter")]

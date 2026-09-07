@@ -1,3 +1,5 @@
+//! Sends requests to inshd.
+
 use insh_api::Request;
 use inshd_client::RequestWriter;
 use til::Requester;
@@ -5,8 +7,10 @@ use til::Requester;
 use crossbeam::channel::Receiver;
 use typed_builder::TypedBuilder;
 
+/// Sends requests to inshd.
 #[derive(TypedBuilder)]
 pub struct InshdRequester {
+    /// The request writer.
     writer: RequestWriter,
 }
 

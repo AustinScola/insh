@@ -1,3 +1,6 @@
+//! Contains the [`FileCreator`] component.
+
+/// Contains the [`Props`] struct.
 mod props {
     use std::path::PathBuf;
 
@@ -5,17 +8,22 @@ mod props {
 
     use typed_builder::TypedBuilder;
 
+    /// The properties of the file creator.
     #[derive(TypedBuilder)]
     pub struct Props {
+        /// The directory to make the file in.
         dir: PathBuf,
+        /// The type of file to make.
         file_type: FileType,
     }
 
     impl Props {
+        /// Return the directory to make the file in.
         pub fn dir(&self) -> &PathBuf {
             &self.dir
         }
 
+        /// Return the type of file to make.
         pub fn file_type(&self) -> FileType {
             self.file_type
         }
@@ -23,6 +31,7 @@ mod props {
 }
 pub use props::Props;
 
+/// Contains the [`FileCreator`] component.
 mod file_creator {
     use super::Event;
     use super::{Action, Effect, Props, State};
@@ -32,7 +41,9 @@ mod file_creator {
     use rend::{Fabric, Size};
     use til::Component;
 
+    /// A file creator.
     pub struct FileCreator {
+        /// The state of the file creator.
         state: State,
     }
 
@@ -127,17 +138,22 @@ mod file_creator {
 }
 pub use file_creator::FileCreator;
 
+/// Contains the [`Event`] enum.
 mod event {
     use insh_api::Response;
     use term::TermEvent;
 
+    /// A file creator event.
     pub enum Event {
+        /// A response.
         Response(Response),
+        /// A terminal event.
         TermEvent(TermEvent),
     }
 }
 pub use event::Event;
 
+/// Contains the [`State`] struct.
 mod state {
     use std::path::PathBuf;
 
@@ -154,15 +170,23 @@ mod state {
 
     use uuid::Uuid;
 
+    /// The state of the file creator.
     pub struct State {
+        /// The directory to make the file in.
         dir: PathBuf,
+        /// The directory bar.
         dir_component: Dir,
+        /// The name typed in.
         pub phrase: Phrase,
+        /// The type of file to make.
         file_type: FileType,
 
+        /// The pending request.
         pending_request: Option<Uuid>,
+        /// The path of the file being made.
         pending_file: Option<PathBuf>,
 
+        /// Why the file could not be made, if it could not be.
         error: Option<String>,
     }
 
@@ -198,10 +222,12 @@ mod state {
     impl FooterInfo for State {}
 
     impl State {
+        /// Return the directory bar.
         pub fn dir_component(&self) -> &Dir {
             &self.dir_component
         }
 
+        /// Return why the file could not be made, if it could not be.
         pub fn error(&self) -> &Option<String> {
             &self.error
         }
@@ -214,6 +240,7 @@ mod state {
             }
         }
 
+        /// Ask inshd to make the file.
         fn create_file(&mut self, filename: &str) -> Option<Effect> {
             let mut path = self.dir.clone();
             path.push(filename);
@@ -232,6 +259,7 @@ mod state {
             Some(Effect::Request(request))
         }
 
+        /// Browse the new file, or show why it could not be made.
         fn handle_response(&mut self, response: Response) -> Option<Effect> {
             #[cfg(feature = "logging")]
             log::debug!("Handling response...");
@@ -272,10 +300,12 @@ mod state {
             })
         }
 
+        /// Ring the bell.
         fn bell(&mut self) -> Option<Effect> {
             Some(Effect::Bell)
         }
 
+        /// Quit.
         fn quit(&mut self) -> Option<Effect> {
             Some(Effect::Quit)
         }
@@ -283,27 +313,47 @@ mod state {
 }
 use state::State;
 
+/// Contains the [`Effect`] enum.
 mod effect {
     use std::path::PathBuf;
 
     use insh_api::Request;
 
+    /// A file creator effect.
     pub enum Effect {
+        /// Send a request.
         Request(Request),
-        Browse { dir: PathBuf, file: Option<PathBuf> },
+        /// Browse a directory.
+        Browse {
+            /// The directory to browse.
+            dir: PathBuf,
+            /// The file to select.
+            file: Option<PathBuf>,
+        },
+        /// Ring the bell.
         Bell,
+        /// Quit.
         Quit,
     }
 }
 pub use effect::Effect;
 
+/// Contains the [`Action`] enum.
 mod action {
     use insh_api::Response;
 
+    /// A file creator action.
     pub enum Action {
-        CreateFile { filename: String },
+        /// Make the file.
+        CreateFile {
+            /// The name to give it.
+            filename: String,
+        },
+        /// Handle a response from inshd.
         HandleResponse(Response),
+        /// Ring the bell.
         Bell,
+        /// Quit.
         Quit,
     }
 }

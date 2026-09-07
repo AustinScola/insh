@@ -2,9 +2,11 @@
 Renders information about files the way that people are used to reading it (which is the same way
 that `ls -l` renders it).
 */
+#![deny(missing_docs)]
+#![deny(clippy::missing_docs_in_private_items)]
 #![allow(clippy::needless_return)]
 
-/// Contains functionality for rendering the mode of a file.
+/// Contains the [`human_friendly_file_mode`] function.
 mod mode {
     /// The bits of a mode which indicate the type of the file.
     const TYPE_MASK: u32 = 0o170000;
@@ -128,7 +130,7 @@ mod mode {
 }
 pub use mode::{human_friendly_file_mode, FILE_MODE_WIDTH};
 
-/// Contains functionality for rendering the time that a file was modified.
+/// Contains the [`human_friendly_file_time`] function.
 mod time {
     use chrono::{DateTime, Local, LocalResult, TimeZone};
 

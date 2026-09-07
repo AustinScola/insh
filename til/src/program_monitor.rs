@@ -1,16 +1,22 @@
+//! Watches a program.
+
 use crossbeam::channel::Sender;
 use nix::sys::wait::{waitpid, WaitPidFlag, WaitStatus};
 use nix::unistd::Pid;
 use nix::Result as NixResult;
 use typed_builder::TypedBuilder;
 
+/// Watches a program.
 #[derive(TypedBuilder)]
 pub struct ProgramMonitor {
+    /// The pid of the program.
     child: Pid,
+    /// Where the events are sent.
     program_event_tx: Sender<ProgramEvent>,
 }
 
 impl ProgramMonitor {
+    /// Watch the program until it exits.
     pub fn run(&self) {
         #[cfg(feature = "logging")]
         log::info!(
@@ -27,7 +33,7 @@ impl ProgramMonitor {
                 #[allow(unused_variables)]
                 Err(error) => {
                     #[cfg(feature = "logging")]
-                    log::info!("Program monitor encounted error: {}.", error);
+                    log::info!("Program monitor encountered error: {}.", error);
                     break;
                 }
             };
@@ -52,6 +58,8 @@ impl ProgramMonitor {
     }
 }
 
+/// A program event.
 pub enum ProgramEvent {
+    /// The program exited.
     Done,
 }

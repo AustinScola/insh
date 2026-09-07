@@ -1,7 +1,9 @@
 /*!
-This crate contains the struct [`PhraseSearcher`] which can be used to search for a given phrase in
-the files in a directory (and all sub-directories).
+Searches the files in a directory (and all sub-directories) for a phrase.
 */
+#![deny(missing_docs)]
+#![deny(clippy::missing_docs_in_private_items)]
+
 use std::fs::File;
 use std::io::{BufRead, BufReader};
 use std::path::{Path, PathBuf};
@@ -11,7 +13,7 @@ use walkdir::{
     DirEntry as Entry, Error as WalkerEntryError, IntoIter as Walker, WalkDir as WalkerBuilder,
 };
 
-/// Used to search for phrases in files.
+/// Searches files for a phrase.
 pub struct PhraseSearcher {
     /// The phrase to search for.
     phrase: String,
@@ -35,7 +37,7 @@ impl PhraseSearcher {
 pub enum Searched {
     /// The file has lines which contain the phrase.
     Hit(FileHit),
-    /// The file does not have any lines which contain the phrase (or it could not be read).
+    /// The file does not have any lines which contain the phrase.
     NoHit,
 }
 
@@ -95,7 +97,7 @@ impl Iterator for PhraseSearcher {
     }
 }
 
-/// A file contains lines which have hits for a phrase.
+/// A file with hits for a phrase.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct FileHit {
     /// The path of the file.
@@ -116,13 +118,13 @@ impl FileHit {
         &self.path
     }
 
-    /// Return all the lint hits.
+    /// Return the line hits.
     pub fn line_hits(&self) -> &Vec<LineHit> {
         &self.line_hits
     }
 }
 
-/// Represents a line contains a hit for a phrase in a file.
+/// A line with a hit for a phrase.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct LineHit {
     /// The line number in the file.

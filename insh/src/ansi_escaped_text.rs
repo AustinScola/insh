@@ -8,18 +8,25 @@ use nom::combinator::value;
 use nom::IResult as ParseResult;
 use nom::Parser;
 
+/// ANSI escaped text.
 #[derive(Debug, PartialEq, Eq)]
 pub enum ANSIEscapedText {
+    /// An ANSI escape code.
     ANSIEscapeCode(ANSIEscapeCode),
+    /// A byte of text.
     Character(u8),
 }
 
+/// An ANSI escape code.
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub enum ANSIEscapeCode {
+    /// Switch to the alternative screen.
     EnableAlternativeScreen,
+    /// Switch back from the alternative screen.
     DisableAlternativeScreen,
 }
 
+/// Parse an ANSI escape code or a byte of text.
 pub fn parser(input: &[u8]) -> ParseResult<&[u8], ANSIEscapedText> {
     alt((
         map(ansi_escape_code, |ansi_escape_code: ANSIEscapeCode| {
@@ -32,6 +39,7 @@ pub fn parser(input: &[u8]) -> ParseResult<&[u8], ANSIEscapedText> {
     .parse(input)
 }
 
+/// Parse an ANSI escape code.
 fn ansi_escape_code(input: &[u8]) -> ParseResult<&[u8], ANSIEscapeCode> {
     let (input, _) = control_sequence_introducer(input)?;
 
@@ -39,6 +47,7 @@ fn ansi_escape_code(input: &[u8]) -> ParseResult<&[u8], ANSIEscapeCode> {
     alternative_screen(input)
 }
 
+/// Parse the alternative screen escape code.
 fn alternative_screen(input: &[u8]) -> ParseResult<&[u8], ANSIEscapeCode> {
     let (input, _) = tag(&[0x3F, 0x31, 0x30, 0x34, 0x39][..]).parse(input)?; // ? 1049
 
@@ -49,6 +58,7 @@ fn alternative_screen(input: &[u8]) -> ParseResult<&[u8], ANSIEscapeCode> {
     .parse(input)
 }
 
+/// Parse the control sequence introducer.
 fn control_sequence_introducer(input: &[u8]) -> ParseResult<&[u8], &[u8]> {
     tag(&[0x1B, 0x5B][..]).parse(input) // `<Esc> [`
 }

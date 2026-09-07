@@ -2,6 +2,8 @@
 Contains functionality for representing styled text, manipulating it, and rendering it to a
 terminal screen.
 */
+#![deny(missing_docs)]
+#![deny(clippy::missing_docs_in_private_items)]
 #![allow(clippy::needless_return)]
 
 mod cell;

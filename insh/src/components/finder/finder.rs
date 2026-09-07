@@ -1,3 +1,6 @@
+//! Contains the [`Finder`] component.
+
+/// Contains the [`Props`] struct.
 mod props {
     use std::path::PathBuf;
 
@@ -5,17 +8,22 @@ mod props {
 
     use typed_builder::TypedBuilder;
 
+    /// The properties of the finder.
     #[derive(TypedBuilder)]
     pub struct Props {
+        /// The directory to look in.
         #[builder(setter(into))]
         pub dir: PathBuf,
+        /// The size of the finder.
         pub size: Size,
+        /// The pattern to start with.
         #[builder(setter(into))]
         pub phrase: Option<String>,
     }
 }
 pub use props::Props;
 
+/// Contains the [`Finder`] component.
 mod finder {
     use super::super::{ContentsEffect, ContentsEvent};
     use super::{Action, Effect, Focus, Props, State};
@@ -29,7 +37,9 @@ mod finder {
     use term::TermEvent;
     use til::{Component, Event};
 
+    /// A file finder.
     pub struct Finder {
+        /// The state of the finder.
         state: State,
     }
 
@@ -186,6 +196,7 @@ mod finder {
 }
 pub use finder::Finder;
 
+/// Contains the [`State`] struct.
 mod state {
     use super::super::{Contents, ContentsProps};
     use super::{Action, Effect, Focus, Props};
@@ -195,10 +206,15 @@ mod state {
     use rend::Size;
     use til::Component;
 
+    /// The state of the finder.
     pub struct State {
+        /// The directory bar.
         dir: Dir,
+        /// The pattern typed in.
         pub phrase: Phrase,
+        /// The files found.
         pub contents: Contents,
+        /// What is focused on.
         focus: Focus,
     }
 
@@ -233,28 +249,34 @@ mod state {
     }
 
     impl State {
+        /// Return the directory bar.
         pub fn dir(&self) -> &Dir {
             &self.dir
         }
 
+        /// Return the files found.
         pub fn contents(&self) -> &Contents {
             &self.contents
         }
 
+        /// Return what is focused on.
         pub fn focus(&self) -> &Focus {
             &self.focus
         }
 
+        /// Send the events to the files.
         fn focus_contents(&mut self) -> Option<Effect> {
             self.focus = Focus::Contents;
             None
         }
 
+        /// Send the events to the pattern.
         fn focus_phrase(&mut self) -> Option<Effect> {
             self.focus = Focus::Phrase;
             None
         }
 
+        /// Quit.
         fn quit(&mut self) -> Option<Effect> {
             Some(Effect::Quit)
         }
@@ -272,25 +294,35 @@ mod state {
 }
 use state::State;
 
+/// Contains the [`Focus`] enum.
 mod focus {
+    /// What the finder is focused on.
     #[derive(Default)]
     pub enum Focus {
+        /// The pattern typed in.
         #[default]
         Phrase,
+        /// The files found.
         Contents,
     }
 }
 use focus::Focus;
 
+/// Contains the [`Action`] enum.
 mod action {
+    /// A finder action.
     pub enum Action {
+        /// Send the events to the files.
         FocusContents,
+        /// Send the events to the pattern.
         FocusPhrase,
+        /// Quit.
         Quit,
     }
 }
 use action::Action;
 
+/// Contains the [`Effect`] enum.
 mod effect {
     use std::path::PathBuf;
 
@@ -298,11 +330,22 @@ mod effect {
 
     use insh_api::Request;
 
+    /// A finder effect.
     pub enum Effect {
+        /// Send a request.
         Request(Request),
-        Browse { dir: PathBuf, file: Option<PathBuf> },
+        /// Browse a directory.
+        Browse {
+            /// The directory to browse.
+            dir: PathBuf,
+            /// The file to select.
+            file: Option<PathBuf>,
+        },
+        /// Edit a file.
         OpenVim(VimArgs),
+        /// Ring the bell.
         Bell,
+        /// Quit.
         Quit,
     }
 }

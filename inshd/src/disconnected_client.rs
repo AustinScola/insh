@@ -7,6 +7,6 @@ use uuid::Uuid;
 pub struct DisconnectedClient {
     /// The UUID of the client.
     pub client_uuid: Uuid,
-    /// The total number of requets the client made.
+    /// The total number of requests the client made.
     pub num_requests: usize,
 }

@@ -7,7 +7,7 @@ use super::sequence::Parameter;
 /// A way of styling the text which is written after it.
 ///
 /// These are the parameters of ECMA-48 clause 8.3.117 unless the one in question says otherwise.
-/// Proportional spacing comes from ITU T.416 rather than ECMA-48, and the colour of an underline
+/// Proportional spacing comes from ITU T.416 rather than ECMA-48, and the color of an underline
 /// and superscript and subscript are not in any standard at all.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum GraphicRendition {
@@ -54,11 +54,11 @@ pub enum GraphicRendition {
     Reveal,
     /// Not crossed out (`29`).
     NotStruck,
-    /// The colour to write the text in (`30` to `37`, `38`, `39` and `90` to `97`).
+    /// The color to write the text in (`30` to `37`, `38`, `39` and `90` to `97`).
     Foreground(Color),
-    /// The colour to write the text on (`40` to `47`, `48`, `49` and `100` to `107`).
+    /// The color to write the text on (`40` to `47`, `48`, `49` and `100` to `107`).
     Background(Color),
-    /// The colour to underline the text in (`58` and `59`).
+    /// The color to underline the text in (`58` and `59`).
     ///
     /// NOTE: This is in no standard. It comes from kitty and is in VTE, mintty and iTerm2.
     UnderlineColor(Color),
@@ -74,7 +74,7 @@ pub enum GraphicRendition {
     NotFramedOrEncircled,
     /// Not overlined (`55`).
     NotOverlined,
-    /// One of the ideogram attributes, which are hardly ever supported (`60` to `65`).
+    /// One of the ideogram attributes, hardly ever supported (`60` to `65`).
     Ideogram(u8),
     /// Superscript (`73`). This is in no standard and comes from mintty.
     Superscript,
@@ -137,8 +137,8 @@ impl GraphicRendition {
                 color.write(Some(40), 48, 49, parameters);
                 return;
             }
-            // NOTE: There is no short way of writing the colour of an underline, so the basic
-            // colours have to go through the palette, whose first sixteen entries they are.
+            // NOTE: There is no short way of writing the color of an underline, so the basic
+            // colors have to go through the palette, whose first sixteen entries they are.
             Self::UnderlineColor(color) => {
                 color.write(None, 58, 59, parameters);
                 return;
@@ -176,7 +176,7 @@ impl GraphicRendition {
             // A parameter which is left out is a zero here rather than being an error.
             let value: u16 = parameter.value.unwrap_or(0);
 
-            // The colours are the only parameters which are more than one number, either as
+            // The colors are the only parameters which are more than one number, either as
             // sub-parameters of this one or as the parameters which follow it.
             let rendition: Self = match value {
                 38 | 48 | 58 => {
@@ -277,7 +277,7 @@ impl From<Option<u16>> for Underline {
 }
 
 impl Underline {
-    /// Return the parameter which says to underline text this way, written as short as it goes.
+    /// Return the parameter for underlining text this way, as short as it goes.
     fn parameter(self) -> String {
         match self {
             Self::Single => "4".to_string(),
@@ -294,46 +294,65 @@ impl Underline {
     }
 }
 
-/// A colour to write text in or on.
+/// A color to write text in or on.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Color {
+    /// Black.
     Black,
+    /// Red.
     Red,
+    /// Green.
     Green,
+    /// Yellow.
     Yellow,
+    /// Blue.
     Blue,
+    /// Magenta.
     Magenta,
+    /// Cyan.
     Cyan,
+    /// White.
     White,
+    /// Bright black.
     BrightBlack,
+    /// Bright red.
     BrightRed,
+    /// Bright green.
     BrightGreen,
+    /// Bright yellow.
     BrightYellow,
+    /// Bright blue.
     BrightBlue,
+    /// Bright magenta.
     BrightMagenta,
+    /// Bright cyan.
     BrightCyan,
+    /// Bright white.
     BrightWhite,
-    /// One of the colours of the palette the terminal is set up with.
+    /// One of the colors of the palette the terminal is set up with.
     ///
-    /// Picking one of these, and giving a colour as its components, are both from ITU T.416 rather
+    /// Picking one of these, and giving a color as its components, are both from ITU T.416 rather
     /// than ECMA-48, which leaves `38` and `48` reserved.
     ///
-    /// The first sixteen entries of the palette are the colours above, so an index into them reads
-    /// as one of those rather than as this. That keeps there being one way of saying each colour,
+    /// The first sixteen entries of the palette are the colors above, so an index into them reads
+    /// as one of those rather than as this. That keeps there being one way of saying each color,
     /// and the way it reads back out is the shorter one.
     Indexed(u8),
-    /// A colour given as the amount of each of its components.
+    /// A color given as the amount of each of its components.
     Rgb {
+        /// How much red is in it.
         red: u8,
+        /// How much green is in it.
         green: u8,
+        /// How much blue is in it.
         blue: u8,
     },
-    /// Whichever colour the terminal uses when none has been picked.
+    /// The default terminal color.
     Default,
 }
 
 impl Color {
-    /// Return the colour which one of the eight parameters `30` to `37` or `40` to `47` stands
+    /// Return the color which one of the eight parameters `30` to `37` or `40` to `47` stands
     /// for, counting from the first of them.
     fn from_parameter(offset: u16) -> Self {
         match offset {
@@ -348,8 +367,8 @@ impl Color {
         }
     }
 
-    /// Return the colour which the given entry of the palette is. The first sixteen entries are the
-    /// basic colours and the bright ones, so those read as the colours they are.
+    /// Return the color which the given entry of the palette is. The first sixteen entries are the
+    /// basic colors and the bright ones, so those read as the colors they are.
     fn from_index(index: u8) -> Self {
         match index {
             0..=7 => Self::from_parameter(u16::from(index)),
@@ -358,7 +377,7 @@ impl Color {
         }
     }
 
-    /// Return which of the eight basic colours this is and whether it is the bright one, or `None`
+    /// Return which of the eight basic colors this is and whether it is the bright one, or `None`
     /// if it is not one of them.
     fn offset(self) -> Option<(u16, bool)> {
         let offset: u16 = match self {
@@ -390,13 +409,13 @@ impl Color {
         Some((offset, bright))
     }
 
-    /// Write the colour onto the given parameters.
+    /// Write the color onto the given parameters.
     ///
-    /// Which parameters a colour is written as depends on what it is being set for, so the one
-    /// which the first of the eight basic colours is for that (when they can be written that
+    /// Which parameters a color is written as depends on what it is being set for, so the one
+    /// which the first of the eight basic colors is for that (when they can be written that
     /// short), the one which introduces the rest, and the one which means the default are given.
     fn write(&self, basic: Option<u16>, extended: u16, default: u16, parameters: &mut Vec<String>) {
-        // The bright colours are sixty on from the basic ones, and eight on in the palette.
+        // The bright colors are sixty on from the basic ones, and eight on in the palette.
         const BRIGHT_PARAMETER_OFFSET: u16 = 60;
         const BRIGHT_INDEX_OFFSET: u16 = 8;
 
@@ -421,7 +440,7 @@ impl Color {
                     return;
                 }
                 Self::Indexed(index) => u16::from(*index),
-                // NOTE: Every colour which is not a palette entry is written out above.
+                // NOTE: Every color which is not a palette entry is written out above.
                 _ => 0,
             },
         };
@@ -431,7 +450,7 @@ impl Color {
         parameters.push(index.to_string());
     }
 
-    /// Return the bright version of the colour, or the colour itself if it does not have one.
+    /// Return the bright version of the color, or the color itself.
     fn bright(self) -> Self {
         match self {
             Self::Black => Self::BrightBlack,
@@ -446,10 +465,10 @@ impl Color {
         }
     }
 
-    /// Return the colour which the `38`, `48` or `58` parameter at the given position introduces,
+    /// Return the color which the `38`, `48` or `58` parameter at the given position introduces,
     /// along with the number of parameters after that one which it takes up.
     ///
-    /// The colour is written either as the sub-parameters of that parameter or as the parameters
+    /// The color is written either as the sub-parameters of that parameter or as the parameters
     /// which follow it, and both are in use, so both are read.
     fn read(parameters: &[Parameter], position: usize) -> Option<(Self, usize)> {
         let subs: &[Option<u16>] = &parameters[position].subs;
@@ -457,7 +476,7 @@ impl Color {
         if !subs.is_empty() {
             let color: Self = match subs.first().copied().flatten() {
                 Some(5) => Self::from_index(Self::component(subs.get(1).copied().flatten())),
-                // NOTE: The standard puts the colour space between the `2` and the components, but
+                // NOTE: The standard puts the color space between the `2` and the components, but
                 // it is left out often enough that both lengths have to be read.
                 Some(2) => {
                     let start: usize = if subs.len() > 4 { 2 } else { 1 };
@@ -493,7 +512,7 @@ impl Color {
         }
     }
 
-    /// Return a component of a colour, which is a byte however large the parameter it was written
+    /// Return a component of a color, which is a byte however large the parameter it was written
     /// as happens to be.
     fn component(value: Option<u16>) -> u8 {
         value.unwrap_or(0).min(u16::from(u8::MAX)) as u8
@@ -505,7 +524,7 @@ mod tests {
     use super::*;
     use crate::sequence::{AnsiEscapeSequence, ControlSequence, ParsedAnsiEscapeSequence};
 
-    /// Return the renditions which the bytes of a select graphic rendition sequence say to use.
+    /// Return the renditions which the bytes of a sequence say to use.
     fn parse(bytes: &[u8]) -> Vec<GraphicRendition> {
         let parsed = ParsedAnsiEscapeSequence::try_from(bytes).unwrap();
         let control: ControlSequence = match parsed.sequence {
@@ -535,7 +554,7 @@ mod tests {
     }
 
     #[test]
-    fn test_the_bright_colours_are_read() {
+    fn test_the_bright_colors_are_read() {
         assert_eq!(
             parse(b"\x1b[92;104m"),
             vec![
@@ -546,7 +565,7 @@ mod tests {
     }
 
     #[test]
-    fn test_the_default_colours_are_read() {
+    fn test_the_default_colors_are_read() {
         assert_eq!(
             parse(b"\x1b[39;49;59m"),
             vec![
@@ -558,7 +577,7 @@ mod tests {
     }
 
     #[test]
-    fn test_an_indexed_colour_written_as_parameters_is_read() {
+    fn test_an_indexed_color_written_as_parameters_is_read() {
         assert_eq!(
             parse(b"\x1b[38;5;196m"),
             vec![GraphicRendition::Foreground(Color::Indexed(196))]
@@ -566,7 +585,7 @@ mod tests {
     }
 
     #[test]
-    fn test_an_indexed_colour_written_as_sub_parameters_is_read() {
+    fn test_an_indexed_color_written_as_sub_parameters_is_read() {
         assert_eq!(
             parse(b"\x1b[38:5:196m"),
             vec![GraphicRendition::Foreground(Color::Indexed(196))]
@@ -574,7 +593,7 @@ mod tests {
     }
 
     #[test]
-    fn test_a_colour_written_as_components_in_parameters_is_read() {
+    fn test_a_color_written_as_components_in_parameters_is_read() {
         assert_eq!(
             parse(b"\x1b[48;2;255;128;0m"),
             vec![GraphicRendition::Background(Color::Rgb {
@@ -586,14 +605,14 @@ mod tests {
     }
 
     #[test]
-    fn test_a_colour_written_as_components_in_sub_parameters_is_read() {
+    fn test_a_color_written_as_components_in_sub_parameters_is_read() {
         let rgb = Color::Rgb {
             red: 255,
             green: 128,
             blue: 0,
         };
 
-        // With the colour space which the standard asks for, and without it.
+        // With the color space which the standard asks for, and without it.
         assert_eq!(
             parse(b"\x1b[38:2::255:128:0m"),
             vec![GraphicRendition::Foreground(rgb)]
@@ -605,7 +624,7 @@ mod tests {
     }
 
     #[test]
-    fn test_the_renditions_after_a_colour_are_still_read() {
+    fn test_the_renditions_after_a_color_are_still_read() {
         assert_eq!(
             parse(b"\x1b[1;38;2;1;2;3;4m"),
             vec![

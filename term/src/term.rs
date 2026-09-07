@@ -1,3 +1,5 @@
+//! The terminal.
+
 use std::ffi::c_int;
 use std::fmt::{Display, Error as FmtError, Formatter};
 use std::fs::File;
@@ -21,18 +23,24 @@ use termios::*;
 use typed_builder::TypedBuilder;
 
 // TODO: Make sure we close these?
+/// The read end of the resize pipe.
 static mut RESIZED_RX: Option<RawFd> = None;
+/// The write end of the resize pipe.
 static mut RESIZED_TX: Option<RawFd> = None;
 
+/// The terminal.
 #[derive(TypedBuilder)]
 pub struct Term {
+    /// The standard input.
     #[builder(setter(skip), default=io::stdin())]
     stdin: Stdin,
-    /// The bytes which have been read from the terminal but not parsed into an event yet.
+    /// The bytes read from the terminal but not parsed yet.
     #[builder(setter(skip), default)]
     bytes: Vec<u8>,
+    /// The attributes of the terminal.
     #[builder(setter(skip), default=Termios::from_fd(io::stdin().as_raw_fd()).unwrap())]
     termios: Termios,
+    /// The saved attributes of the terminal.
     #[builder(setter(skip), default)]
     saved_termios: Option<Termios>,
     /// The read end of the pipe which the handler for the signal that the terminal was resized
@@ -47,6 +55,7 @@ pub struct Term {
 }
 
 impl Term {
+    /// Return a new terminal.
     pub fn new() -> Self {
         Self::builder().build()
     }
@@ -80,6 +89,7 @@ impl Term {
         resized_rx
     }
 
+    /// Return the next event from the terminal.
     pub fn read(&mut self) -> Result<TermEvent, ReadError> {
         loop {
             // Try to parse an event out of the bytes which have already been read, and work out
@@ -188,6 +198,7 @@ impl Term {
         Ok(())
     }
 
+    /// Remember the attributes which the terminal has now.
     pub fn save_attrs(&mut self) -> Result<(), SaveAttrsError> {
         let mut termios: Termios = Termios::from_fd(self.stdin.as_raw_fd()).unwrap();
         if let Err(error) = termios::tcgetattr(self.stdin.as_raw_fd(), &mut termios) {
@@ -205,6 +216,7 @@ impl Term {
         })
     }
 
+    /// Put the attributes which were saved back.
     pub fn restore_attrs(&mut self) -> Result<(), RestoreAttrsError> {
         let saved_attrs: SavedAttrs = match self.saved_attrs() {
             Some(saved_attrs) => saved_attrs,
@@ -219,6 +231,7 @@ impl Term {
         Ok(())
     }
 
+    /// Put the terminal into raw mode.
     // This implementation is based on https://viewsourcecode.org/snaptoken/kilo/02.enteringRawMode.html
     pub fn enable_raw(&mut self) -> Result<(), EnableRawError> {
         if let Err(error) = termios::tcgetattr(self.stdin.as_raw_fd(), &mut self.termios) {
@@ -240,10 +253,12 @@ impl Term {
         return Ok(());
     }
 
+    /// Return the TOSTOP attribute.
     pub fn get_tostop_attr(&self) -> bool {
         (self.termios.c_cflag & TOSTOP) != 0
     }
 
+    /// Return the size of the terminal.
     pub fn size() -> Result<Size, SizeError> {
         let file: File = File::open("/dev/tty").unwrap();
         let fd = file.as_raw_fd();
@@ -273,6 +288,7 @@ impl Default for Term {
     }
 }
 
+/// Handle the signal that the terminal was resized.
 extern "C" fn _handle_sigwinch(_signal: libc::c_int) {
     unsafe {
         if let Some(resized_tx_) = RESIZED_TX {
@@ -304,10 +320,14 @@ impl SavedAttrs {
     }
 }
 
+/// A terminal read error.
 #[derive(Debug)]
 pub enum ReadError {
+    /// Reading from the terminal failed.
     IOError(IOError),
+    /// The size of the resized terminal could not be got.
     SizeError(SizeError),
+    /// Waiting for input or a resize failed.
     PollError(Errno),
 }
 
@@ -329,35 +349,49 @@ impl Display for ReadError {
     }
 }
 
+/// A read minimum error.
 #[derive(Debug)]
 pub enum SetReadMinError {
+    /// The attributes of the terminal could not be set.
     FailedToSetAttrs(IOError),
 }
 
+/// A read timeout error.
 #[derive(Debug)]
 pub enum SetReadTimeoutError {
+    /// The attributes of the terminal could not be set.
     FailedToSetAttrs(IOError),
 }
 
+/// An attribute saving error.
 #[derive(Debug)]
 pub enum SaveAttrsError {
+    /// The attributes of the terminal could not be got.
     FailedToGetAttrs(IOError),
 }
 
+/// An attribute restoring error.
 #[derive(Debug)]
 pub enum RestoreAttrsError {
+    /// There are no saved attributes to put back.
     AttrsNotSavedError,
+    /// The attributes of the terminal could not be set.
     FailedToSetAttrs(IOError),
 }
 
+/// A raw mode error.
 #[derive(Debug)]
 pub enum EnableRawError {
+    /// The attributes of the terminal could not be set.
     FailedToSetAttrs(IOError),
+    /// The attributes of the terminal could not be got.
     FailedToGetAttrs(IOError),
 }
 
+/// A terminal size error.
 #[derive(Debug)]
 pub enum SizeError {
+    /// Asking the terminal how big it is failed.
     IOError(IOError),
 }
 

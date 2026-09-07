@@ -88,11 +88,11 @@ mistakes here — plain `cargo check` will not.
   stacked with `quilt_bottom`), and `Renderer`, which writes a whole `Fabric` to a terminal. The
   `Renderer` is generic over what it writes to so its output can be checked in tests; it repaints
   every cell rather than diffing, and only writes a select-graphic-rendition sequence where the
-  colours actually change.
+  colors actually change.
 - **`term`** — raw terminal control (termios, SIGWINCH-based resize detection), reading input, and
   the `TermEvent` / `Key` types. Also builds a `print-event` debug binary.
 - **`ansi`** — the ANSI escape sequences which the terminal and the programs in it send, and the
-  colours and styles they carry. Two layers: `AnsiEscapeSequence` is the structure of a sequence,
+  colors and styles they carry. Two layers: `AnsiEscapeSequence` is the structure of a sequence,
   and `ControlFunction` is what one means. Both directions work, so anything here can be written
   back out as bytes, as short as it goes. It has no dependencies and does no I/O — `term` uses it
   to read input and `rend` uses it to draw, which is how the two of them share one vocabulary.

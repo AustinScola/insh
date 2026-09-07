@@ -48,7 +48,7 @@ pub fn add(
     return Ok(());
 }
 
-/// Return the most recently used pattern which starts with a partial pattern.
+/// Return the most recent pattern starting with a partial one.
 pub fn suggest(
     db_conn_pool: &DbConnPool,
     partial: &str,

@@ -5,6 +5,7 @@ The database is an embedded PostgreSQL server which the caller starts and stops.
 binaries are embedded in the executable, so PostgreSQL does not have to be installed separately.
 */
 #![deny(missing_docs)]
+#![deny(clippy::missing_docs_in_private_items)]
 #![allow(clippy::needless_return)]
 
 mod database;

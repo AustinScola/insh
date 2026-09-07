@@ -1,3 +1,5 @@
+//! Command line arguments.
+
 use std::path::PathBuf;
 
 use crate::current_dir;
@@ -13,33 +15,36 @@ use clap::{Parser, Subcommand};
 #[cfg(feature = "logging")]
 use flexi_logger::{LevelFilter as LogLevelFilter, LogSpecification};
 
+/// Command line arguments.
 #[derive(Parser, Debug)]
 #[command(name = "insh", author, version, about)]
 pub struct Args {
-    /// Starting directory to run in
+    /// Starting directory to run in.
     #[arg(short, long, display_order = 0)]
     dir: Option<PathBuf>,
 
-    /// File to write logs to (can be a unix socket)
+    /// File to write logs to (can be a unix socket).
     #[cfg(feature = "logging")]
     #[arg(long = "log-file", display_order = 1)]
     pub log_file_path: Option<PathBuf>,
 
-    /// Default log level for all modules
+    /// Default log level for all modules.
     #[cfg(feature = "logging")]
     #[arg(display_order = 2, long = "log-level", id = "LOG_LEVEL", default_value_t = LogLevelFilter::Info)]
     log_level_filter: LogLevelFilter,
 
-    /// Log level for a particular module (<module-name>=<log-level>)
+    /// Log level for a particular module (<module-name>=<log-level>).
     #[cfg(feature = "logging")]
     #[arg(display_order = 3, long = "module-log-level", id = "MODULE_LOG_LEVEL")]
     module_log_level_filters: Vec<ModuleLogLevelFilter>,
 
+    /// The command to run.
     #[command(subcommand)]
     command: Option<Command>,
 }
 
 impl Args {
+    /// Return the directory to start in.
     pub fn dir(&self) -> Option<PathBuf> {
         let mut dir: Option<PathBuf> = self.dir.as_ref().map(|path| path.to_path_buf());
 
@@ -77,11 +82,13 @@ impl Args {
         dir
     }
 
+    /// Return the file to write logs to.
     #[cfg(feature = "logging")]
     pub fn log_file_path(&self) -> &Option<PathBuf> {
         &self.log_file_path
     }
 
+    /// Return which modules are logged at which levels.
     #[cfg(feature = "logging")]
     pub fn log_specification(&self) -> LogSpecification {
         let mut log_specification_builder = LogSpecification::builder();
@@ -98,10 +105,12 @@ impl Args {
         log_specification_builder.finalize()
     }
 
+    /// Return the command to run.
     pub fn command(&self) -> &Option<Command> {
         &self.command
     }
 
+    /// Return whether the browser should be shown.
     pub fn browse(&self) -> bool {
         matches!(
             &self.command,
@@ -109,6 +118,7 @@ impl Args {
         )
     }
 
+    /// Return the starting effects.
     pub fn starting_effects(&self) -> Option<Vec<SystemEffect<Request>>> {
         match &self.command {
             Some(Command::Edit {
@@ -141,6 +151,7 @@ impl Args {
         }
     }
 
+    /// Return the starting terminal events.
     pub fn starting_term_events(&self) -> Option<Vec<TermEvent>> {
         match &self.command {
             Some(Command::Find { .. }) => Some(vec![TermEvent::KeyEvent(KeyEvent {
@@ -152,34 +163,41 @@ impl Args {
     }
 }
 
+/// The command to run.
 #[derive(Subcommand, Clone, Debug)]
 pub enum Command {
-    /// Browse a directory
+    /// Browse a directory.
     #[command(alias = "b", display_order = 1)]
     Browse,
 
-    /// Find files by name
+    /// Find files by name.
     #[command(alias = "f", display_order = 2)]
-    Find { phrase: Option<String> },
+    Find {
+        /// The phrase to start with.
+        phrase: Option<String>,
+    },
 
-    /// Search file contents
+    /// Search file contents.
     #[command(alias = "s", display_order = 3)]
-    Search { phrase: Option<String> },
+    Search {
+        /// The phrase to start with.
+        phrase: Option<String>,
+    },
 
-    /// Edit a file
+    /// Edit a file.
     ///
     /// Edit a file using the editor if a file is provided or just open the editor if no file is
     /// provided.
     #[command(alias = "e", display_order = 4)]
     Edit {
-        /// Open the browser afterwards
+        /// Open the browser afterwards.
         ///
         /// The directory is the directory the file is in or if the global `directory` argument is
         /// provided, then it is used.
         #[arg(short, long)]
         browse: bool,
 
-        /// The file to edit
+        /// The file to edit.
         ///
         /// Of the form "<file>", "<file>:<line>", "<file>:<line>,<column> or,
         /// "<file>:<line>:<column>". (All forms also accept a trailing colon.)
@@ -188,6 +206,7 @@ pub enum Command {
     },
 }
 
+/// Contains the [`FileLineColumn`] struct.
 mod file_line_column {
     use std::fmt::{Display, Error as FmtError, Formatter};
     use std::path::PathBuf;
@@ -195,27 +214,34 @@ mod file_line_column {
 
     use super::file_line_column_parse_error::FileLineColumnParseError;
 
-    /// A file, line, and column number. The line and column numbers are 1-based.
+    /// A file, line, and column number, counting from one.
     #[derive(Clone, Debug, Default, PartialEq, Eq)]
     pub struct FileLineColumn {
+        /// The file.
         file: Option<PathBuf>,
+        /// The line number.
         line: Option<usize>,
+        /// The column number.
         column: Option<usize>,
     }
 
     impl FileLineColumn {
+        /// Return a new file, line, and column number.
         pub fn new(file: Option<PathBuf>, line: Option<usize>, column: Option<usize>) -> Self {
             Self { file, line, column }
         }
 
+        /// Return the file.
         pub fn file(&self) -> &Option<PathBuf> {
             &self.file
         }
 
+        /// Return the line number.
         pub fn line(&self) -> Option<usize> {
             self.line
         }
 
+        /// Return the column number.
         pub fn column(&self) -> Option<usize> {
             self.column
         }
@@ -368,16 +394,21 @@ mod file_line_column {
 }
 pub use file_line_column::FileLineColumn;
 
+/// Contains the [`FileLineColumnParseError`] struct.
 mod file_line_column_parse_error {
     use std::error::Error;
     use std::fmt::{Display, Error as FmtError, Formatter};
 
     use crate::string::{CapitalizeFirstLetterExt, ConjoinExt};
 
+    /// A file, line, and column number parse error.
     #[derive(Debug, Default, PartialEq, Eq)]
     pub struct FileLineColumnParseError {
+        /// The part which could not be parsed as a file path.
         bad_file: Option<String>,
+        /// The part which could not be parsed as a line number.
         bad_line: Option<String>,
+        /// The part which could not be parsed as a column number.
         bad_column: Option<String>,
     }
 
@@ -395,7 +426,7 @@ mod file_line_column_parse_error {
             }
         }
 
-        /// Return a parse error from a string that cannot be parsed as a file.
+        /// Return a parse error for a bad file path.
         #[allow(dead_code)]
         pub fn from_bad_file(bad_file: String) -> Self {
             Self {
@@ -404,7 +435,7 @@ mod file_line_column_parse_error {
             }
         }
 
-        /// Return a parse error from a string that cannot be parsed as a line number.
+        /// Return a parse error for a bad line number.
         #[allow(dead_code)]
         pub fn from_bad_line(bad_line: String) -> Self {
             Self {
@@ -413,7 +444,7 @@ mod file_line_column_parse_error {
             }
         }
 
-        /// Return a parse error from a string that cannot be parsed as a column number.
+        /// Return a parse error for a bad column number.
         #[allow(dead_code)]
         pub fn from_bad_column(bad_column: String) -> Self {
             Self {

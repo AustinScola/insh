@@ -1,7 +1,9 @@
 /*!
-The module contains the [`PathFinder`] struct which is used to find files with file names matching a
-pattern.
+Finds the files in a directory with file names matching a pattern.
 */
+#![deny(missing_docs)]
+#![deny(clippy::missing_docs_in_private_items)]
+
 use std::ffi::OsStr;
 use std::fmt::{Display, Error as FmtError, Formatter};
 use std::path::{Path, PathBuf};
@@ -11,7 +13,7 @@ use regex::Error as RegexError;
 use regex::Regex;
 use serde::{Deserialize, Serialize};
 
-/// Used to find files with file names matching a pattern.
+/// Finds files by name.
 pub struct PathFinder {
     /// The pattern to match file names against.
     regex: Regex,
@@ -20,8 +22,7 @@ pub struct PathFinder {
 }
 
 impl PathFinder {
-    /// Return a new path finder that can be used to find the files in the given `directory` with
-    /// file names that match the regex `pattern`.
+    /// Return a new path finder for the files in `directory` with names matching `pattern`.
     pub fn new(directory: &Path, pattern: &str) -> Result<Self, NewPathFinderError> {
         let regex: Regex = match Regex::new(pattern) {
             Ok(regex) => regex,
@@ -33,7 +34,9 @@ impl PathFinder {
     }
 }
 
+/// A new path finder error.
 pub enum NewPathFinderError {
+    /// The pattern is not a valid regex.
     RegexError(RegexError),
 }
 
@@ -96,8 +99,10 @@ impl From<Walk> for PathFinder {
     }
 }
 
+/// A file which was found.
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct Entry {
+    /// The path of the file.
     path: PathBuf,
 }
 
@@ -110,10 +115,12 @@ impl From<WalkdirEntry> for Entry {
 }
 
 impl Entry {
+    /// Return the path of the file.
     pub fn path(&self) -> &Path {
         &self.path
     }
 
+    /// Return the name of the file.
     pub fn file_name(&self) -> Option<&OsStr> {
         self.path.file_name()
     }

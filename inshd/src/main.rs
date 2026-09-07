@@ -53,7 +53,7 @@ fn main() {
     let args: Args = Args::parse();
 
     // Configure a basic stdout logger. The logger configured for the inshd process can be more
-    // sophistiacted, but for commands like start, stop, etc. we just want logging to go to stdout.
+    // sophisticated, but for commands like start, stop, etc. we just want logging to go to stdout.
     let ConfiguredLogging {
         mut logger_handle,
         records_rx,

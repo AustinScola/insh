@@ -143,9 +143,11 @@ impl ArgsBuilder {
     }
 }
 
+/// A pipe for vim's stdout.
 pub struct VimStdoutPipe {}
 
 impl VimStdoutPipe {
+    /// Return a new `vim` stdout pipe.
     pub fn new() -> Self {
         Self {}
     }

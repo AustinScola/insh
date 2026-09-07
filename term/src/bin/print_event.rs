@@ -1,8 +1,13 @@
+/*!
+Prints the events which the terminal sends, until control-c is pressed.
+*/
+
 use std::io::{self, Stdout, Write};
 
 use ansi::{ControlFunction, Mode};
 use term::{Key, KeyEvent, KeyMods, Term, TermEvent};
 
+/// Print the events which the terminal sends.
 fn main() {
     let mut stdout: Stdout = io::stdout();
 

@@ -1,3 +1,6 @@
+//! Contains the [`Contents`] component.
+
+/// Contains the [`Props`] struct.
 mod props {
     use std::path::PathBuf;
 
@@ -5,14 +8,18 @@ mod props {
 
     use typed_builder::TypedBuilder;
 
+    /// The properties of the contents.
     #[derive(TypedBuilder)]
     pub struct Props {
+        /// The directory to look in.
         pub dir: PathBuf,
+        /// The size of the contents.
         pub size: Size,
     }
 }
 pub use props::Props;
 
+/// Contains the [`Contents`] component.
 mod contents {
     use std::path::{Path, MAIN_SEPARATOR as PATH_SEPARATOR};
 
@@ -95,7 +102,9 @@ mod contents {
         }
     }
 
+    /// The files found.
     pub struct Contents {
+        /// The state of the contents.
         state: State,
         /// Parses the keys pressed into actions.
         command_parser: CommandParser<Action>,
@@ -151,7 +160,7 @@ mod contents {
                         let mut yarn: Yarn = Yarn::from(string);
 
                         // NOTE: The file name has to be measured in columns like the yarn is.
-                        // Measuring it in bytes makes the colours land in the wrong place for a
+                        // Measuring it in bytes makes the colors land in the wrong place for a
                         // name which is not all ASCII, and underflows when the file is directly in
                         // the directory which was searched.
                         let file_name: String = entry
@@ -161,7 +170,7 @@ mod contents {
                             .to_string();
                         let file_name_start: usize = yarn.len() - Cell::columns(&file_name);
 
-                        if self.state.focussed() && Some(row) == self.state.selected() {
+                        if self.state.focused() && Some(row) == self.state.selected() {
                             yarn.color_before(Color::InvertedGrayedText.into(), file_name_start);
                             yarn.color_after(Color::InvertedText.into(), file_name_start);
                             yarn.background(Color::Highlight.into());
@@ -223,19 +232,28 @@ mod contents {
 }
 pub use contents::Contents;
 
+/// Contains the [`Event`] enum.
 mod event {
     use insh_api::Response;
     use term::TermEvent;
 
+    /// A contents event.
     #[allow(clippy::enum_variant_names)]
     pub enum Event {
-        Find { phrase: String },
+        /// Find the files matching a pattern.
+        Find {
+            /// The pattern to match file names against.
+            phrase: String,
+        },
+        /// A response.
         Response(Response),
+        /// A terminal event.
         TermEvent(TermEvent),
     }
 }
 pub use event::Event;
 
+/// Contains the [`State`] struct.
 mod state {
     use std::cmp::{self, Ordering};
     use std::path::{Path, PathBuf};
@@ -257,20 +275,31 @@ mod state {
 
     use uuid::Uuid;
 
+    /// The state of the contents.
     pub struct State {
+        /// The size of the contents.
         size: Size,
+        /// The directory being looked in.
         dir: PathBuf,
+        /// The pattern being matched against.
         phrase: Option<String>,
-        focussed: bool,
+        /// Whether the events go to the contents.
+        focused: bool,
+        /// Whether any files were found.
         hits: Option<bool>,
+        /// The files found.
         entries: Vec<Entry>,
+        /// Which of the shown files is selected.
         selected: Option<usize>,
+        /// How far down the files are scrolled.
         offset: usize,
+        /// The pending request for the files.
         pending_request: Option<Uuid>,
-        /// The request for the contents of a file which are to be copied to the clipboard.
+        /// The pending request for the contents to yank.
         pending_yank_request: Option<Uuid>,
         /// What the last command had to say for itself (if anything).
         message: Option<CommandMessage>,
+        /// Whether the first response to the request has arrived.
         received_first_resp: bool,
         /// The number of files which have been searched.
         files_searched: usize,
@@ -284,7 +313,7 @@ mod state {
                 size: props.size,
                 dir: props.dir,
                 phrase: None,
-                focussed: false,
+                focused: false,
                 hits: None,
                 entries: Vec::new(),
                 selected: None,
@@ -300,6 +329,7 @@ mod state {
     }
 
     impl State {
+        /// Return the directory being looked in.
         pub fn dir(&self) -> &PathBuf {
             &self.dir
         }
@@ -309,13 +339,13 @@ mod state {
             self.message.as_ref()
         }
 
-        /// Return whether or not the contents of a file are being read to be copied to the
+        /// Return whether the contents of a file are being read to be copied to the
         /// clipboard.
         pub fn yanking(&self) -> bool {
             self.pending_yank_request.is_some()
         }
 
-        /// Return how finding the files is going (or nothing if no files have been looked for).
+        /// Return how the find is going.
         pub fn progress(&self) -> String {
             if self.phrase.is_none() {
                 return String::new();
@@ -332,18 +362,22 @@ mod state {
             )
         }
 
+        /// Return the files found.
         pub fn entries(&self) -> &[Entry] {
             &self.entries
         }
 
-        pub fn focussed(&self) -> bool {
-            self.focussed
+        /// Return whether the events go to the contents.
+        pub fn focused(&self) -> bool {
+            self.focused
         }
 
+        /// Return whether any files were found.
         pub fn hits(&self) -> Option<bool> {
             self.hits
         }
 
+        /// Return the files shown.
         pub fn visible_entries(&self) -> &[Entry] {
             if self.entries.is_empty() {
                 return &[];
@@ -353,14 +387,17 @@ mod state {
             &self.entries[start..end]
         }
 
+        /// Return which of the shown files is selected.
         pub fn selected(&self) -> Option<usize> {
             self.selected
         }
 
+        /// Return which of all the files is selected.
         pub fn entry_number(&self) -> Option<usize> {
             self.selected.map(|selected| self.offset + selected)
         }
 
+        /// Return the path of the selected file.
         fn entry_path(&self) -> Option<&Path> {
             match self.entry_number() {
                 Some(entry_number) => Some(self.entries[entry_number].path()),
@@ -368,6 +405,7 @@ mod state {
             }
         }
 
+        /// Take note of a new size.
         fn resize(&mut self, new_size: Size) -> Option<Effect> {
             if let Some(selected) = self.selected {
                 let rows_before = self.size.rows;
@@ -403,15 +441,18 @@ mod state {
             None
         }
 
+        /// Send the events to the contents.
         fn focus(&mut self) {
-            self.focussed = true;
+            self.focused = true;
         }
 
+        /// Stop sending the events to the contents.
         fn unfocus(&mut self) -> Option<Effect> {
-            self.focussed = false;
+            self.focused = false;
             Some(Effect::Unfocus)
         }
 
+        /// Ask inshd for the files matching a pattern.
         fn find(&mut self, phrase: &str) -> Option<Effect> {
             self.focus();
             self.phrase = Some(phrase.to_string());
@@ -425,6 +466,7 @@ mod state {
             Some(Effect::Request(request))
         }
 
+        /// Select the next file.
         fn down(&mut self) -> Option<Effect> {
             // There is nowhere to move to if none of the hits are shown (which happens when the
             // terminal is too short for anything but the directory, the phrase, and the footer).
@@ -463,6 +505,7 @@ mod state {
             None
         }
 
+        /// Select the previous file.
         fn up(&mut self) -> Option<Effect> {
             if let Some(selected) = self.selected {
                 if selected > 0 {
@@ -489,6 +532,7 @@ mod state {
             None
         }
 
+        /// Edit the selected file.
         fn edit(&mut self) -> Option<Effect> {
             match self.entry_path() {
                 Some(path) => {
@@ -499,14 +543,17 @@ mod state {
             }
         }
 
+        /// Browse the directory the selected file is in.
         fn goto(&mut self) -> Option<Effect> {
             self._goto(false)
         }
 
+        /// Browse to the selected file.
         fn really_goto(&mut self) -> Option<Effect> {
             self._goto(true)
         }
 
+        /// Browse the directory the selected file is in.
         fn _goto(&mut self, really: bool) -> Option<Effect> {
             match self.entry_path() {
                 Some(entry) => {
@@ -587,6 +634,7 @@ mod state {
             Some(Effect::Bell)
         }
 
+        /// Handle a response.
         fn handle_response(&mut self, response: Response) -> Option<Effect> {
             #[cfg(feature = "logging")]
             log::debug!("Handling response...");
@@ -714,32 +762,60 @@ mod state {
 }
 use state::State;
 
+/// Contains the [`Action`] enum.
 mod action {
     use insh_api::Response;
     use rend::Size;
 
+    /// A contents action.
     #[derive(Clone)]
     pub enum Action {
+        /// Stop sending the events to the contents.
         Unfocus,
-        Find { phrase: String },
-        Resize { size: Size },
+        /// Find the files matching a pattern.
+        Find {
+            /// The pattern to match file names against.
+            phrase: String,
+        },
+        /// Take note of a new size.
+        Resize {
+            /// The new size.
+            size: Size,
+        },
+        /// Select the next file.
         Down,
+        /// Select the last file.
         ReallyDown,
+        /// Select the previous file.
         Up,
+        /// Select the first file.
         ReallyUp,
+        /// Find the pattern again.
         Refresh,
+        /// Edit the selected file.
         Edit,
+        /// Browse the directory the selected file is in.
         Goto,
+        /// Browse to the selected file.
         ReallyGoto,
+        /// Copy the name of the selected file to the clipboard.
         YankName,
+        /// Copy the path of the selected file to the clipboard.
         YankPath,
+        /// Copy the contents of the selected file to the clipboard.
         YankContents,
-        UnknownCommand { keys: String },
+        /// Remember that the keys pressed do not form a command.
+        UnknownCommand {
+            /// The keys pressed.
+            keys: String,
+        },
+        /// Handle a response from inshd.
         HandleResponse(Response),
     }
 }
 use action::Action;
 
+/// Contains the [`Effect`] enum.
 mod effect {
     use std::path::PathBuf;
 
@@ -747,11 +823,22 @@ mod effect {
 
     use insh_api::Request;
 
+    /// A contents effect.
     pub enum Effect {
+        /// Stop sending the events to the contents.
         Unfocus,
+        /// Send a request.
         Request(Request),
-        Goto { dir: PathBuf, file: Option<PathBuf> },
+        /// Browse a directory.
+        Goto {
+            /// The directory to browse.
+            dir: PathBuf,
+            /// The file to select.
+            file: Option<PathBuf>,
+        },
+        /// Edit a file.
         OpenVim(VimArgs),
+        /// Ring the bell.
         Bell,
     }
 }

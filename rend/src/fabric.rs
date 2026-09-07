@@ -118,7 +118,7 @@ impl Fabric {
         }
     }
 
-    /// Verically pad the fabric to the new number of rows by adding rows below.
+    /// Vertically pad the fabric to the new number of rows by adding rows below.
     ///
     /// Panic if the new number of rows is less than the current number of rows.
     pub fn pad_bottom(&mut self, new_rows: usize) {
