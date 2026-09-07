@@ -1,9 +1,9 @@
 /*!
 This module contains the [`Yarn`] struct which is used for representing styled text.
 */
-use super::cell::Cell;
-
 use std::cmp::Ordering;
+
+use super::cell::Cell;
 
 use ansi::Color;
 

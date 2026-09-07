@@ -1,7 +1,7 @@
 mod module_log_level_filter {
-    use super::ModuleLevelFilterParseError;
-
     use std::str::FromStr;
+
+    use super::ModuleLevelFilterParseError;
 
     use flexi_logger::LevelFilter as LogLevelFilter;
 

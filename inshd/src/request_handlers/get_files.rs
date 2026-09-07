@@ -5,7 +5,7 @@ use std::io::{Error as IOError, ErrorKind as IOErrorKind};
 use std::os::unix::fs::MetadataExt;
 use std::path::PathBuf;
 
-use nix::unistd::{Gid, Group, Uid, User};
+use crate::cache::Cache;
 
 use file_info::{FileInfo, FileMetadata};
 use file_type::FileType;
@@ -14,7 +14,7 @@ use insh_api::{
     HiddenFileSort, ResponseParams, ResponseParamsAndLast,
 };
 
-use crate::cache::Cache;
+use nix::unistd::{Gid, Group, Uid, User};
 
 /// Handles a request to get files.
 pub struct GetFiles {

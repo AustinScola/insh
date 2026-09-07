@@ -368,10 +368,10 @@ pub use run_options::RunOptions;
 mod run_error {
     //! An error running inshd.
 
-    use insh_db::StartError as DatabaseStartError;
-
     use std::fmt::{Display, Error as FmtError, Formatter};
     use std::io::Error as IOError;
+
+    use insh_db::StartError as DatabaseStartError;
 
     /// An error running inshd.
     pub enum RunError {

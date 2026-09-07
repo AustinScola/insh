@@ -3,11 +3,10 @@ A parser for text with ANSI escape codes.
 */
 use nom::branch::alt;
 use nom::bytes::streaming::{tag, take};
+use nom::combinator::map;
 use nom::combinator::value;
 use nom::IResult as ParseResult;
 use nom::Parser;
-
-use nom::combinator::map;
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum ANSIEscapedText {

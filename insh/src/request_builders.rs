@@ -7,11 +7,11 @@ entry point.
 mod get_files {
     use std::path::PathBuf;
 
+    use crate::config::{BrowserSortHiddenConfig, Config};
+
     use insh_api::{
         FileSortOptions, GetFilesRequestParams, HiddenFileSort, Request, RequestParams,
     };
-
-    use crate::config::{BrowserSortHiddenConfig, Config};
 
     /// Return a request for getting the files of the directory.
     pub fn get_files_request(dir: PathBuf, config: &Config, metadata: bool) -> Request {

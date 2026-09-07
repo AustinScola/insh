@@ -1,13 +1,13 @@
 use std::path::PathBuf;
 
+use crate::current_dir;
+use crate::programs::{Vim, VimArgs, VimArgsBuilder};
+
 #[cfg(feature = "logging")]
 use common::args::ModuleLogLevelFilter;
 use insh_api::Request;
 use term::{Key, KeyEvent, KeyMods, TermEvent};
 use til::SystemEffect;
-
-use crate::current_dir;
-use crate::programs::{Vim, VimArgs, VimArgsBuilder};
 
 use clap::{Parser, Subcommand};
 #[cfg(feature = "logging")]
@@ -189,11 +189,11 @@ pub enum Command {
 }
 
 mod file_line_column {
-    use super::file_line_column_parse_error::FileLineColumnParseError;
-
     use std::fmt::{Display, Error as FmtError, Formatter};
     use std::path::PathBuf;
     use std::str::FromStr;
+
+    use super::file_line_column_parse_error::FileLineColumnParseError;
 
     /// A file, line, and column number. The line and column numbers are 1-based.
     #[derive(Clone, Debug, Default, PartialEq, Eq)]
@@ -341,6 +341,7 @@ mod file_line_column {
     #[cfg(test)]
     mod tests {
         use super::*;
+
         use test_case::test_case;
 
         #[test_case("", Ok(FileLineColumn::new(None, None, None)); "when the string is empty")]
@@ -368,10 +369,10 @@ mod file_line_column {
 pub use file_line_column::FileLineColumn;
 
 mod file_line_column_parse_error {
-    use crate::string::{CapitalizeFirstLetterExt, ConjoinExt};
-
     use std::error::Error;
     use std::fmt::{Display, Error as FmtError, Formatter};
+
+    use crate::string::{CapitalizeFirstLetterExt, ConjoinExt};
 
     #[derive(Debug, Default, PartialEq, Eq)]
     pub struct FileLineColumnParseError {

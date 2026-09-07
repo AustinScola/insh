@@ -78,11 +78,11 @@ mod event {
 pub use event::Event;
 
 mod state {
+    use std::path::{PathBuf, MAIN_SEPARATOR as PATH_SEPARATOR};
+
     use super::{Action, Effect, Props};
     use crate::current_dir;
     use crate::stateful::Stateful;
-
-    use std::path::{PathBuf, MAIN_SEPARATOR as PATH_SEPARATOR};
 
     pub struct State {
         dir: PathBuf,

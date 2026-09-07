@@ -1015,7 +1015,6 @@ impl Mode {
 #[cfg(test)]
 mod tests {
     use super::*;
-
     use crate::graphic_rendition::Color;
     use crate::sequence::ParsedAnsiEscapeSequence;
 

@@ -1,12 +1,13 @@
 //! Arguments for inshd.
-use crate::logging::{Color, LogOptions};
-use common::args::ModuleLogLevelFilter;
-
 use std::error::Error;
 use std::fmt::{Display, Error as FmtError, Formatter};
 use std::num::ParseFloatError;
 use std::path::PathBuf;
 use std::time::Duration;
+
+use crate::logging::{Color, LogOptions};
+
+use common::args::ModuleLogLevelFilter;
 
 use clap::{Args as ClapArgs, Parser, Subcommand};
 use flexi_logger::{LevelFilter as LogLevelFilter, LogSpecification as LogSpec};

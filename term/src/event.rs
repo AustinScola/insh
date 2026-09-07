@@ -1,11 +1,11 @@
+use std::fmt::{Display, Error as FmtError, Formatter};
+use std::str;
+
 use ansi::{
     AnsiEscapeSequence, AnsiEscapeSequenceParseError, BracketedPaste, ControlSequence,
     ParsedAnsiEscapeSequence, ESCAPE,
 };
 use size::Size;
-
-use std::fmt::{Display, Error as FmtError, Formatter};
-use std::str;
 
 use bitflags::bitflags;
 
