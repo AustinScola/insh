@@ -8,4 +8,4 @@ cargo install --git https://github.com/AustinScola/insh --tag latest insh inshd
 ```
 
 ## Documenation
->>>>>>> 98b95ae (Docs)
+https://austinscola.com/insh/latest/

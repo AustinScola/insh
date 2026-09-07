@@ -28,9 +28,6 @@
     );
 
     function label(version, latest) {
-        if (version === "dev") {
-            return "dev (unreleased)";
-        }
         if (version === latest) {
             return version + " (latest)";
         }
@@ -92,7 +89,7 @@
         banner.id = "version-banner";
 
         const text = document.createElement("span");
-        if (version === "dev") {
+        if (version === "master") {
             text.textContent =
                 "This is the documentation for the unreleased development version of Insh.";
         } else {
