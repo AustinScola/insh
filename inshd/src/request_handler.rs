@@ -4,8 +4,8 @@ use crate::contexted_request::ContextedRequest;
 use crate::contexted_response::ContextedResponse;
 use crate::log_subscription::LogSubscription;
 use crate::request_handlers::{
-    CreateFile, FindFiles, GetFileContents, GetFiles, SearchPhrase, StreamLogs, SuggestFindPattern,
-    SuggestSearchPhrase,
+    CreateFile, DatabaseInfo, FindFiles, GetFileContents, GetFiles, SearchPhrase, StreamLogs,
+    SuggestFindPattern, SuggestSearchPhrase,
 };
 use crate::stop::Stop;
 
@@ -34,6 +34,8 @@ pub struct RequestHandler {
     config: Config,
     /// A pool of connections to the database.
     db_conn_pool: DbConnPool,
+    /// The version of the database.
+    db_version: String,
 }
 
 impl RequestHandler {
@@ -70,6 +72,9 @@ impl RequestHandler {
                         }
                         RequestParams::StreamLogs(params) => {
                             Box::new(StreamLogs::run(params, client_uuid, *request.uuid(), &self.log_subscriptions_tx))
+                        }
+                        RequestParams::DatabaseInfo(_params) => {
+                            Box::new(DatabaseInfo::builder().version(self.db_version.clone()).build())
                         }
                     };
 

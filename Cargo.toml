@@ -8,6 +8,7 @@ members = [
     "daemon",
     "insh-api",
     "insh-db",
+    "inshd-client",
     "til",
     "term",
     "rend",

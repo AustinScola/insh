@@ -12,6 +12,7 @@ path = "src/main.rs"
 common = { version = "0.1.0", path = "../common" }
 insh-api = { version = "0.1.0", path = "../insh-api" }
 insh-db = { version = "0.1.0", path = "../insh-db" }
+inshd-client = { version = "0.1.0", path = "../inshd-client" }
 path-finder = { version = "0.1.0", path = "../path-finder" }
 phrase-searcher = { version = "0.1.0", path = "../phrase-searcher" }
 file-type = { version = "0.1.0", path = "../file-type" }

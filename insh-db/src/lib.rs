@@ -11,7 +11,9 @@ mod database;
 mod db_conn_pool_events;
 pub mod find_history;
 mod helpers;
+mod psql;
 mod schema;
 pub mod search_history;
 
 pub use database::{Database, DbConnPool, StartError};
+pub use psql::{Psql, RunError as PsqlRunError};

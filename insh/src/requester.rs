@@ -1,15 +1,13 @@
 use insh_api::Request;
+use inshd_client::RequestWriter;
 use til::Requester;
-
-use std::io::Write;
-use std::os::unix::net::UnixStream;
 
 use crossbeam::channel::Receiver;
 use typed_builder::TypedBuilder;
 
 #[derive(TypedBuilder)]
 pub struct InshdRequester {
-    socket: UnixStream,
+    writer: RequestWriter,
 }
 
 impl Requester<Request> for InshdRequester {
@@ -32,40 +30,18 @@ impl Requester<Request> for InshdRequester {
             #[cfg(feature = "logging")]
             log::debug!("Received request {}.", request.uuid());
 
-            // Serialize the request.
+            // Send the request to inshd.
             #[cfg(feature = "logging")]
-            log::debug!("Serializing the request...");
-            let bytes: Vec<u8> = match postcard::to_stdvec(&request) {
-                Ok(bytes) => bytes,
-                #[allow(unused_variables)]
-                Err(error) => {
-                    #[cfg(feature = "logging")]
-                    log::error!("Failed to serialize a request: {}", error);
-                    return;
-                }
-            };
+            log::debug!("Sending the request...");
+            if let Err(error) = self.writer.send(&request) {
+                // NOTE: This panics rather than just logging because `log` is only compiled in
+                // under the logging feature. Returning here would lose the error in a normal
+                // build, and the only sign of it would be til panicking on the request channel the
+                // next time something asks inshd for anything.
+                panic!("{}", error);
+            }
             #[cfg(feature = "logging")]
-            log::debug!("Serialized the request.");
-
-            // Determine how many bytes long the request is.
-            let length: u64 = bytes.len().try_into().unwrap();
-            #[cfg(feature = "logging")]
-            log::debug!("The request is {} bytes long", length);
-            let length: [u8; 8] = length.to_be_bytes();
-
-            // Write the length of the request to the socket.
-            #[cfg(feature = "logging")]
-            log::debug!("Writing length to socket...");
-            let _ = self.socket.write(&length).unwrap();
-            #[cfg(feature = "logging")]
-            log::debug!("Wrote length to socket...");
-
-            // Write the serialzed request to the socket.
-            #[cfg(feature = "logging")]
-            log::debug!("Writing request to socket...");
-            let _ = self.socket.write(&bytes).unwrap();
-            #[cfg(feature = "logging")]
-            log::debug!("Wrote request to socket.");
+            log::debug!("Sent the request.");
         }
 
         #[cfg(feature = "logging")]

@@ -1381,6 +1381,7 @@ dependencies = [
  "flexi_logger",
  "human-friendly",
  "insh-api",
+ "inshd-client",
  "itertools",
  "log",
  "nom",
@@ -1441,6 +1442,7 @@ dependencies = [
  "flexi_logger",
  "insh-api",
  "insh-db",
+ "inshd-client",
  "lazy_static",
  "log",
  "nix",
@@ -1454,6 +1456,16 @@ dependencies = [
  "test-case",
  "typed-builder",
  "uuid",
+]
+
+[[package]]
+name = "inshd-client"
+version = "0.1.0"
+dependencies = [
+ "common",
+ "insh-api",
+ "postcard",
+ "typed-builder",
 ]
 
 [[package]]

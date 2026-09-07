@@ -40,6 +40,7 @@ pub enum RequestParams {
     SearchPhrase(SearchPhraseRequestParams),
     SuggestSearchPhrase(SuggestSearchPhraseRequestParams),
     StreamLogs(StreamLogsRequestParams),
+    DatabaseInfo(DatabaseInfoRequestParams),
 }
 
 #[derive(Debug, TypedBuilder, Serialize, Deserialize)]
@@ -189,6 +190,10 @@ impl SuggestSearchPhraseRequestParams {
 #[derive(Debug, TypedBuilder, Serialize, Deserialize)]
 pub struct StreamLogsRequestParams {}
 
+/// Request parameters for getting information about the database.
+#[derive(Debug, TypedBuilder, Serialize, Deserialize)]
+pub struct DatabaseInfoRequestParams {}
+
 #[derive(Debug, Clone, TypedBuilder, Serialize, Deserialize)]
 pub struct Response {
     uuid: Uuid,
@@ -221,6 +226,7 @@ pub enum ResponseParams {
     SearchPhrase(SearchPhraseResponseParams),
     SuggestSearchPhrase(SuggestSearchPhraseResponseParams),
     StreamLogs(StreamLogsResponseParams),
+    DatabaseInfo(DatabaseInfoResponseParams),
 }
 
 #[derive(Debug, TypedBuilder)]
@@ -443,6 +449,20 @@ pub struct StreamLogsResponseParams {
 impl StreamLogsResponseParams {
     pub fn records(&self) -> &Vec<LogRecord> {
         &self.records
+    }
+}
+
+/// Response parameters for getting information about the database.
+#[derive(Debug, Clone, TypedBuilder, Serialize, Deserialize)]
+pub struct DatabaseInfoResponseParams {
+    /// The version of the database server which is running.
+    version: String,
+}
+
+impl DatabaseInfoResponseParams {
+    /// Return the version of the database server which is running.
+    pub fn version(&self) -> &str {
+        &self.version
     }
 }
 
