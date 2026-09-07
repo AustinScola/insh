@@ -6,9 +6,9 @@
 # Every version is built from scratch on every run, so nothing about the site is carried over from
 # one build to the next.
 #
-# The unreleased "dev" version is built from the working tree unless a git ref is given as the first
-# argument. CI gives `origin/master` when the workflow was triggered by a release tag so that dev
-# keeps coming from master.
+# The unreleased "master" version is built from the working tree unless a git ref is given as the
+# first argument. CI gives `origin/master` when the workflow was triggered by a release tag so that
+# it keeps coming from the master branch.
 
 set -euo pipefail
 
@@ -18,14 +18,14 @@ source "${REPO_ROOT}/scripts/lib/ensure_mdbook_installed.sh"
 
 ensure_mdbook_installed
 
-DEV_REF="${1:-}"
+MASTER_REF="${1:-}"
 
 SITE="${REPO_ROOT}/site"
 
 WORK_DIR="$(mktemp -d)"
 trap 'rm -rf "${WORK_DIR}"' EXIT
 
-# The versions which were built, dev first and then the releases from newest to oldest.
+# The versions which were built, master first and then the releases from newest to oldest.
 VERSIONS=()
 
 # Build the book of a git ref into a directory of the site named after the given version. Refs from
@@ -75,11 +75,11 @@ cd "${REPO_ROOT}"
 rm -rf "${SITE}"
 mkdir -p "${SITE}"
 
-if [[ -n "${DEV_REF}" ]]; then
-    build_version "${DEV_REF}" dev
+if [[ -n "${MASTER_REF}" ]]; then
+    build_version "${MASTER_REF}" master
 else
-    mdbook build "${REPO_ROOT}/docs" --dest-dir "${SITE}/dev"
-    VERSIONS+=(dev)
+    mdbook build "${REPO_ROOT}/docs" --dest-dir "${SITE}/master"
+    VERSIONS+=(master)
 fi
 
 for TAG in $(git tag --list 'v*' --sort=-v:refname); do
@@ -92,17 +92,17 @@ if [[ "${#VERSIONS[@]}" -eq 0 ]]; then
 fi
 
 # The releases are built from newest to oldest, so the newest release which has docs is the first
-# version which is not dev, if there is one at all.
+# version which is not master, if there is one at all.
 LATEST=""
 for VERSION in "${VERSIONS[@]}"; do
-    if [[ "${VERSION}" != "dev" ]]; then
+    if [[ "${VERSION}" != "master" ]]; then
         LATEST="${VERSION}"
         break
     fi
 done
 
 # The version which readers land on when they do not ask for one.
-DEFAULT="${LATEST:-dev}"
+DEFAULT="${LATEST:-master}"
 
 {
     printf '{\n'

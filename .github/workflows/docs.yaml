@@ -81,14 +81,14 @@ jobs:
           path: ~/.cargo/bin/mdbook
           key: ${{ steps.cache-mdbook-binary.outputs.cache-primary-key }}
 
-      # The dev version of the docs is built from whatever was pushed so that a branch which breaks
-      # the docs fails before it is merged. A release tag is the exception since dev should keep
-      # coming from master.
+      # The master version of the docs is built from whatever was pushed so that a branch which
+      # breaks the docs fails before it is merged. A release tag is the exception since that version
+      # should keep coming from the master branch.
       - name: Build the site
         env:
           CI: 1
-          DEV_REF: ${{ startsWith(github.ref, 'refs/tags/') && 'origin/master' || '' }}
-        run: ./scripts/build-docs-site "${DEV_REF}"
+          MASTER_REF: ${{ startsWith(github.ref, 'refs/tags/') && 'origin/master' || '' }}
+        run: ./scripts/build-docs-site "${MASTER_REF}"
 
       - name: Upload the site
         uses: actions/upload-pages-artifact@v5
