@@ -1,0 +1,29 @@
+/* Lengths are in pixels because mdbook sets the root font size to 10px, which makes rem units a
+   poor match for the rest of the chrome. */
+
+#version-picker {
+    height: 30px;
+    margin-inline-end: 8px;
+    padding: 0 4px;
+    vertical-align: middle;
+    border: 1px solid var(--theme-popup-border);
+    border-radius: 4px;
+    background-color: var(--theme-popup-bg);
+    color: var(--fg);
+    font-size: 14px;
+    cursor: pointer;
+}
+
+#version-banner {
+    max-width: var(--content-max-width);
+    margin: 0 auto 24px auto;
+    padding: 12px 16px;
+    border-inline-start: 4px solid var(--warning-border);
+    border-radius: 4px;
+    background-color: var(--quote-bg);
+}
+
+#version-banner a {
+    margin-inline-start: 6px;
+    color: var(--links);
+}

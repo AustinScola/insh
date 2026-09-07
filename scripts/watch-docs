@@ -1,0 +1,13 @@
+#!/usr/bin/env bash
+
+# Serve the docs and rebuild them whenever they change.
+
+set -euo pipefail
+
+REPO_ROOT="$(git rev-parse --show-toplevel)"
+
+source "${REPO_ROOT}/scripts/lib/ensure_mdbook_installed.sh"
+
+ensure_mdbook_installed
+
+mdbook serve --open "${REPO_ROOT}/docs"
