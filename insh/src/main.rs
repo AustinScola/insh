@@ -36,6 +36,7 @@ use uuid::Uuid;
 
 use common::paths::INSHD_SOCKET;
 use insh_api::{Request, Response};
+use inshd_client::{RequestWriter, ResponseReader};
 use term::TermEvent;
 use til::{App, AppRunOptions, Component, Requester, ResponseHandler, Stopper, SystemEffect};
 
@@ -147,14 +148,22 @@ fn main() {
     // Create a requester for sending requests to the unix stream socket.
     let requester: Box<dyn Requester<Request>> = Box::new(
         InshdRequester::builder()
-            .socket(socket.try_clone().unwrap())
+            .writer(
+                RequestWriter::builder()
+                    .socket(socket.try_clone().unwrap())
+                    .build(),
+            )
             .build(),
     );
 
     // Create a respones handler for receiving responses from the unix stream socket.
     let response_handler: Box<dyn ResponseHandler<Response>> = Box::new(
         InshdResponseHandler::builder()
-            .socket(socket.try_clone().unwrap())
+            .reader(
+                ResponseReader::builder()
+                    .socket(socket.try_clone().unwrap())
+                    .build(),
+            )
             .build(),
     );
     let response_handler_stopper: Box<dyn Stopper> = Box::new(

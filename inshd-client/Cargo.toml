@@ -1,0 +1,15 @@
+[package]
+name = "inshd-client"
+version = "0.1.0"
+edition = "2021"
+description = "The client side of the inshd protocol."
+
+[dependencies]
+common = { version = "0.1.0", path = "../common" }
+insh-api = { version = "0.1.0", path = "../insh-api" }
+
+# Used for serializing requests and deserializing responses.
+postcard = { workspace = true }
+
+# Used for generating the builder pattern for structs.
+typed-builder = { workspace = true }

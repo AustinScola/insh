@@ -19,13 +19,13 @@ use crate::contexted_response::ContextedResponse;
 use crate::disconnected_client::DisconnectedClient;
 use crate::log_forwarder::LogForwarder;
 use crate::log_subscription::LogSubscription;
+use crate::paths::INSHD_PID_FILE;
 use crate::request_handler_died::RequestHandlerDied;
 use crate::request_handler_manager::RequestHandlerManager;
 use crate::response_handler::ResponseHandler;
 use crate::scheduler::Scheduler;
 use crate::signal_handler::SignalHandler;
 use crate::stop::Stop;
-use crate::INSHD_PID_FILE;
 
 use common::paths::{INSHD_SOCKET, INSH_FILES_PERMS};
 use insh_db::Database;
@@ -70,6 +70,7 @@ impl Server {
             }
         };
         let db_conn_pool = database.conn_pool();
+        let db_version: String = database.version().to_string();
 
         // Create a unix socket for clients to connect to.
         log::debug!("Creating a unix socket {:?}...", *INSHD_SOCKET);
@@ -184,6 +185,7 @@ impl Server {
             .stop_rx(request_handler_manager_stop_rx)
             .config(config)
             .db_conn_pool(db_conn_pool)
+            .db_version(db_version)
             .build();
         let request_handler_manager_handle: JoinHandle<()> = thread::Builder::new()
             .name("request-handler-monitor".to_string())

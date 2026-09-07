@@ -25,6 +25,7 @@ term = { version = "0.1.0", path = "../term" }
 rend = { version = "0.1.0", path = "../rend" }
 common = { version = "0.1.0", path = "../common" }
 insh-api = { version = "0.1.0", path = "../insh-api" }
+inshd-client = { version = "0.1.0", path = "../inshd-client" }
 path-finder = { version = "0.1.0", path = "../path-finder" }
 phrase-searcher = { version = "0.1.0", path = "../phrase-searcher" }
 file-type = { version = "0.1.0", path = "../file-type" }

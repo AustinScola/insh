@@ -26,19 +26,22 @@ use nix::unistd::{getuid, Uid, User};
 use postgresql_commands::pg_ctl::{Mode, PgCtlBuilder, ShutdownMode};
 use postgresql_commands::{CommandBuilder, CommandExecutor};
 use postgresql_embedded::blocking::PostgreSQL;
-use postgresql_embedded::Settings;
+use postgresql_embedded::{Settings, Version};
 
 /// The migrations which are embedded in the executable.
 const MIGRATIONS: EmbeddedMigrations = embed_migrations!();
 
 /// The name of the database that insh data is stored in.
-const DATABASE_NAME: &str = "insh";
+pub(crate) const DATABASE_NAME: &str = "insh";
 
 /// The port that the PostgreSQL server runs on.
 ///
-/// The server does not listen on a TCP port, but PostgreSQL still names the unix socket file after
-/// the port, so a value is still needed. It only has to be stable across restarts.
-const POSTGRES_PORT: u16 = 5432;
+/// The server does not listen on a TCP port. This is only here because PostgreSQL names the unix
+/// socket file `.s.PGSQL.<port>` and there is no way to ask it for a different name: the name is
+/// built into both the server and libpq, and neither has a setting for it. So a port is still
+/// needed, it just has to be stable across restarts. The default is used to keep the socket path
+/// recognizable.
+pub(crate) const POSTGRES_PORT: u16 = 5432;
 
 /// The name of the file that PostgreSQL writes its process ID to.
 const POSTMASTER_PID_FILE_NAME: &str = "postmaster.pid";
@@ -86,6 +89,9 @@ pub struct Database {
 
     /// A pool of connections to the database.
     conn_pool: DbConnPool,
+
+    /// The version of the PostgreSQL server which is running.
+    version: String,
 }
 
 impl Database {
@@ -113,6 +119,9 @@ impl Database {
         let _ = remove_file(&postgres.settings().password_file);
         Self::write_auth_config(postgres.settings())?;
         log::info!("Set up the database.");
+
+        let version: String = Self::version_of(&postgres.settings().installation_dir)?;
+        log::info!("The database server is version {}.", version);
 
         // The daemon may have been killed without getting the chance to stop the server.
         Self::stop_orphaned_server(postgres.settings());
@@ -154,12 +163,18 @@ impl Database {
         return Ok(Self {
             postgres,
             conn_pool,
+            version,
         });
     }
 
     /// Return a pool of connections to the database.
     pub fn conn_pool(&self) -> DbConnPool {
         return self.conn_pool.clone();
+    }
+
+    /// Return the version of the PostgreSQL server which is running.
+    pub fn version(&self) -> &str {
+        return &self.version;
     }
 
     /// Stop the database.
@@ -206,6 +221,26 @@ impl Database {
             temporary: false,
             configuration,
             ..defaults
+        };
+    }
+
+    /// Return the version of the PostgreSQL server which is installed in a directory.
+    ///
+    /// The server binaries are installed in a directory which is named after their version, so
+    /// there is nothing else to read the version from.
+    fn version_of(installation_dir: &Path) -> Result<String, StartError> {
+        let name: Option<String> = installation_dir
+            .file_name()
+            .map(|name| name.to_string_lossy().to_string());
+
+        let version: Option<Version> = match &name {
+            Some(name) => Version::parse(name).ok(),
+            None => None,
+        };
+
+        return match version {
+            Some(version) => Ok(version.to_string()),
+            None => Err(StartError::UnknownVersion(installation_dir.to_path_buf())),
         };
     }
 
@@ -349,6 +384,8 @@ mod start_error {
         NoSuchUser(u32),
         /// An error installing the database server.
         SetupFailed(PostgresError),
+        /// The directory that the database server is installed in is not named after a version.
+        UnknownVersion(PathBuf),
         /// An error starting the database server, along with the start up logs if they could be
         /// read.
         StartFailed(PostgresError, Option<String>),
@@ -407,6 +444,13 @@ mod start_error {
                 }
                 Self::SetupFailed(error) => {
                     write!(formatter, "Failed to install the database: {}", error)
+                }
+                Self::UnknownVersion(path) => {
+                    write!(
+                        formatter,
+                        "The database is installed in {:?}, which is not named after a version",
+                        path
+                    )
                 }
                 Self::StartFailed(error, start_log) => {
                     write!(formatter, "Failed to start the database server: {}", error)?;
@@ -472,6 +516,25 @@ mod tests {
         assert!(matches!(
             Database::check_socket_dir(Path::new(path)),
             Err(StartError::SocketDirBadChar(_, _))
+        ));
+    }
+
+    #[test_case("/home/user/.insh/daemon/postgres/18.6.0", "18.6.0"; "a version")]
+    #[test_case("/home/user/.insh/daemon/postgres/18.6.0/", "18.6.0"; "a trailing slash")]
+    fn test_version_of(installation_dir: &str, version: &str) {
+        match Database::version_of(Path::new(installation_dir)) {
+            Ok(actual) => assert_eq!(actual, version),
+            Err(_) => panic!("Failed to determine the version."),
+        }
+    }
+
+    #[test_case("/home/user/.insh/daemon/postgres"; "not a version")]
+    #[test_case("/home/user/.insh/daemon/postgres/18.6"; "a partial version")]
+    #[test_case("/"; "the root directory")]
+    fn test_version_of_rejects(installation_dir: &str) {
+        assert!(matches!(
+            Database::version_of(Path::new(installation_dir)),
+            Err(StartError::UnknownVersion(_))
         ));
     }
 

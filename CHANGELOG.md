@@ -7,6 +7,7 @@
 - Add finder suggestions.
 - Overhaul yanking commands.
 - Add arrow key and `<Home>` and `<End>` key support.
+- Add `inshd database shell` command for opening a PostgreSQL shell.
 
 # 0.4.12
 - Add `inshd logs` command for streaming logs.

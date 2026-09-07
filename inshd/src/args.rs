@@ -65,7 +65,7 @@ impl Args {
             .level(self.log_level_filter)
             .log_spec(self.log_spec())
             .log_file_path(self.log_file_path.clone())
-            .stdout_only(matches!(self.command, Command::Logs))
+            .stdout_only(matches!(self.command, Command::Logs | Command::Database(_)))
             .color(self.color())
             .build()
     }
@@ -100,6 +100,9 @@ pub enum Command {
     Status,
     /// Stream the logs of the daemon.
     Logs,
+    /// Daemon database subcommands.
+    #[command(alias = "db")]
+    Database(DatabaseArgs),
 }
 
 /// Arguments for starting the daemon.
@@ -147,6 +150,29 @@ pub struct RestartArgs {
     /// How long to wait for the inshd main process to stop.
     #[arg(default_value = "10", value_parser = parse_duration)]
     pub timeout: Duration,
+}
+
+/// Arguments for working with the database of the daemon.
+#[derive(ClapArgs, Debug, Clone)]
+pub struct DatabaseArgs {
+    /// The command to run.
+    #[command(subcommand)]
+    pub command: DatabaseCommand,
+}
+
+/// The database command to run.
+#[derive(Subcommand, Clone, Debug)]
+pub enum DatabaseCommand {
+    /// Open a shell for the database.
+    Shell(ShellArgs),
+}
+
+/// Arguments for opening a shell for the database.
+#[derive(ClapArgs, Debug, Clone)]
+pub struct ShellArgs {
+    /// Run a command and exit instead of prompting.
+    #[arg(short = 'c', long = "command")]
+    pub command: Option<String>,
 }
 
 /// Parse a duration.

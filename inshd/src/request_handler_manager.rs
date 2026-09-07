@@ -34,6 +34,8 @@ pub struct RequestHandlerManager {
     config: Config,
     /// A pool of connections to the database.
     db_conn_pool: DbConnPool,
+    /// The version of the database.
+    db_version: String,
 }
 
 impl RequestHandlerManager {
@@ -66,6 +68,7 @@ impl RequestHandlerManager {
                 .stop_rx(request_handler_stop_rx)
                 .config(self.config.clone())
                 .db_conn_pool(self.db_conn_pool.clone())
+                .db_version(self.db_version.clone())
                 .build();
             let name: String = format!("request-handler-{}", request_handler_num).to_string();
             let request_handler_handle: JoinHandle<()> = thread::Builder::new()
@@ -97,6 +100,7 @@ impl RequestHandlerManager {
                         .stop_rx(request_handler_stop_rxs[number].clone())
                         .config(self.config.clone())
                         .db_conn_pool(self.db_conn_pool.clone())
+                        .db_version(self.db_version.clone())
                         .build();
                     let name: String = format!("request-handler-{}", number).to_string();
                     let request_handler_handle: JoinHandle<()> = thread::Builder::new()
