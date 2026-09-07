@@ -1,0 +1,111 @@
+name: Docs
+
+on:
+  push:
+
+# Needed by the GitHub Pages actions.
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# Deploy one version of the site at a time and let a deployment which is in progress finish.
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: Build
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v3
+        with:
+          # The site has a version of the docs for each release tag.
+          fetch-depth: 0
+
+      - name: Get mdbook version
+        id: mdbook-version
+        run: |
+          echo "version=$(yq '.mdbook.version' < truth.yaml)" >> "${GITHUB_OUTPUT}"
+
+      - name: Restore mdbook binary
+        id: cache-mdbook-binary
+        uses: actions/cache/restore@v3
+        env:
+          cache-name: mdbook-binary
+        with:
+          path: ~/.cargo/bin/mdbook
+          key: ${{ env.cache-name }}-${{ steps.mdbook-version.outputs.version }}
+
+      - if: ${{ steps.cache-mdbook-binary.outputs.cache-hit == 'true' }}
+        name: Verify cached mdbook binary
+        id: verify-cached-mdbook-binary
+        continue-on-error: true
+        run: |
+          mdbook --version
+
+      - if: ${{ steps.cache-mdbook-binary.outputs.cache-hit != 'true' || steps.verify-cached-mdbook-binary.outcome == 'failure' }}
+        name: Restore mdbook build dependencies
+        id: cache-mdbook-deps
+        uses: actions/cache/restore@v3
+        env:
+          cache-name: mdbook-deps
+        with:
+          path: ~/.cargo/registry/
+          key: ${{ env.cache-name }}-${{ steps.mdbook-version.outputs.version }}
+          restore-keys: |
+            ${{ env.cache-name }}-
+
+      - if: ${{ steps.cache-mdbook-binary.outputs.cache-hit != 'true' || steps.verify-cached-mdbook-binary.outcome == 'failure' }}
+        name: Install mdbook
+        id: install-mdbook
+        run: |
+          # Install mdbook using cargo.
+          cargo install mdbook --locked \
+            --version "${{ steps.mdbook-version.outputs.version }}"
+
+      # Save before building since a failing build would skip the post-job saves.
+      - if: ${{ steps.install-mdbook.outcome == 'success' && steps.cache-mdbook-deps.outputs.cache-hit != 'true' }}
+        name: Save mdbook build dependencies
+        uses: actions/cache/save@v3
+        with:
+          path: ~/.cargo/registry/
+          key: ${{ steps.cache-mdbook-deps.outputs.cache-primary-key }}
+
+      - if: ${{ steps.install-mdbook.outcome == 'success' }}
+        name: Save mdbook binary
+        uses: actions/cache/save@v3
+        with:
+          path: ~/.cargo/bin/mdbook
+          key: ${{ steps.cache-mdbook-binary.outputs.cache-primary-key }}
+
+      # The dev version of the docs is built from whatever was pushed so that a branch which breaks
+      # the docs fails before it is merged. A release tag is the exception since dev should keep
+      # coming from master.
+      - name: Build the site
+        env:
+          CI: 1
+          DEV_REF: ${{ startsWith(github.ref, 'refs/tags/') && 'origin/master' || '' }}
+        run: ./scripts/build-docs-site "${DEV_REF}"
+
+      - name: Upload the site
+        uses: actions/upload-pages-artifact@v5
+        with:
+          path: site/
+
+  deploy:
+    name: Deploy
+    needs: build
+    if: ${{ github.ref == 'refs/heads/master' || startsWith(github.ref, 'refs/tags/v') }}
+    runs-on: ubuntu-latest
+
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+
+    steps:
+      - name: Deploy the site to GitHub Pages
+        id: deploy
+        uses: actions/deploy-pages@v5

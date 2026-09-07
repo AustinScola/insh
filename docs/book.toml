@@ -1,0 +1,16 @@
+[book]
+title = "Insh"
+authors = ["Austin Scola"]
+language = "en"
+src = "src"
+
+[build]
+build-dir = "book"
+# Fail on a summary entry which has no file instead of silently creating an empty one.
+create-missing = false
+
+[output.html]
+git-repository-url = "https://github.com/AustinScola/insh"
+edit-url-template = "https://github.com/AustinScola/insh/edit/master/docs/{path}"
+additional-css = ["assets/version-switcher.css", "assets/style.css"]
+additional-js = ["assets/version-switcher.js"]

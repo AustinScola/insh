@@ -1,0 +1,11 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+REPO_ROOT="$(git rev-parse --show-toplevel)"
+
+source "${REPO_ROOT}/scripts/lib/ensure_mdbook_installed.sh"
+
+ensure_mdbook_installed
+
+mdbook build "${REPO_ROOT}/docs"

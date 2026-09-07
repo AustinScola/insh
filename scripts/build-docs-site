@@ -1,0 +1,126 @@
+#!/usr/bin/env bash
+
+# Builds the whole documentation site into the `site` directory: one directory per version of the
+# docs, plus the metadata which the version picker needs.
+#
+# Every version is built from scratch on every run, so nothing about the site is carried over from
+# one build to the next.
+#
+# The unreleased "dev" version is built from the working tree unless a git ref is given as the first
+# argument. CI gives `origin/master` when the workflow was triggered by a release tag so that dev
+# keeps coming from master.
+
+set -euo pipefail
+
+REPO_ROOT="$(git rev-parse --show-toplevel)"
+
+source "${REPO_ROOT}/scripts/lib/ensure_mdbook_installed.sh"
+
+ensure_mdbook_installed
+
+DEV_REF="${1:-}"
+
+SITE="${REPO_ROOT}/site"
+
+WORK_DIR="$(mktemp -d)"
+trap 'rm -rf "${WORK_DIR}"' EXIT
+
+# The versions which were built, dev first and then the releases from newest to oldest.
+VERSIONS=()
+
+# Build the book of a git ref into a directory of the site named after the given version. Refs from
+# before the docs were added do not have a book and are skipped.
+function build_version() {
+    local ref=$1
+    local version=$2
+
+    if ! git cat-file -e "${ref}:docs/book.toml" 2> /dev/null; then
+        echo "Skipping ${version} since it does not have any docs."
+        return
+    fi
+
+    local source_dir="${WORK_DIR}/${version}"
+    mkdir -p "${source_dir}"
+    git archive "${ref}" | tar --extract --directory "${source_dir}"
+
+    mdbook build "${source_dir}/docs" --dest-dir "${SITE}/${version}"
+
+    VERSIONS+=("${version}")
+}
+
+# Write a page which redirects to a target relative to the page.
+function write_redirect() {
+    local path=$1
+    local target=$2
+
+    mkdir -p "$(dirname "${path}")"
+    cat > "${path}" << END_OF_REDIRECT
+<!DOCTYPE html>
+<html lang="en">
+    <head>
+        <meta charset="utf-8">
+        <title>Insh</title>
+        <meta http-equiv="refresh" content="0; url=${target}">
+        <link rel="canonical" href="${target}">
+    </head>
+    <body>
+        <p>Redirecting to <a href="${target}">${target}</a>.</p>
+    </body>
+</html>
+END_OF_REDIRECT
+}
+
+cd "${REPO_ROOT}"
+
+rm -rf "${SITE}"
+mkdir -p "${SITE}"
+
+if [[ -n "${DEV_REF}" ]]; then
+    build_version "${DEV_REF}" dev
+else
+    mdbook build "${REPO_ROOT}/docs" --dest-dir "${SITE}/dev"
+    VERSIONS+=(dev)
+fi
+
+for TAG in $(git tag --list 'v*' --sort=-v:refname); do
+    build_version "${TAG}" "${TAG}"
+done
+
+if [[ "${#VERSIONS[@]}" -eq 0 ]]; then
+    echo "Failed to build the site: none of the versions have any docs." >&2
+    exit 1
+fi
+
+# The releases are built from newest to oldest, so the newest release which has docs is the first
+# version which is not dev, if there is one at all.
+LATEST=""
+for VERSION in "${VERSIONS[@]}"; do
+    if [[ "${VERSION}" != "dev" ]]; then
+        LATEST="${VERSION}"
+        break
+    fi
+done
+
+# The version which readers land on when they do not ask for one.
+DEFAULT="${LATEST:-dev}"
+
+{
+    printf '{\n'
+    printf '    "versions": ['
+    printf '"%s"' "${VERSIONS[0]}"
+    for VERSION in "${VERSIONS[@]:1}"; do
+        printf ', "%s"' "${VERSION}"
+    done
+    printf '],\n'
+    if [[ -n "${LATEST}" ]]; then
+        printf '    "latest": "%s"\n' "${LATEST}"
+    else
+        printf '    "latest": null\n'
+    fi
+    printf '}\n'
+} > "${SITE}/versions.json"
+
+write_redirect "${SITE}/index.html" "${DEFAULT}/"
+write_redirect "${SITE}/latest/index.html" "../${DEFAULT}/"
+
+echo "The site was built in \"${SITE}\"."
