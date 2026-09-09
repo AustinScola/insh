@@ -16,6 +16,8 @@ Insh can be configured by the file `~/.insh-config.yaml`.
 
 **browser.metadata** (`bool`): Whether or not to show metadata (default=`false`).
 
+**render.engine** (`full`|`incr`): The rendering engine to use (default=`incr`).
+
 ## Inshd Configuration
 
 Inshd can be configured by the file `~/.inshd-config.yaml`.

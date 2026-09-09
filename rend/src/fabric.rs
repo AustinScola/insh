@@ -3,8 +3,9 @@ This module contains the [`Fabric`] struct which is used for representing a 2D r
 text.
 */
 use std::cmp::Ordering;
+use std::ops::Range;
 
-use super::{Cell, Size, Yarn};
+use super::{Cell, Row, Size, Spot, Yarn};
 
 use ansi::Color;
 
@@ -60,9 +61,74 @@ impl Fabric {
     }
 
     /// Return the size of the fabric.
-    #[allow(dead_code)]
     pub fn size(&self) -> Size {
         self.size
+    }
+
+    /// Return the given row.
+    ///
+    /// A fabric is a rectangle even though the rows it is woven from need not all be as long as
+    /// each other, so a row which is not there at all is one of nothing but blanks, and so is the
+    /// end of one which does not reach across.
+    pub fn row(&self, row: usize) -> Row<'_> {
+        let cells: &[Cell] = match self.characters.get(row) {
+            Some(cells) => cells,
+            None => return Row::builder().cells(&[]).build(),
+        };
+
+        return Row::builder()
+            .cells(cells)
+            .colors(Self::row_of(&self.colors, row))
+            .backgrounds(Self::row_of(&self.backgrounds, row))
+            .build();
+    }
+
+    /// Return what is in the given column of the given row.
+    pub fn spot(&self, row: usize, column: usize) -> Spot<'_> {
+        return self.row(row).spot(column);
+    }
+
+    /// Return the given row of the colors, which is no colors at all when it is not there.
+    fn row_of(colors: &[Vec<Option<Color>>], row: usize) -> &[Option<Color>] {
+        return match colors.get(row) {
+            Some(colors) => colors,
+            None => &[],
+        };
+    }
+
+    /// Move the rows of the band the given number of rows up, or down when that is negative, and
+    /// bring blank rows in behind them.
+    pub fn scroll(&mut self, band: Range<usize>, rows: isize) {
+        let blank: Vec<Cell> = vec![Cell::BLANK; self.size.columns];
+
+        Self::scroll_rows(&mut self.characters, &band, rows, blank);
+        Self::scroll_rows(&mut self.colors, &band, rows, Vec::new());
+        Self::scroll_rows(&mut self.backgrounds, &band, rows, Vec::new());
+    }
+
+    /// Move the rows of the band the given number of rows up, or down when that is negative, and
+    /// bring the given blank row in behind them.
+    fn scroll_rows<Line: Clone>(all: &mut [Line], band: &Range<usize>, rows: isize, blank: Line) {
+        let band: Range<usize> = band.start..band.end.min(all.len());
+        let up: bool = rows > 0;
+        let rows: usize = rows.unsigned_abs().min(band.end.saturating_sub(band.start));
+
+        // NOTE: The rows are swapped rather than moved because the ones which are swapped into the
+        // far end of the band are the ones which are about to be blanked anyway.
+        match up {
+            true => {
+                for row in band.start..(band.end - rows) {
+                    all.swap(row, row + rows);
+                }
+                all[(band.end - rows)..band.end].fill(blank);
+            }
+            false => {
+                for row in ((band.start + rows)..band.end).rev() {
+                    all.swap(row, row - rows);
+                }
+                all[band.start..(band.start + rows)].fill(blank);
+            }
+        }
     }
 
     /// Return the cells composing the fabric, one for each column of each row.
@@ -153,6 +219,11 @@ impl Fabric {
 
         self.size.rows += other.size.rows;
 
+        // NOTE: A fabric is a rectangle as wide as the widest thing in it, and the columns past
+        // the end of a row which does not reach across are blanks. Taking the wider of the two is
+        // what keeps the rows of the other one from being cut off at the width of this one.
+        self.size.columns = self.size.columns.max(other.size.columns);
+
         self
     }
 }
@@ -225,6 +296,19 @@ mod tests {
 
     use test_case::test_case;
 
+    #[test_case(0..4, 1, Fabric::from(vec!["cd", "ef", "gh", "  "]); "every row up one")]
+    #[test_case(0..4, -1, Fabric::from(vec!["  ", "ab", "cd", "ef"]); "every row down one")]
+    #[test_case(0..4, 2, Fabric::from(vec!["ef", "gh", "  ", "  "]); "every row up two")]
+    #[test_case(1..3, 1, Fabric::from(vec!["ab", "ef", "  ", "gh"]); "only the rows between the first and the last")]
+    #[test_case(0..4, 9, Fabric::from(vec!["  ", "  ", "  ", "  "]); "further than there are rows to move")]
+    fn test_scroll(band: Range<usize>, rows: isize, expected: Fabric) {
+        let mut fabric = Fabric::from(vec!["ab", "cd", "ef", "gh"]);
+
+        fabric.scroll(band, rows);
+
+        assert_eq!(fabric, expected);
+    }
+
     #[test_case("foo", Size::default(), Fabric::default(); "zero size")]
     #[test_case("foo", Size::new(1, 3), Fabric::from(vec!["foo"]); "text just fits")]
     #[test_case("foo", Size::new(3, 3), Fabric::from(vec!["   ", "foo", "   "]); "text is in the center vertically")]
@@ -249,6 +333,11 @@ mod tests {
         Fabric::new(Size::new(2, 3)),
         Fabric::new(Size::new(1, 3)),
         Fabric::new(Size::new(3, 3))
+    )]
+    #[test_case(
+        Fabric::from(vec!["ab"]),
+        Fabric::from(vec!["cdef"]),
+        Fabric::from(vec!["ab", "cdef"])
     )]
     fn test_quilt_bottom(fabric: Fabric, other: Fabric, expected: Fabric) {
         let result = fabric.quilt_bottom(other);

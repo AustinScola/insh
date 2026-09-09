@@ -27,12 +27,13 @@ mod response_handler;
 mod stateful;
 mod string;
 
+use std::io;
 use std::os::unix::net::UnixStream;
 use std::process::exit;
 
 use crate::args::{Args, Command};
 use crate::components::{Insh, InshProps};
-use crate::config::Config;
+use crate::config::{Config, RenderEngineConfig};
 #[cfg(feature = "logging")]
 use crate::logging::{configure_logging, ConfigureLoggingResult};
 use crate::request_builders::{get_files_request, search_phrase_request};
@@ -43,6 +44,7 @@ use crate::stateful::Stateful;
 use common::paths::INSHD_SOCKET;
 use insh_api::{Request, Response};
 use inshd_client::{RequestWriter, ResponseReader};
+use rend::{Engine, Renderer};
 use term::TermEvent;
 use til::{App, AppRunOptions, Component, Requester, ResponseHandler, Stopper, SystemEffect};
 
@@ -124,8 +126,18 @@ fn main() {
     // Determine the starting term events.
     let starting_term_events: Option<Vec<TermEvent>> = args.starting_term_events();
 
+    let engine: Engine = match config.render().engine() {
+        RenderEngineConfig::Full => Engine::Full,
+        RenderEngineConfig::Incr => Engine::Incremental,
+    };
     let mut app: App = App::builder()
         .escape_timeout(config.input().escape_timeout())
+        .renderer(
+            Renderer::builder()
+                .writer(io::stdout())
+                .engine(engine)
+                .build(),
+        )
         .build();
 
     let insh_props: InshProps = InshProps::builder()
