@@ -5,13 +5,31 @@ edition = "2021"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
+# The benchmarks are the ones under `benches`, not the tests measured by the default harness.
+[lib]
+bench = false
+
 [dependencies]
 ansi = { version = "0.1.0", path = "../ansi" }
 size = { version = "0.1.0", path = "../size" }
 
 itertools = { workspace = true }
+
+# Used for generating the builder pattern for structs.
+typed-builder = { workspace = true }
+
 unicode-segmentation = { workspace = true }
 unicode-width = { workspace = true }
 
 [dev-dependencies]
 test-case = { workspace = true }
+
+# Used for benchmarking.
+criterion = { workspace = true }
+
+# Used to benchmark drawing on a pseudoterminal.
+nix = { workspace = true }
+
+[[bench]]
+name = "render"
+harness = false

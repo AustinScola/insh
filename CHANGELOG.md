@@ -1,3 +1,7 @@
+# 0.5.1
+- Add a new incremental rendering engine (enabled by default). And a `render.engine` configuration
+option to control which rendering engine is used.
+
 # 0.5.0
 - Add `inshd logs` command for streaming logs.
 - Change the searcher to use inshd to search for phrases and get search suggestions.

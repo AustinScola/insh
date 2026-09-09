@@ -9,7 +9,7 @@ mod config {
     use std::io::{Error as IOError, ErrorKind as IOErrorKind};
     use std::path::PathBuf;
 
-    use super::{BrowserConfig, GeneralConfig, InputConfig};
+    use super::{BrowserConfig, GeneralConfig, InputConfig, RenderConfig};
 
     use serde::Deserialize;
     use serde_yaml_ng::Error as YamlParseError;
@@ -23,6 +23,9 @@ mod config {
         /// Input configuration.
         #[serde(default)]
         input: InputConfig,
+        /// Configuration of how the screen is drawn.
+        #[serde(default)]
+        render: RenderConfig,
         /// Configuration of the Browser.
         #[serde(default)]
         browser: BrowserConfig,
@@ -80,6 +83,11 @@ mod config {
         /// Return the configuration of how input is read.
         pub fn input(&self) -> &InputConfig {
             &self.input
+        }
+
+        /// Return the configuration of how the screen is drawn.
+        pub fn render(&self) -> &RenderConfig {
+            &self.render
         }
 
         /// Return the browser configuration.
@@ -267,6 +275,38 @@ mod input {
 }
 pub use input::InputConfig;
 
+/// Contains configuration of how the screen is drawn.
+mod render {
+    use serde::Deserialize;
+
+    /// Configuration of how the screen is drawn.
+    #[derive(Deserialize, Debug, Default, Clone, Eq, PartialEq)]
+    pub struct RenderConfig {
+        /// How much of the screen is drawn.
+        #[serde(default)]
+        engine: RenderEngineConfig,
+    }
+
+    impl RenderConfig {
+        /// Return how much of the screen is drawn.
+        pub fn engine(&self) -> RenderEngineConfig {
+            self.engine
+        }
+    }
+
+    /// How much of the screen is drawn.
+    #[derive(Deserialize, Debug, Default, Clone, Copy, Eq, PartialEq)]
+    #[serde(rename_all = "lowercase")]
+    pub enum RenderEngineConfig {
+        /// All of the screen is drawn every time.
+        Full,
+        /// Only the parts of the screen which changed are drawn.
+        #[default]
+        Incr,
+    }
+}
+pub use render::{RenderConfig, RenderEngineConfig};
+
 /// Contains browser configuration.
 mod browser {
     use serde::Deserialize;
@@ -367,6 +407,18 @@ mod tests {
     use std::time::Duration;
 
     use super::*;
+
+    use test_case::test_case;
+
+    #[test_case("render:\n  engine: full\n", RenderEngineConfig::Full; "drawing all of the screen")]
+    #[test_case("render:\n  engine: incr\n", RenderEngineConfig::Incr; "drawing only what changed")]
+    #[test_case("render: {}\n", RenderEngineConfig::Incr; "only what changed by default")]
+    #[test_case("", RenderEngineConfig::Incr; "only what changed when nothing is configured")]
+    fn test_the_render_engine_can_be_set(yaml: &str, expected_engine: RenderEngineConfig) {
+        let config: Config = serde_yaml_ng::from_str(yaml).unwrap();
+
+        assert_eq!(config.render().engine(), expected_engine);
+    }
 
     #[test]
     fn test_the_escape_timeout_can_be_set() {

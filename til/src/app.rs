@@ -49,7 +49,7 @@ pub struct App {
     #[builder(setter(skip), default=io::stdout())]
     stdout: Stdout,
     /// Draws the component on the screen.
-    #[builder(setter(skip), default=Renderer::new())]
+    #[builder(default=Renderer::builder().writer(io::stdout()).build())]
     renderer: Renderer,
 
     /// The unhandled terminal events.
@@ -337,6 +337,14 @@ impl App {
     fn note_resize(&mut self, term_event: TermEvent) -> TermEvent {
         if let TermEvent::Resize(size) = term_event {
             self.size = size;
+
+            // NOTE: What a terminal does with what it is showing when it is resized — how it wraps
+            // the rows again, which of them it throws away, where it leaves the cursor — is not
+            // something which can be worked out, so none of it is taken for granted afterwards.
+            // Several resizes can be handled between one drawing of the screen and the next, so it
+            // is not enough for the renderer to notice that the size it is drawing has changed:
+            // dragging the edge of a window out and back lands on the size it started at.
+            self.renderer.forget();
         }
         term_event
     }
@@ -348,6 +356,11 @@ impl App {
         self.term.enable_raw().unwrap();
         self.lazy_enable_bracketed_paste();
         self.lazy_hide_cursor();
+
+        // NOTE: The colors are put back before the screen is cleared rather than after, because a
+        // terminal which erases in the color it is writing on would otherwise clear it to whatever
+        // color it was left in.
+        self.renderer.reset();
         self.lazy_clear_screen();
 
         self.change_panic_hook();
@@ -355,6 +368,10 @@ impl App {
 
     /// Teardown the terminal.
     fn teardown(&mut self) {
+        // NOTE: The colors are put back before the shell has the terminal again, or it would carry
+        // on writing in whichever ones the last frame left it in.
+        self.renderer.reset();
+
         self.lazy_disable_bracketed_paste();
         self.lazy_disable_alternate_terminal();
         self.term.restore_attrs().unwrap();
@@ -619,6 +636,12 @@ impl App {
         // whether pasted text is wrapped, so stop asking for it on its behalf.
         self.lazy_disable_bracketed_paste();
 
+        // NOTE: A frame leaves the terminal writing in the colors the last thing it drew was
+        // written in, so they are put back before the program has the terminal. A terminal which
+        // erases in the color it is writing on would otherwise clear the screen to whichever color
+        // the footer happened to be written on.
+        self.renderer.reset();
+
         if setup.clear_screen {
             self.lazy_clear_screen();
         }
@@ -650,6 +673,11 @@ impl App {
         self.lazy_enable_bracketed_paste();
 
         self.update_terminal();
+
+        // NOTE: The program had the terminal to itself and left it however it liked, in whichever
+        // colors and showing whatever it drew, so what it is writing in is put back and none of
+        // what is on the screen is taken for granted when the next frame is drawn.
+        self.renderer.reset();
 
         #[cfg(feature = "logging")]
         log::debug!("Done cleaning up program {}.", program_uuid);
