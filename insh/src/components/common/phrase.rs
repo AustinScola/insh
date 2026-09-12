@@ -13,6 +13,9 @@ mod props {
         /// The phrase to start with.
         #[builder(default, setter(into))]
         pub value: Option<String>,
+        /// The character which the parts of the phrase are separated by, if it has parts.
+        #[builder(default, setter(into))]
+        pub part_separator: Option<char>,
     }
 }
 pub use props::Props;
@@ -40,6 +43,7 @@ mod phrase {
                 state: State::builder()
                     .value(props.value.unwrap_or_default())
                     .completable(props.completable)
+                    .part_separator(props.part_separator)
                     .build(),
             }
         }
@@ -58,6 +62,11 @@ mod phrase {
                         key: Key::Backspace,
                         ..
                     }) => Some(Action::Pop),
+                    TermEvent::KeyEvent(KeyEvent {
+                        key: Key::Char('w'),
+                        mods: KeyMods::CONTROL,
+                        ..
+                    }) => Some(Action::PopPart),
                     TermEvent::KeyEvent(KeyEvent {
                         key: Key::HorizontalTab,
                         mods: KeyMods::NONE,
@@ -101,9 +110,16 @@ mod phrase {
             }
 
             yarn.resize(size.columns);
-            let background_color = Color::focus_or_important(self.state.is_focused());
+            let background_color = Color::highlight(self.state.is_focused());
             yarn.background(background_color.into());
             Fabric::from(yarn)
+        }
+    }
+
+    impl Phrase {
+        /// Return what has been typed in.
+        pub fn value(&self) -> &str {
+            self.state.value()
         }
     }
 }
@@ -158,6 +174,9 @@ mod state {
         /// Whether completions should be requested for the phrase as it is typed.
         #[builder(default)]
         completable: bool,
+        /// The character which the parts of the phrase are separated by, if it has parts.
+        #[builder(default, setter(into))]
+        part_separator: Option<char>,
         /// The pending request for a completion.
         #[builder(default)]
         pending_completion_request: Option<Uuid>,
@@ -170,6 +189,7 @@ mod state {
                 completion: None,
                 focus: true,
                 completable: false,
+                part_separator: None,
                 pending_completion_request: None,
             }
         }
@@ -209,6 +229,17 @@ mod state {
                 return None;
             }
 
+            // A value which ends with a separator has no part typed in to complete yet, so asking
+            // would only waste a request. The completion which is held on to is from before the
+            // separator, so it goes rather than being shown for a part it is not for.
+            if let Some(separator) = self.part_separator {
+                if self.value.ends_with(separator) {
+                    self.completion = None;
+                    self.pending_completion_request = None;
+                    return None;
+                }
+            }
+
             let uuid: Uuid = Uuid::new_v4();
             self.pending_completion_request = Some(uuid);
             Some(Effect::RequestCompletion {
@@ -242,6 +273,38 @@ mod state {
         /// Take the last character off the phrase.
         fn pop(&mut self) -> Option<Effect> {
             self.value.pop();
+
+            if self.value.is_empty() {
+                self.completion = None;
+                self.pending_completion_request = None;
+                return None;
+            }
+
+            self.request_completion()
+        }
+
+        /// Take the last part off the phrase.
+        ///
+        /// A trailing separator belongs to the part before it, so it goes too. Otherwise pressing
+        /// this once on a phrase which ends with one would only take that separator off.
+        fn pop_part(&mut self) -> Option<Effect> {
+            let separator: char = match self.part_separator {
+                Some(separator) => separator,
+                None => {
+                    return Some(Effect::Bell);
+                }
+            };
+
+            if self.value.is_empty() {
+                return Some(Effect::Bell);
+            }
+
+            let end: usize = self.value.trim_end_matches(separator).len();
+            let keep: usize = match self.value[..end].rfind(separator) {
+                Some(index) => index + separator.len_utf8(),
+                None => 0,
+            };
+            self.value.truncate(keep);
 
             if self.value.is_empty() {
                 self.completion = None;
@@ -295,11 +358,71 @@ mod state {
                 Action::Push { character } => self.push(character),
                 Action::Paste { text } => self.paste(text),
                 Action::Pop => self.pop(),
+                Action::PopPart => self.pop_part(),
                 Action::SetCompletion { uuid, completion } => self.set_completion(uuid, completion),
                 Action::Complete => self.complete(),
                 Action::Enter => self.find(),
                 Action::Quit => self.quit(),
             }
+        }
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use super::*;
+
+        use test_case::test_case;
+
+        #[test_case("~/foo/bar/", "~/foo/"; "a trailing separator")]
+        #[test_case("~/foo/bar", "~/foo/"; "no trailing separator")]
+        #[test_case("~/foo/ba", "~/foo/"; "part of a part")]
+        #[test_case("/home/", "/"; "the part above the root")]
+        #[test_case("~/", ""; "the only part")]
+        #[test_case("foo", ""; "no separator at all")]
+        #[test_case("/", ""; "the root")]
+        #[test_case("~/foo//", "~/"; "more than one trailing separator")]
+        fn test_pop_part(value: &str, expected: &str) {
+            let mut state: State = State::builder().value(value).part_separator('/').build();
+
+            state.pop_part();
+
+            assert_eq!(state.value(), expected);
+        }
+
+        #[test]
+        fn test_pop_part_does_not_ask_for_a_completion() {
+            let mut state: State = State::builder()
+                .value("~/foo/bar")
+                .completion(String::from("~/foo/barn/"))
+                .completable(true)
+                .part_separator('/')
+                .build();
+
+            let effect: Option<Effect> = state.pop_part();
+
+            assert!(effect.is_none());
+            assert_eq!(state.value(), "~/foo/");
+            assert_eq!(state.completion(), &None);
+        }
+
+        #[test]
+        fn test_pop_part_without_a_separator() {
+            let mut state: State = State::builder().value("~/foo/bar").build();
+
+            let effect: Option<Effect> = state.pop_part();
+
+            assert!(matches!(effect, Some(Effect::Bell)));
+            assert_eq!(state.value(), "~/foo/bar");
+        }
+
+        #[test]
+        fn test_pop_part_of_nothing() {
+            let mut state: State = State::builder().part_separator('/').build();
+
+            let effect: Option<Effect> = state.pop_part();
+
+            assert!(matches!(effect, Some(Effect::Bell)));
+            assert_eq!(state.value(), "");
         }
     }
 }
@@ -327,6 +450,8 @@ mod action {
         },
         /// Take the last character off the phrase.
         Pop,
+        /// Take the last part off the phrase.
+        PopPart,
         /// Take note of a completion.
         SetCompletion {
             /// The unique identifier of the request.

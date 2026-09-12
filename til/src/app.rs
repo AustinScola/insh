@@ -167,6 +167,11 @@ impl App {
                         SystemEffect::Request(request) => {
                             request_tx.send(request).unwrap();
                         }
+                        SystemEffect::Requests(requests) => {
+                            for request in requests {
+                                request_tx.send(request).unwrap();
+                            }
+                        }
                         SystemEffect::Bell => {
                             self.make_bell_sound();
                         }
@@ -245,6 +250,11 @@ impl App {
                         }
                         Some(SystemEffect::Request(request)) => {
                             request_tx.send(request).unwrap();
+                        }
+                        Some(SystemEffect::Requests(requests)) => {
+                            for request in requests {
+                                request_tx.send(request).unwrap();
+                            }
                         }
                         Some(SystemEffect::Bell) => {
                             self.make_bell_sound();

@@ -49,14 +49,17 @@ pub use props::Props;
 mod searcher {
     use super::super::{ContentsEffect, ContentsEvent};
     use super::{Action, Effect, Focus, Props, State};
-    use crate::components::common::{Footer, FooterProps, PhraseEffect, PhraseEvent};
+    use crate::components::common::{
+        DirEffect, DirEvent, Footer, FooterProps, PhraseEffect, PhraseEvent,
+    };
     use crate::Stateful;
 
     use insh_api::{
-        Request, RequestParams, Response, ResponseParams, SuggestSearchPhraseRequestParams,
+        Request, RequestParams, Response, ResponseParams, SuggestDirRequestParams,
+        SuggestSearchPhraseRequestParams, VisitDirRequestParams,
     };
     use rend::{Fabric, Size};
-    use term::TermEvent;
+    use term::{Key, KeyEvent, KeyMods, TermEvent};
     use til::{Component, Event};
 
     /// A file contents searcher.
@@ -82,13 +85,13 @@ mod searcher {
                 2 => {
                     let columns = size.columns;
                     let phrase_fabric = self.state.phrase().render(Size::new(1, columns));
-                    let dir_fabric = self.state.dir().render(Size::new(1, columns));
+                    let dir_fabric = self.state.dir.render(Size::new(1, columns));
                     dir_fabric.quilt_bottom(phrase_fabric)
                 }
                 rows => {
                     let columns = size.columns;
 
-                    let dir_fabric = self.state.dir().render(Size::new(1, columns));
+                    let dir_fabric = self.state.dir.render(Size::new(1, columns));
                     let mut fabric: Fabric = dir_fabric;
 
                     let phrase_fabric = self.state.phrase().render(Size::new(1, columns));
@@ -120,7 +123,47 @@ mod searcher {
                         .handle(ContentsEvent::TermEvent(TermEvent::Resize(contents_size)));
                     None
                 }
+                // A completion for the directory bar can arrive after the bar has stopped being
+                // typed in, so it is routed by what it is rather than by what is focused on.
+                Event::Response(response)
+                    if matches!(response.params(), ResponseParams::SuggestDir(_)) =>
+                {
+                    let completion = match response.params() {
+                        ResponseParams::SuggestDir(params) => params.suggestion().clone(),
+                        _ => unreachable!(),
+                    };
+                    let dir_event = DirEvent::Completion {
+                        uuid: *response.uuid(),
+                        completion,
+                    };
+                    let dir_effect = self.state.dir.handle(dir_event);
+                    self.handle_dir_effect(dir_effect)
+                }
+                // The key is not bound in the directory bar itself, so that pressing it again does
+                // not throw away what has been typed in.
+                Event::TermEvent(TermEvent::KeyEvent(KeyEvent {
+                    key: Key::Char('d'),
+                    mods: KeyMods::CONTROL,
+                })) if !matches!(self.state.focus(), Focus::Dir) => {
+                    self.state.perform(Action::FocusDir)
+                }
                 _ => match self.state.focus() {
+                    Focus::Dir => {
+                        let term_event = match event {
+                            Event::TermEvent(term_event) => term_event,
+                            // A response for a search which is still streaming arrives here when
+                            // the directory bar is focused before the search is done.
+                            Event::Response(_) => {
+                                #[cfg(feature = "logging")]
+                                log::debug!(
+                                    "Ignoring a response for a search which is not focused."
+                                );
+                                return None;
+                            }
+                        };
+                        let dir_effect = self.state.dir.handle(DirEvent::TermEvent(term_event));
+                        self.handle_dir_effect(dir_effect)
+                    }
                     Focus::Phrase => {
                         let phrase_event = match event {
                             Event::TermEvent(term_event) => PhraseEvent::TermEvent(term_event),
@@ -204,6 +247,38 @@ mod searcher {
             }
         }
     }
+
+    impl Searcher {
+        /// Return the effect of what the directory bar did.
+        fn handle_dir_effect(&mut self, dir_effect: Option<DirEffect>) -> Option<Effect> {
+            match dir_effect {
+                Some(DirEffect::RequestCompletion { uuid, partial }) => {
+                    let params = RequestParams::SuggestDir(
+                        SuggestDirRequestParams::builder().partial(partial).build(),
+                    );
+                    let request = Request::builder().uuid(uuid).params(params).build();
+                    Some(Effect::Request(request))
+                }
+                Some(DirEffect::Enter { dir }) => {
+                    let request = Request::builder()
+                        .params(RequestParams::VisitDir(
+                            VisitDirRequestParams::builder().dir(dir.clone()).build(),
+                        ))
+                        .build();
+                    self.state.contents.handle(ContentsEvent::SetDir { dir });
+                    self.state.phrase.handle(PhraseEvent::Focus);
+                    self.state.perform(Action::FocusPhrase);
+                    Some(Effect::Request(request))
+                }
+                Some(DirEffect::Unfocus) => {
+                    self.state.phrase.handle(PhraseEvent::Focus);
+                    self.state.perform(Action::FocusPhrase)
+                }
+                Some(DirEffect::Bell) => Some(Effect::Bell),
+                None => None,
+            }
+        }
+    }
 }
 pub use searcher::Searcher;
 
@@ -240,9 +315,9 @@ pub use effect::Effect;
 mod state {
     use std::path::PathBuf;
 
-    use super::super::{Contents, ContentsProps};
+    use super::super::{Contents, ContentsEvent, ContentsProps};
     use super::{Action, Effect, Props};
-    use crate::components::common::{Dir, DirProps, Phrase, PhraseEvent, PhraseProps};
+    use crate::components::common::{Dir, DirEvent, DirProps, Phrase, PhraseEvent, PhraseProps};
     use crate::programs::VimArgs;
     use crate::Stateful;
 
@@ -254,7 +329,7 @@ mod state {
         /// What is focused on.
         focus: Focus,
         /// The directory bar.
-        dir: Dir,
+        pub dir: Dir,
         /// The phrase typed in.
         pub phrase: Phrase,
         /// The hits found.
@@ -266,11 +341,6 @@ mod state {
         pub fn focus(&self) -> &Focus {
             &self.focus
         }
-        /// Return the directory bar.
-        pub fn dir(&self) -> &Dir {
-            &self.dir
-        }
-
         /// Return the phrase typed in.
         pub fn phrase(&self) -> &Phrase {
             &self.phrase
@@ -290,6 +360,18 @@ mod state {
         /// Send the events to the hits.
         fn focus_contents(&mut self) -> Option<Effect> {
             self.focus = Focus::Contents;
+            None
+        }
+
+        /// Send the events to the directory bar.
+        fn focus_dir(&mut self) -> Option<Effect> {
+            // Otherwise the phrase or the selected hit goes on showing itself as focused alongside
+            // the directory. The contents say that they are unfocused, which is what is being done
+            // here anyway.
+            self.phrase.handle(PhraseEvent::Unfocus);
+            self.contents.handle(ContentsEvent::Unfocus);
+            self.dir.handle(DirEvent::Focus);
+            self.focus = Focus::Dir;
             None
         }
 
@@ -314,6 +396,7 @@ mod state {
             match action {
                 Action::FocusPhrase => self.focus_phrase(),
                 Action::FocusContents => self.focus_contents(),
+                Action::FocusDir => self.focus_dir(),
                 Action::Goto { dir, file } => self.goto(dir, file),
                 Action::OpenVim(vim_args) => self.open_vim(vim_args),
                 Action::Quit => self.quit(),
@@ -323,7 +406,7 @@ mod state {
 
     impl From<Props> for State {
         fn from(props: Props) -> Self {
-            let dir_props = DirProps::new(props.dir.clone());
+            let dir_props = DirProps::builder().dir(props.dir.clone()).build();
             let dir = Dir::new(dir_props);
 
             let phrase_props = PhraseProps::builder()
@@ -366,6 +449,8 @@ mod state {
         Phrase,
         /// The hits found.
         Contents,
+        /// The directory bar.
+        Dir,
     }
 }
 use state::{Focus, State};
@@ -382,6 +467,8 @@ mod action {
         FocusPhrase,
         /// Send the events to the hits.
         FocusContents,
+        /// Send the events to the directory bar.
+        FocusDir,
         /// Browse a directory.
         Goto {
             /// The directory to browse.

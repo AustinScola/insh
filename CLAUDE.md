@@ -61,7 +61,7 @@ Logging is behind the `logging` cargo feature for `insh` (and is transitively en
 ```
 socat -u pipe:/tmp/insh-log,mode=700 -                       # in one terminal
 cargo run --bin insh --features logging -- --log-file /tmp/insh-log \
-    --log-level error --module-log-level insh::auto_completers::search_completer=debug
+    --log-level error --module-log-level insh::components::common::dir=debug
 ```
 
 Because `insh` only compiles `log` in under the feature, every `log::` call site in `insh` needs a
@@ -118,10 +118,17 @@ socket) and `ResponseHandler` (reads the socket into a response channel) — imp
 `RequestHandlerManager` pool for work, and a `ResponseHandler` writing back, all wired with
 `crossbeam` channels.
 
-Browsing, finding, file creation, contents searching, and search suggestions all go through
-`inshd`. The `phrase-searcher` crate holds the shared, serializable hit types (`FileHit`/`LineHit`)
-and the walking/matching logic; `inshd/src/file_searcher.rs` runs it on a worker thread per search,
-mirroring how `path-finder`/`inshd/src/file_finder.rs` back file finding.
+Browsing, finding, file creation, contents searching, and the find, search and directory
+suggestions all go through `inshd`. The `phrase-searcher` crate holds the shared, serializable hit
+types (`FileHit`/`LineHit`) and the walking/matching logic; `inshd/src/file_searcher.rs` runs it on
+a worker thread per search, mirroring how `path-finder`/`inshd/src/file_finder.rs` back file
+finding.
+
+The client also tells the daemon where it has gone with a `VisitDir` request, which is the only
+thing that writes the directory history. It is sent when a directory is actually arrived at — going
+into one or up out of one in the browser, entering one in a directory bar, going to one from a hit,
+and starting up — and **not** by `GetFiles`, so refreshing or toggling the metadata does not count
+as a visit. Adding a new way to reach a directory means sending it from there too.
 
 ### Component model (`til`)
 
@@ -136,9 +143,11 @@ pub trait Component<Props, Event, Effect> {
 
 `App::run` owns the event loop: it `select!`s over terminal events and daemon responses, feeds them
 to the root component as `til::Event<Response>`, and interprets the returned
-`til::SystemEffect<Request>` (`RunProgram`, `Request`, `Bell`, `Exit`). Rendering is pull-based —
-after each event the root's `render(size)` produces a `Fabric` which the `Renderer` writes to the
-screen.
+`til::SystemEffect<Request>` (`RunProgram`, `Request`, `Requests`, `Bell`, `Exit`). A component can
+only return one effect, so `Requests` is what an event which calls for more than one request uses —
+going to a directory asks both for the files in it and for a note that it was gone to. Rendering is
+pull-based — after each event the root's `render(size)` produces a `Fabric` which the `Renderer`
+writes to the screen.
 
 The loop waits for one event, then goes on handling however many are already waiting before
 rendering again. Holding a key down sends them faster than the screen can be drawn for each one, and
@@ -224,16 +233,24 @@ Because `postgresql_embedded` needs a newer toolchain than insh otherwise would,
 pins one, and `.cargo/config.toml` pins `POSTGRESQL_VERSION` to an exact version so the build script
 reuses its `~/.theseus` download cache instead of re-resolving over the network every build.
 
-The `search_history` table holds one row per distinct phrase, with `last_searched` bumped by an
-upsert when a phrase is searched for again, so suggestions do not repeat.
+The history tables — `search_history`, `find_history` and `dir_history` — are all the same shape:
+one row per distinct phrase, pattern or path, with its timestamp bumped by an upsert when it comes
+up again, so suggestions do not repeat. Each is capped by its own configured length, and the rows
+which no longer fit are dropped in the same transaction which adds one.
+
+`dir_history` is the one whose rows can go stale, because a directory which was visited may since
+have been moved or removed. `dir_history::suggest` therefore returns several candidates rather than
+one, and `request_handlers/suggest_dir.rs` takes the first which is still a directory before
+falling back to reading the parent of what has been typed for a subdirectory which matches.
 
 Configuration is split by binary and read-only for each: `insh` reads `~/.insh-config.yaml` via
 `insh/src/config.rs`; `inshd` separately reads `~/.inshd-config.yaml` via `inshd/src/config.rs`
-(`searcher.history.length`, which governs how many rows `inshd` keeps in the `search_history`
-table; `server.request_handlers`; and `database.pool.size`, which defaults to
-`server.request_handlers` — `Config::db_conn_pool_size` resolves that, since serde cannot express a
-default which depends on another field). `insh-db` installs an r2d2 event handler which logs how
-many connections are in use as it changes.
+(`browser.history.length`, `finder.history.length` and `searcher.history.length`, which govern how
+many rows `inshd` keeps in `dir_history`, `find_history` and `search_history`;
+`server.request_handlers`; and `database.pool.size`, which defaults to `server.request_handlers` —
+`Config::db_conn_pool_size` resolves that, since serde cannot express a default which depends on
+another field). `insh-db` installs an r2d2 event handler which logs how many connections are in use
+as it changes.
 
 Note the existing `SearcherHistoryConfig` puts `#[serde(default)]` on the `length` *field*, which
 resolves to `usize::default()` — that is `0`, not the struct's `Default` of `1000`. New config

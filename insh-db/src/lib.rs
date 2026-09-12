@@ -10,6 +10,7 @@ binaries are embedded in the executable, so PostgreSQL does not have to be insta
 
 mod database;
 mod db_conn_pool_events;
+pub mod dir_history;
 pub mod find_history;
 mod helpers;
 mod psql;

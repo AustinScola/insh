@@ -34,11 +34,17 @@ pub use props::Props;
 /// Contains the [`FileCreator`] component.
 mod file_creator {
     use super::Event;
-    use super::{Action, Effect, Props, State};
-    use crate::components::common::{Footer, FooterProps, PhraseEffect, PhraseEvent};
+    use super::{Action, Effect, Focus, Props, State};
+    use crate::components::common::{
+        DirEffect, DirEvent, Footer, FooterProps, PhraseEffect, PhraseEvent,
+    };
     use crate::Stateful;
 
+    use insh_api::{
+        Request, RequestParams, ResponseParams, SuggestDirRequestParams, VisitDirRequestParams,
+    };
     use rend::{Fabric, Size};
+    use term::{Key, KeyEvent, KeyMods, TermEvent};
     use til::Component;
 
     /// A file creator.
@@ -59,32 +65,66 @@ mod file_creator {
         }
 
         fn handle(&mut self, event: Event) -> Option<Effect> {
+            // A completion for the directory bar can arrive after the bar has stopped being typed
+            // in, so it is routed by what it is rather than by what is focused on.
+            if let Event::Response(response) = &event {
+                if let ResponseParams::SuggestDir(params) = response.params() {
+                    let dir_event = DirEvent::Completion {
+                        uuid: *response.uuid(),
+                        completion: params.suggestion().clone(),
+                    };
+                    let dir_effect = self.state.dir_component.handle(dir_event);
+                    return self.handle_dir_effect(dir_effect);
+                }
+            }
+
+            // The key is not bound in the directory bar itself, so that pressing it again does not
+            // throw away what has been typed in.
+            if !matches!(self.state.focus(), Focus::Dir) {
+                if let Event::TermEvent(TermEvent::KeyEvent(KeyEvent {
+                    key: Key::Char('d'),
+                    mods: KeyMods::CONTROL,
+                })) = event
+                {
+                    return self.state.perform(Action::FocusDir);
+                }
+            }
+
             let mut action: Option<Action> = None;
 
             match event {
-                Event::TermEvent(term_event) => {
-                    let phrase_event = PhraseEvent::TermEvent(term_event);
-                    let phrase_effect = self.state.phrase.handle(phrase_event);
-                    match phrase_effect {
-                        Some(PhraseEffect::Enter { phrase }) => {
-                            action = Some(Action::CreateFile { filename: phrase });
-                        }
-                        Some(PhraseEffect::Bell) => {
-                            action = Some(Action::Bell);
-                        }
-                        // The phrase here is never completable, so this is never emitted.
-                        Some(PhraseEffect::RequestCompletion { .. }) => {
-                            #[cfg(feature = "logging")]
-                            log::warn!(
-                                "The phrase is not completable but a completion was requested."
-                            );
-                        }
-                        Some(PhraseEffect::Quit) => {
-                            action = Some(Action::Quit);
-                        }
-                        None => {}
+                Event::TermEvent(term_event) => match self.state.focus() {
+                    Focus::Dir => {
+                        let dir_effect = self
+                            .state
+                            .dir_component
+                            .handle(DirEvent::TermEvent(term_event));
+                        return self.handle_dir_effect(dir_effect);
                     }
-                }
+                    Focus::Phrase => {
+                        let phrase_event = PhraseEvent::TermEvent(term_event);
+                        let phrase_effect = self.state.phrase.handle(phrase_event);
+                        match phrase_effect {
+                            Some(PhraseEffect::Enter { phrase }) => {
+                                action = Some(Action::CreateFile { filename: phrase });
+                            }
+                            Some(PhraseEffect::Bell) => {
+                                action = Some(Action::Bell);
+                            }
+                            // The phrase here is never completable, so this is never emitted.
+                            Some(PhraseEffect::RequestCompletion { .. }) => {
+                                #[cfg(feature = "logging")]
+                                log::warn!(
+                                    "The phrase is not completable but a completion was requested."
+                                );
+                            }
+                            Some(PhraseEffect::Quit) => {
+                                action = Some(Action::Quit);
+                            }
+                            None => {}
+                        }
+                    }
+                },
                 Event::Response(response) => {
                     action = Some(Action::HandleResponse(response));
                 }
@@ -104,12 +144,12 @@ mod file_creator {
                 2 => {
                     let columns = size.columns;
                     let phrase_fabric = self.state.phrase.render(Size::new(1, columns));
-                    let dir_fabric = self.state.dir_component().render(Size::new(1, columns));
+                    let dir_fabric = self.state.dir_component.render(Size::new(1, columns));
                     dir_fabric.quilt_bottom(phrase_fabric)
                 }
                 rows => {
                     let columns = size.columns;
-                    let dir_fabric = self.state.dir_component().render(Size::new(1, columns));
+                    let dir_fabric = self.state.dir_component.render(Size::new(1, columns));
                     let mut fabric: Fabric = dir_fabric;
 
                     let phrase_fabric = self.state.phrase.render(Size::new(1, columns));
@@ -135,6 +175,38 @@ mod file_creator {
             }
         }
     }
+
+    impl FileCreator {
+        /// Return the effect of what the directory bar did.
+        fn handle_dir_effect(&mut self, dir_effect: Option<DirEffect>) -> Option<Effect> {
+            match dir_effect {
+                Some(DirEffect::RequestCompletion { uuid, partial }) => {
+                    let params = RequestParams::SuggestDir(
+                        SuggestDirRequestParams::builder().partial(partial).build(),
+                    );
+                    let request = Request::builder().uuid(uuid).params(params).build();
+                    Some(Effect::Request(request))
+                }
+                Some(DirEffect::Enter { dir }) => {
+                    let request = Request::builder()
+                        .params(RequestParams::VisitDir(
+                            VisitDirRequestParams::builder().dir(dir.clone()).build(),
+                        ))
+                        .build();
+                    self.state.perform(Action::SetDir { dir });
+                    self.state.phrase.handle(PhraseEvent::Focus);
+                    self.state.perform(Action::FocusPhrase);
+                    Some(Effect::Request(request))
+                }
+                Some(DirEffect::Unfocus) => {
+                    self.state.phrase.handle(PhraseEvent::Focus);
+                    self.state.perform(Action::FocusPhrase)
+                }
+                Some(DirEffect::Bell) => Some(Effect::Bell),
+                None => None,
+            }
+        }
+    }
 }
 pub use file_creator::FileCreator;
 
@@ -157,8 +229,8 @@ pub use event::Event;
 mod state {
     use std::path::PathBuf;
 
-    use super::{Action, Effect, Props};
-    use crate::components::common::{Dir, DirProps, FooterInfo, Phrase, PhraseEvent};
+    use super::{Action, Effect, Focus, Props};
+    use crate::components::common::{Dir, DirEvent, DirProps, FooterInfo, Phrase, PhraseEvent};
     use crate::Stateful;
 
     use file_type::FileType;
@@ -175,11 +247,13 @@ mod state {
         /// The directory to make the file in.
         dir: PathBuf,
         /// The directory bar.
-        dir_component: Dir,
+        pub dir_component: Dir,
         /// The name typed in.
         pub phrase: Phrase,
         /// The type of file to make.
         file_type: FileType,
+        /// What is focused on.
+        focus: Focus,
 
         /// The pending request.
         pending_request: Option<Uuid>,
@@ -192,7 +266,7 @@ mod state {
 
     impl From<Props> for State {
         fn from(props: Props) -> Self {
-            let dir_component_props = DirProps::new(props.dir().clone());
+            let dir_component_props = DirProps::builder().dir(props.dir().clone()).build();
             let dir_component = Dir::new(dir_component_props);
 
             Self {
@@ -200,6 +274,7 @@ mod state {
                 dir_component,
                 phrase: Phrase::default(),
                 file_type: props.file_type(),
+                focus: Focus::default(),
                 pending_request: None,
                 pending_file: None,
                 error: None,
@@ -211,6 +286,9 @@ mod state {
         fn perform(&mut self, action: Action) -> Option<Effect> {
             match action {
                 Action::CreateFile { filename } => self.create_file(&filename),
+                Action::SetDir { dir } => self.set_dir(dir),
+                Action::FocusDir => self.focus_dir(),
+                Action::FocusPhrase => self.focus_phrase(),
                 Action::HandleResponse(response) => self.handle_response(response),
                 Action::Bell => self.bell(),
                 Action::Quit => self.quit(),
@@ -222,9 +300,30 @@ mod state {
     impl FooterInfo for State {}
 
     impl State {
-        /// Return the directory bar.
-        pub fn dir_component(&self) -> &Dir {
-            &self.dir_component
+        /// Return what is focused on.
+        pub fn focus(&self) -> &Focus {
+            &self.focus
+        }
+
+        /// Make the file in a different directory.
+        fn set_dir(&mut self, dir: PathBuf) -> Option<Effect> {
+            self.dir = dir;
+            None
+        }
+
+        /// Send the events to the directory bar.
+        fn focus_dir(&mut self) -> Option<Effect> {
+            // Otherwise the name goes on showing itself as focused alongside the directory.
+            self.phrase.handle(PhraseEvent::Unfocus);
+            self.dir_component.handle(DirEvent::Focus);
+            self.focus = Focus::Dir;
+            None
+        }
+
+        /// Send the events to the name.
+        fn focus_phrase(&mut self) -> Option<Effect> {
+            self.focus = Focus::Phrase;
+            None
         }
 
         /// Return why the file could not be made, if it could not be.
@@ -313,6 +412,20 @@ mod state {
 }
 use state::State;
 
+/// Contains the [`Focus`] enum.
+mod focus {
+    /// What the file creator is focused on.
+    #[derive(Default)]
+    pub enum Focus {
+        /// The name typed in.
+        #[default]
+        Phrase,
+        /// The directory bar.
+        Dir,
+    }
+}
+use focus::Focus;
+
 /// Contains the [`Effect`] enum.
 mod effect {
     use std::path::PathBuf;
@@ -340,6 +453,8 @@ pub use effect::Effect;
 
 /// Contains the [`Action`] enum.
 mod action {
+    use std::path::PathBuf;
+
     use insh_api::Response;
 
     /// A file creator action.
@@ -349,6 +464,15 @@ mod action {
             /// The name to give it.
             filename: String,
         },
+        /// Make the file in a different directory.
+        SetDir {
+            /// The directory to make it in.
+            dir: PathBuf,
+        },
+        /// Send the events to the directory bar.
+        FocusDir,
+        /// Send the events to the name.
+        FocusPhrase,
         /// Handle a response from inshd.
         HandleResponse(Response),
         /// Ring the bell.

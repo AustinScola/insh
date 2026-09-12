@@ -45,6 +45,10 @@ impl Request {
 pub enum RequestParams {
     /// Get the files in a directory.
     GetFiles(GetFilesRequestParams),
+    /// Suggest a directory.
+    SuggestDir(SuggestDirRequestParams),
+    /// Take note that a directory was gone to.
+    VisitDir(VisitDirRequestParams),
     /// Get the contents of a file.
     GetFileContents(GetFileContentsRequestParams),
     /// Find files.
@@ -90,6 +94,34 @@ impl GetFilesRequestParams {
     /// Return whether the metadata of the files should be included.
     pub fn metadata(&self) -> bool {
         self.metadata
+    }
+}
+
+/// Request parameters for suggesting a directory.
+#[derive(Debug, TypedBuilder, Serialize, Deserialize)]
+pub struct SuggestDirRequestParams {
+    /// The path so far.
+    partial: String,
+}
+
+impl SuggestDirRequestParams {
+    /// Return the path so far.
+    pub fn partial(&self) -> &str {
+        &self.partial
+    }
+}
+
+/// Request parameters for taking note that a directory was gone to.
+#[derive(Debug, TypedBuilder, Serialize, Deserialize)]
+pub struct VisitDirRequestParams {
+    /// The directory which was gone to.
+    dir: PathBuf,
+}
+
+impl VisitDirRequestParams {
+    /// Return the directory which was gone to.
+    pub fn dir(&self) -> &Path {
+        &self.dir
     }
 }
 
@@ -275,6 +307,10 @@ impl Response {
 pub enum ResponseParams {
     /// The files in a directory.
     GetFiles(GetFilesResponseParams),
+    /// A suggested directory.
+    SuggestDir(SuggestDirResponseParams),
+    /// A directory was taken note of.
+    VisitDir(VisitDirResponseParams),
     /// The contents of a file.
     GetFileContents(GetFileContentsResponseParams),
     /// The files found.
@@ -339,6 +375,25 @@ impl Display for GetFilesError {
         }
     }
 }
+
+/// Response parameters for suggesting a directory.
+#[derive(Debug, Clone, TypedBuilder, Serialize, Deserialize)]
+pub struct SuggestDirResponseParams {
+    /// The suggested path.
+    suggestion: Option<String>,
+}
+
+impl SuggestDirResponseParams {
+    /// Return the suggested path.
+    pub fn suggestion(&self) -> &Option<String> {
+        &self.suggestion
+    }
+}
+
+/// Response parameters for taking note that a directory was gone to. There is nothing to say about
+/// it, but a response is what says that the request was handled.
+#[derive(Debug, Clone, TypedBuilder, Serialize, Deserialize)]
+pub struct VisitDirResponseParams {}
 
 /// Response parameters for getting the contents of a file.
 #[derive(Debug, Clone, TypedBuilder, Serialize, Deserialize)]

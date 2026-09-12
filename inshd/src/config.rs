@@ -12,12 +12,18 @@ use serde::Deserialize;
 /// The number of request handlers to run.
 const DEFAULT_NUM_REQUEST_HANDLERS: usize = 8;
 
+/// The maximum length of the Browser history.
+const DEFAULT_BROWSER_HISTORY_LENGTH: usize = 1000;
+
 /// The maximum length of the Finder history.
 const DEFAULT_FINDER_HISTORY_LENGTH: usize = 1000;
 
 /// Configuration options.
 #[derive(Deserialize, Debug, Default, Clone, Eq, PartialEq)]
 pub struct Config {
+    /// Configuration of the Browser.
+    #[serde(default)]
+    browser: BrowserConfig,
     /// Configuration of the Finder.
     #[serde(default)]
     finder: FinderConfig,
@@ -78,6 +84,11 @@ impl Config {
         }
 
         Ok(())
+    }
+
+    /// Return the browser configuration.
+    pub fn browser(&self) -> &BrowserConfig {
+        &self.browser
     }
 
     /// Return the finder configuration.
@@ -168,6 +179,49 @@ pub struct DatabasePoolConfig {
     /// [`Config::db_conn_pool_size`] resolves.
     #[serde(default)]
     size: Option<u32>,
+}
+
+/// Configuration for the Browser.
+#[derive(Deserialize, Debug, Default, Clone, Eq, PartialEq)]
+pub struct BrowserConfig {
+    /// Configuration for the Browser history.
+    #[serde(default)]
+    history: BrowserHistoryConfig,
+}
+
+impl BrowserConfig {
+    /// Return the browser history configuration.
+    pub fn history(&self) -> &BrowserHistoryConfig {
+        &self.history
+    }
+}
+
+/// Configuration for the Browser history.
+#[derive(Deserialize, Debug, Clone, Eq, PartialEq)]
+pub struct BrowserHistoryConfig {
+    /// The maximum length of the browser history.
+    #[serde(default = "BrowserHistoryConfig::default_length")]
+    length: usize,
+}
+
+impl Default for BrowserHistoryConfig {
+    fn default() -> Self {
+        Self {
+            length: Self::default_length(),
+        }
+    }
+}
+
+impl BrowserHistoryConfig {
+    /// Return the default maximum length of the browser history.
+    fn default_length() -> usize {
+        DEFAULT_BROWSER_HISTORY_LENGTH
+    }
+
+    /// Return the maximum length of the browser history.
+    pub fn length(&self) -> usize {
+        self.length
+    }
 }
 
 /// Configuration for the Finder.

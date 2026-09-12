@@ -170,6 +170,8 @@ mod contents {
         fn handle(&mut self, event: Event) -> Option<Effect> {
             let action: Action = match event {
                 Event::Search { phrase } => Action::Search { phrase },
+                Event::SetDir { dir } => Action::SetDir { dir },
+                Event::Unfocus => Action::Unfocus,
                 Event::Response(response) => Action::HandleResponse(response),
                 Event::TermEvent(TermEvent::Resize(size)) => Action::Resize { size },
                 // There is nothing to paste into a list of hits.
@@ -232,11 +234,10 @@ mod contents {
                                 let mut yarn = Yarn::from(path);
                                 yarn.resize(columns);
 
-                                if self.state.focused()
-                                    && !self.state.is_line_selected()
-                                    && file_hit_is_focused
-                                {
-                                    yarn.background(Color::Highlight.into());
+                                if !self.state.is_line_selected() && file_hit_is_focused {
+                                    yarn.background(
+                                        Color::row_highlight(self.state.focused()).into(),
+                                    );
                                     yarn.color(Color::InvertedText.into());
                                 }
 
@@ -263,12 +264,13 @@ mod contents {
 
                                 let mut yarn = Yarn::from(string);
                                 yarn.resize(columns);
-                                if self.state.focused()
-                                    && file_hit_is_focused
+                                if file_hit_is_focused
                                     && self.state.is_line_selected()
                                     && self.state.line_hit_number().unwrap() == line_hit_number
                                 {
-                                    yarn.background(Color::Highlight.into());
+                                    yarn.background(
+                                        Color::row_highlight(self.state.focused()).into(),
+                                    );
                                     yarn.color(Color::InvertedText.into());
                                 }
                                 yarns.push(yarn);
@@ -338,6 +340,8 @@ pub use contents::Contents;
 
 /// Contains the [`Event`] enum.
 mod event {
+    use std::path::PathBuf;
+
     use insh_api::Response;
     use term::TermEvent;
 
@@ -350,6 +354,13 @@ mod event {
             /// The phrase to search for.
             phrase: String,
         },
+        /// Search a different directory.
+        SetDir {
+            /// The directory to search.
+            dir: PathBuf,
+        },
+        /// The events no longer go to the contents.
+        Unfocus,
         /// A response.
         Response(Response),
     }
@@ -366,12 +377,11 @@ mod state {
     use crate::clipboard::Clipboard;
     use crate::command_message::CommandMessage;
     use crate::programs::{VimArgs, VimArgsBuilder};
-    use crate::request_builders::search_phrase_request;
     use crate::Stateful;
 
     use insh_api::{
         GetFileContentsRequestParams, GetFileContentsResponseParams, Request, RequestParams,
-        Response, ResponseParams, SearchPhraseResponseParams,
+        Response, ResponseParams, SearchPhraseRequestParams, SearchPhraseResponseParams,
     };
     use phrase_searcher::{FileHit, LineHit};
     use rend::Size;
@@ -636,6 +646,25 @@ mod state {
             Some(Effect::Unfocus)
         }
 
+        /// Search a different directory.
+        ///
+        /// The hits which are shown are dropped because they are from the directory which was
+        /// being searched before. Nothing is searched for again until a phrase is entered.
+        fn set_dir(&mut self, dir: PathBuf) -> Option<Effect> {
+            self.dir = dir;
+            self.phrase = None;
+            self.searched = false;
+            self.hits.clear();
+            self.file_offset = 0;
+            self.line_offset = None;
+            self.file_selected = 0;
+            self.line_selected = None;
+            self.pending_request = None;
+            self.files_searched = 0;
+            self.duration = Duration::ZERO;
+            None
+        }
+
         /// Ask inshd for the files containing a phrase.
         fn search(&mut self, phrase: &str) -> Option<Effect> {
             self.focus();
@@ -652,7 +681,14 @@ mod state {
             self.files_searched = 0;
             self.duration = Duration::ZERO;
 
-            let request: Request = search_phrase_request(self.dir.clone(), phrase.to_string());
+            let request: Request = Request::builder()
+                .params(RequestParams::SearchPhrase(
+                    SearchPhraseRequestParams::builder()
+                        .dir(self.dir.clone())
+                        .phrase(phrase.to_string())
+                        .build(),
+                ))
+                .build();
             self.pending_request = Some(*request.uuid());
 
             Some(Effect::Request(request))
@@ -1103,6 +1139,7 @@ mod state {
                 Action::Resize { size } => self.resize(size),
                 Action::Unfocus => self.unfocus(),
                 Action::Search { phrase } => self.search(&phrase),
+                Action::SetDir { dir } => self.set_dir(dir),
                 Action::Down => self.down(),
                 Action::ReallyDown => self.really_down(),
                 Action::ScrollDown => self.scroll_down(1),
@@ -1180,6 +1217,8 @@ use state::State;
 
 /// Contains the [`Action`] enum.
 mod action {
+    use std::path::PathBuf;
+
     use insh_api::Response;
     use rend::Size;
 
@@ -1197,6 +1236,11 @@ mod action {
         Search {
             /// The phrase to search for.
             phrase: String,
+        },
+        /// Search a different directory.
+        SetDir {
+            /// The directory to search.
+            dir: PathBuf,
         },
         /// Select the next hit.
         Down,
