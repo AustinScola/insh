@@ -26,6 +26,8 @@ Inshd can be configured by the file `~/.inshd-config.yaml`.
 
 **database.pool.size** (`usize`): The size of the database pool (default=`8`).
 
+**browser.history.length** (`usize`): The number of visited directories to store (default=`1000`).
+
 **finder.history.length** (`usize`): The number of file finds to store (default=`1000`).
 
 **searcher.history.length** (`usize`): The number of searches to store (default=`1000`).

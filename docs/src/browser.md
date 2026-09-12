@@ -1,7 +1,7 @@
 # Browser
 
 The file browser shows the current directory at the top, and lists the entries of the directory
-below. The currently selected entry is highlighted in yellow.
+below. The currently selected entry is highlighted in yellow when focused.
 
 | Command              | Description                                                                                                                                                                        |
 |----------------------|------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|

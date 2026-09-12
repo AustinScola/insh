@@ -309,6 +309,8 @@ pub use render::{RenderConfig, RenderEngineConfig};
 
 /// Contains browser configuration.
 mod browser {
+    use insh_api::{FileSortOptions, HiddenFileSort};
+
     use serde::Deserialize;
 
     /// Configuration for the Browser.
@@ -387,6 +389,15 @@ mod browser {
         }
     }
 
+    impl From<&BrowserSortConfig> for FileSortOptions {
+        fn from(sort: &BrowserSortConfig) -> Self {
+            FileSortOptions::builder()
+                .case_insensitive(sort.case_insensitive)
+                .hidden(sort.hidden.into())
+                .build()
+        }
+    }
+
     /// How hidden files are sorted.
     #[derive(Deserialize, Debug, Default, Clone, Copy, Eq, PartialEq)]
     #[serde(rename_all = "lowercase")]
@@ -399,8 +410,18 @@ mod browser {
         /// Hidden files are sorted as if they were not hidden.
         Mixed,
     }
+
+    impl From<BrowserSortHiddenConfig> for HiddenFileSort {
+        fn from(hidden: BrowserSortHiddenConfig) -> Self {
+            match hidden {
+                BrowserSortHiddenConfig::First => HiddenFileSort::First,
+                BrowserSortHiddenConfig::Last => HiddenFileSort::Last,
+                BrowserSortHiddenConfig::Mixed => HiddenFileSort::Mixed,
+            }
+        }
+    }
 }
-pub use browser::{BrowserConfig, BrowserSortHiddenConfig};
+pub use browser::BrowserConfig;
 
 #[cfg(test)]
 mod tests {

@@ -21,7 +21,6 @@ mod current_dir;
 #[cfg(feature = "logging")]
 mod logging;
 mod programs;
-mod request_builders;
 mod requester;
 mod response_handler;
 mod stateful;
@@ -29,6 +28,7 @@ mod string;
 
 use std::io;
 use std::os::unix::net::UnixStream;
+use std::path::PathBuf;
 use std::process::exit;
 
 use crate::args::{Args, Command};
@@ -36,13 +36,15 @@ use crate::components::{Insh, InshProps};
 use crate::config::{Config, RenderEngineConfig};
 #[cfg(feature = "logging")]
 use crate::logging::{configure_logging, ConfigureLoggingResult};
-use crate::request_builders::{get_files_request, search_phrase_request};
 use crate::requester::InshdRequester;
 use crate::response_handler::{InshdResponseHandler, InshdResponseHandlerStopper};
 use crate::stateful::Stateful;
 
 use common::paths::INSHD_SOCKET;
-use insh_api::{Request, Response};
+use insh_api::{
+    FileSortOptions, GetFilesRequestParams, Request, RequestParams, Response,
+    SearchPhraseRequestParams, VisitDirRequestParams,
+};
 use inshd_client::{RequestWriter, ResponseReader};
 use rend::{Engine, Renderer};
 use term::TermEvent;
@@ -82,14 +84,24 @@ fn main() {
     // Determine the starting effects.
     let mut starting_effects: Option<Vec<SystemEffect<Request>>> = args.starting_effects();
     let pending_browser_request: Option<Uuid> = if args.browse() {
-        let request = get_files_request(
-            args.dir().clone().unwrap_or_else(current_dir::current_dir),
-            &config,
-            config.browser().metadata(),
-        );
+        let dir: PathBuf = args.dir().clone().unwrap_or_else(current_dir::current_dir);
+        let request = Request::builder()
+            .params(RequestParams::GetFiles(
+                GetFilesRequestParams::builder()
+                    .dir(dir.clone())
+                    .sort(config.browser().sort().map(FileSortOptions::from))
+                    .metadata(config.browser().metadata())
+                    .build(),
+            ))
+            .build();
+        let visit_request = Request::builder()
+            .params(RequestParams::VisitDir(
+                VisitDirRequestParams::builder().dir(dir).build(),
+            ))
+            .build();
 
         let request_uuid: Uuid = *request.uuid();
-        let effect = SystemEffect::Request(request);
+        let effect = SystemEffect::Requests(vec![visit_request, request]);
         if let Some(ref mut starting_effects) = starting_effects {
             starting_effects.push(effect);
         } else {
@@ -105,10 +117,14 @@ fn main() {
         phrase: Some(phrase),
     }) = args.command()
     {
-        let request = search_phrase_request(
-            args.dir().clone().unwrap_or_else(current_dir::current_dir),
-            phrase.clone(),
-        );
+        let request = Request::builder()
+            .params(RequestParams::SearchPhrase(
+                SearchPhraseRequestParams::builder()
+                    .dir(args.dir().clone().unwrap_or_else(current_dir::current_dir))
+                    .phrase(phrase.clone())
+                    .build(),
+            ))
+            .build();
 
         let request_uuid: Uuid = *request.uuid();
         let effect = SystemEffect::Request(request);

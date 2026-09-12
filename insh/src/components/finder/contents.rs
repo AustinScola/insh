@@ -122,6 +122,8 @@ mod contents {
         fn handle(&mut self, event: Event) -> Option<Effect> {
             let action: Action = match event {
                 Event::Find { phrase } => Action::Find { phrase },
+                Event::SetDir { dir } => Action::SetDir { dir },
+                Event::Unfocus => Action::Unfocus,
                 Event::TermEvent(term_event) => match term_event {
                     TermEvent::Resize(size) => Action::Resize { size },
                     // There is nothing to paste into a list of hits.
@@ -170,10 +172,16 @@ mod contents {
                             .to_string();
                         let file_name_start: usize = yarn.len() - Cell::columns(&file_name);
 
-                        if self.state.focused() && Some(row) == self.state.selected() {
-                            yarn.color_before(Color::InvertedGrayedText.into(), file_name_start);
+                        if Some(row) == self.state.selected() {
+                            // The gray of an unfocused row is darker than the light gray, so the
+                            // dark one is what shows up on it.
+                            let dir_color: Color = match self.state.focused() {
+                                true => Color::InvertedGrayedText,
+                                false => Color::InvertedLightGrayedText,
+                            };
+                            yarn.color_before(dir_color.into(), file_name_start);
                             yarn.color_after(Color::InvertedText.into(), file_name_start);
-                            yarn.background(Color::Highlight.into());
+                            yarn.background(Color::row_highlight(self.state.focused()).into());
                         } else {
                             yarn.color_before(Color::GrayedText.into(), file_name_start);
                         }
@@ -234,6 +242,8 @@ pub use contents::Contents;
 
 /// Contains the [`Event`] enum.
 mod event {
+    use std::path::PathBuf;
+
     use insh_api::Response;
     use term::TermEvent;
 
@@ -245,6 +255,13 @@ mod event {
             /// The pattern to match file names against.
             phrase: String,
         },
+        /// Look in a different directory.
+        SetDir {
+            /// The directory to look in.
+            dir: PathBuf,
+        },
+        /// The events no longer go to the contents.
+        Unfocus,
         /// A response.
         Response(Response),
         /// A terminal event.
@@ -263,12 +280,11 @@ mod state {
     use crate::clipboard::Clipboard;
     use crate::command_message::CommandMessage;
     use crate::programs::{VimArgs, VimArgsBuilder};
-    use crate::request_builders::find_files_request;
     use crate::stateful::Stateful;
 
     use insh_api::{
-        FindFilesResponseParams, GetFileContentsRequestParams, GetFileContentsResponseParams,
-        Request, RequestParams, Response, ResponseParams,
+        FindFilesRequestParams, FindFilesResponseParams, GetFileContentsRequestParams,
+        GetFileContentsResponseParams, Request, RequestParams, Response, ResponseParams,
     };
     use path_finder::Entry;
     use rend::Size;
@@ -452,6 +468,24 @@ mod state {
             Some(Effect::Unfocus)
         }
 
+        /// Look in a different directory.
+        ///
+        /// The hits which are shown are dropped because they are from the directory which was
+        /// being looked in before. Nothing is found again until a pattern is entered.
+        fn set_dir(&mut self, dir: PathBuf) -> Option<Effect> {
+            self.dir = dir;
+            self.phrase = None;
+            self.hits = None;
+            self.entries = Vec::new();
+            self.selected = None;
+            self.offset = 0;
+            self.pending_request = None;
+            self.received_first_resp = false;
+            self.files_searched = 0;
+            self.duration = Duration::ZERO;
+            None
+        }
+
         /// Ask inshd for the files matching a pattern.
         fn find(&mut self, phrase: &str) -> Option<Effect> {
             self.focus();
@@ -460,7 +494,14 @@ mod state {
             self.files_searched = 0;
             self.duration = Duration::ZERO;
 
-            let request: Request = find_files_request(self.dir.clone(), phrase.to_string());
+            let request: Request = Request::builder()
+                .params(RequestParams::FindFiles(
+                    FindFilesRequestParams::builder()
+                        .dir(self.dir.clone())
+                        .pattern(phrase.to_string())
+                        .build(),
+                ))
+                .build();
             self.pending_request = Some(*request.uuid());
 
             Some(Effect::Request(request))
@@ -742,6 +783,7 @@ mod state {
             match action {
                 Action::Unfocus => self.unfocus(),
                 Action::Find { phrase } => self.find(&phrase),
+                Action::SetDir { dir } => self.set_dir(dir),
                 Action::Resize { size } => self.resize(size),
                 Action::Down => self.down(),
                 Action::ReallyDown => self.really_down(),
@@ -764,6 +806,8 @@ use state::State;
 
 /// Contains the [`Action`] enum.
 mod action {
+    use std::path::PathBuf;
+
     use insh_api::Response;
     use rend::Size;
 
@@ -776,6 +820,11 @@ mod action {
         Find {
             /// The pattern to match file names against.
             phrase: String,
+        },
+        /// Look in a different directory.
+        SetDir {
+            /// The directory to look in.
+            dir: PathBuf,
         },
         /// Take note of a new size.
         Resize {

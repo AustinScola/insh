@@ -11,11 +11,13 @@ use crate::components::searcher::{Searcher, SearcherEffect, SearcherProps};
 use crate::config::Config;
 use crate::current_dir;
 use crate::programs::{Bash, Vim};
-use crate::request_builders::get_files_request;
 use crate::stateful::Stateful;
 
 use file_type::FileType;
-use insh_api::{Request, Response};
+use insh_api::{
+    FileSortOptions, GetFilesRequestParams, Request, RequestParams, Response, ResponseParams,
+    VisitDirRequestParams,
+};
 use rend::{Fabric, Size};
 use term::{Key, KeyEvent, KeyMods, Term, TermEvent};
 use til::{Component, Event, SystemEffect};
@@ -130,6 +132,14 @@ impl Component<Props, Event<Response>, SystemEffect<Request>> for Insh {
             return Some(SystemEffect::Exit);
         }
 
+        // There is nothing for a mode to do with the response to a note that a directory was gone
+        // to, so it is dropped here rather than in every one of them.
+        if let Event::Response(response) = &event {
+            if matches!(response.params(), ResponseParams::VisitDir(_)) {
+                return None;
+            }
+        }
+
         let mut action: Option<Action> = None;
 
         match self.state.mode {
@@ -164,6 +174,9 @@ impl Component<Props, Event<Response>, SystemEffect<Request>> for Insh {
                     }
                     Some(BrowserEffect::Request(request)) => {
                         return Some(SystemEffect::Request(request));
+                    }
+                    Some(BrowserEffect::Requests(requests)) => {
+                        return Some(SystemEffect::Requests(requests));
                     }
                     None => {}
                 }
@@ -350,8 +363,20 @@ impl State {
     /// Browse a directory.
     fn browse(&mut self, dir: PathBuf, file: Option<PathBuf>) -> Option<SystemEffect<Request>> {
         // Create a request for getting the files in the dir.
-        let request =
-            get_files_request(dir.clone(), &self.config, self.config.browser().metadata());
+        let request = Request::builder()
+            .params(RequestParams::GetFiles(
+                GetFilesRequestParams::builder()
+                    .dir(dir.clone())
+                    .sort(self.config.browser().sort().map(FileSortOptions::from))
+                    .metadata(self.config.browser().metadata())
+                    .build(),
+            ))
+            .build();
+        let visit_request = Request::builder()
+            .params(RequestParams::VisitDir(
+                VisitDirRequestParams::builder().dir(dir.clone()).build(),
+            ))
+            .build();
 
         self.mode = Mode::Browse;
         let size: Size = Term::size().unwrap();
@@ -364,7 +389,7 @@ impl State {
             .build();
         self.browser = Some(Browser::new(browser_props));
 
-        Some(SystemEffect::Request(request))
+        Some(SystemEffect::Requests(vec![visit_request, request]))
     }
 
     /// Make a new file.

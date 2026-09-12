@@ -10,14 +10,14 @@ use crate::command_message::CommandMessage;
 use crate::components::common::FooterInfo;
 use crate::config::Config;
 use crate::programs::{VimArgs, VimArgsBuilder};
-use crate::request_builders::get_files_request;
 use crate::stateful::Stateful;
 
 use file_info::FileInfo;
 use file_type::FileType;
 use insh_api::{
-    GetFileContentsRequestParams, GetFileContentsResponseParams, GetFilesResponseParams,
-    GetFilesResult, Request, RequestParams, Response, ResponseParams,
+    FileSortOptions, GetFileContentsRequestParams, GetFileContentsResponseParams,
+    GetFilesRequestParams, GetFilesResponseParams, GetFilesResult, Request, RequestParams,
+    Response, ResponseParams,
 };
 use rend::{Cell, Fabric, Size, Yarn};
 use term::{Key, KeyEvent, KeyMods, TermEvent};
@@ -365,6 +365,9 @@ impl Component<Props, Event, Effect> for Contents {
     fn handle(&mut self, event: Event) -> Option<Effect> {
         let action: Action = match event {
             Event::Response(response) => Action::HandleResponse(response),
+            Event::Focus => Action::Focus,
+            Event::Unfocus => Action::Unfocus,
+            Event::SetDir { dir } => Action::SetDir { dir },
             Event::Resize { size } => Action::Resize { size },
             Event::Term { event } => {
                 let key_event = match event {
@@ -476,7 +479,7 @@ impl Component<Props, Event, Effect> for Contents {
 
                         if Some(row) == self.state.selected {
                             yarn.color(Color::InvertedText.into());
-                            yarn.background(Color::Highlight.into());
+                            yarn.background(Color::row_highlight(self.state.focused).into());
                         } else if hidden {
                             yarn.color_after(Color::LightGrayedText.into(), name_offset);
                         }
@@ -611,6 +614,15 @@ impl Contents {
 pub enum Event {
     /// A response.
     Response(Response),
+    /// The events go to the contents.
+    Focus,
+    /// The events no longer go to the contents.
+    Unfocus,
+    /// Show the files in a different directory.
+    SetDir {
+        /// The directory to show the files in.
+        dir: PathBuf,
+    },
     /// The contents were resized.
     Resize {
         /// The new size.
@@ -631,6 +643,8 @@ struct State {
     size: Size,
     /// The directory the files are shown from.
     dir: PathBuf,
+    /// Whether the events go to the contents.
+    focused: bool,
 
     /// The file to select once the files arrive.
     starting_file: Option<PathBuf>,
@@ -668,6 +682,7 @@ impl From<Props> for State {
             config: props.config,
             size,
             dir,
+            focused: true,
             starting_file: props.file,
             starting_offset: None,
             pending_request: props.pending_request,
@@ -742,7 +757,15 @@ impl State {
 
     /// Return a request for getting the files of the current directory.
     fn get_files_request(&self) -> Request {
-        get_files_request(self.dir.clone(), &self.config, self.metadata)
+        Request::builder()
+            .params(RequestParams::GetFiles(
+                GetFilesRequestParams::builder()
+                    .dir(self.dir.clone())
+                    .sort(self.config.browser().sort().map(FileSortOptions::from))
+                    .metadata(self.metadata)
+                    .build(),
+            ))
+            .build()
     }
 
     /// Return whether the entries which are known have their metadata.
@@ -913,6 +936,28 @@ impl State {
         None
     }
 
+    /// Send the events to the contents.
+    fn focus(&mut self) -> Option<Effect> {
+        self.focused = true;
+        None
+    }
+
+    /// Stop sending the events to the contents.
+    fn unfocus(&mut self) -> Option<Effect> {
+        self.focused = false;
+        None
+    }
+
+    /// Show the files in a different directory.
+    fn go_to(&mut self, dir: PathBuf) -> Option<Effect> {
+        self.set_dir(&dir);
+        self.reset_file_infos();
+
+        let request = self.get_files_request();
+        self.pending_request = Some(*request.uuid());
+        Some(Effect::Request(request))
+    }
+
     /// Get the files again.
     fn refresh(&mut self) -> Option<Effect> {
         self.remember_position();
@@ -957,6 +1002,7 @@ impl State {
             self.pending_request = Some(*request.uuid());
 
             return Some(Effect::PopDir {
+                dir: self.dir.clone(),
                 get_files_request: request,
             });
         }
@@ -1211,13 +1257,19 @@ impl State {
 
 impl Stateful<Action, Effect> for State {
     fn perform(&mut self, action: Action) -> Option<Effect> {
-        // Running a command clears what the last one had to say. Responses are not commands, so
-        // they leave it alone.
-        if !matches!(action, Action::HandleResponse(_)) {
+        // Running a command clears what the last one had to say. Responses and moving the focus
+        // around are not commands, so they leave it alone.
+        if !matches!(
+            action,
+            Action::HandleResponse(_) | Action::Focus | Action::Unfocus
+        ) {
             self.message = None;
         }
 
         match action {
+            Action::Focus => self.focus(),
+            Action::Unfocus => self.unfocus(),
+            Action::SetDir { dir } => self.go_to(dir),
             Action::Resize { size } => self.resize(size),
             Action::Down => self.down(),
             Action::ReallyDown => self.really_down(),
@@ -1243,6 +1295,15 @@ impl Stateful<Action, Effect> for State {
 /// A contents action.
 #[derive(Clone)]
 enum Action {
+    /// Send the events to the contents.
+    Focus,
+    /// Stop sending the events to the contents.
+    Unfocus,
+    /// Show the files in a different directory.
+    SetDir {
+        /// The directory to show the files in.
+        dir: PathBuf,
+    },
     /// Take note of a new size.
     Resize {
         /// The new size.
@@ -1303,6 +1364,8 @@ pub enum Effect {
     },
     /// Show the files in the directory above.
     PopDir {
+        /// The directory above.
+        dir: PathBuf,
         // NOTE: We only jam this in here for now because we can only emit a single effect right
         // now.
         /// The request to get them with.
