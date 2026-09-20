@@ -17,6 +17,8 @@ pub use props::Props;
 
 /// Contains the [`Dir`] component.
 mod dir {
+    use std::path::Path;
+
     use super::{Action, Effect, Event, Props, State};
     use crate::color::Color;
     use crate::stateful::Stateful;
@@ -61,6 +63,11 @@ mod dir {
     }
 
     impl Dir {
+        /// Return the directory which is shown.
+        pub fn dir(&self) -> &Path {
+            self.state.dir()
+        }
+
         /// Return the action to perform for an event.
         fn map(&self, event: Event) -> Option<Action> {
             match event {
@@ -141,6 +148,11 @@ mod state {
     }
 
     impl State {
+        /// Return the directory which is shown.
+        pub fn dir(&self) -> &Path {
+            &self.dir
+        }
+
         /// Return what is being typed in, if the directory is being typed in.
         pub fn phrase(&self) -> &Option<Phrase> {
             &self.phrase

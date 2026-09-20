@@ -306,7 +306,10 @@ mod effect {
         /// Send a request.
         Request(Request),
         /// Quit.
-        Quit,
+        Quit {
+            /// The directory which was being searched in.
+            dir: PathBuf,
+        },
     }
 }
 pub use effect::Effect;
@@ -387,7 +390,9 @@ mod state {
 
         /// Quit.
         fn quit(&mut self) -> Option<Effect> {
-            Some(Effect::Quit)
+            Some(Effect::Quit {
+                dir: self.dir.dir().to_path_buf(),
+            })
         }
     }
 

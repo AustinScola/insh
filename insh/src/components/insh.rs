@@ -226,7 +226,7 @@ impl Component<Props, Event<Response>, SystemEffect<Request>> for Insh {
                         action = Some(Action::Bell);
                     }
                     Some(FileCreatorEffect::Quit) => {
-                        action = Some(Action::QuitFinder);
+                        action = Some(Action::QuitFileCreator);
                     }
                     None => {}
                 }
@@ -245,8 +245,8 @@ impl Component<Props, Event<Response>, SystemEffect<Request>> for Insh {
                         let program = Box::new(Vim::new(vim_args));
                         return Some(SystemEffect::RunProgram { program });
                     }
-                    Some(FinderEffect::Quit) => {
-                        action = Some(Action::QuitFinder);
+                    Some(FinderEffect::Quit { dir }) => {
+                        action = Some(Action::QuitFinder { dir });
                     }
                     Some(FinderEffect::Bell) => {
                         action = Some(Action::Bell);
@@ -271,8 +271,8 @@ impl Component<Props, Event<Response>, SystemEffect<Request>> for Insh {
                     Some(SearcherEffect::Request(request)) => {
                         return Some(SystemEffect::Request(request));
                     }
-                    Some(SearcherEffect::Quit) => {
-                        action = Some(Action::QuitSearcher);
+                    Some(SearcherEffect::Quit { dir }) => {
+                        action = Some(Action::QuitSearcher { dir });
                     }
                     None => {}
                 }
@@ -542,16 +542,36 @@ impl State {
         Some(SystemEffect::Request(Chat::initial_request()))
     }
 
-    /// Go back to the browser from the finder.
-    fn quit_finder(&mut self) -> Option<SystemEffect<Request>> {
+    /// Go back to the browser from the file creator.
+    fn quit_file_creator(&mut self) -> Option<SystemEffect<Request>> {
         self.mode = Mode::Browse;
         None
     }
 
-    /// Go back to the browser from the searcher.
-    fn quit_searcher(&mut self) -> Option<SystemEffect<Request>> {
+    /// Go back to the browser from the finder.
+    fn quit_finder(&mut self, dir: PathBuf) -> Option<SystemEffect<Request>> {
         self.mode = Mode::Browse;
-        None
+        self.show_dir(dir)
+    }
+
+    /// Go back to the browser from the searcher.
+    fn quit_searcher(&mut self, dir: PathBuf) -> Option<SystemEffect<Request>> {
+        self.mode = Mode::Browse;
+        self.show_dir(dir)
+    }
+
+    /// Tell the browser to show a directory.
+    ///
+    /// The directory bar in the finder or the searcher goes somewhere without the browser knowing
+    /// about it, so the browser is shown where the finder or the searcher was left rather than
+    /// where it was itself when it was left. It stays as it was if the directory is the same one.
+    fn show_dir(&mut self, dir: PathBuf) -> Option<SystemEffect<Request>> {
+        let browser = self.browser.as_mut()?;
+        match browser.handle(BrowserEvent::SetDir { dir }) {
+            Some(BrowserEffect::Request(request)) => Some(SystemEffect::Request(request)),
+            // Showing a directory only asks for the files in it.
+            _ => None,
+        }
     }
 
     /// Go back to the browser from the chat.
@@ -638,8 +658,9 @@ impl Stateful<Action, SystemEffect<Request>> for State {
             Action::QuitHistory => self.quit_history(),
             Action::OpenChat { id } => self.open_chat(id),
             Action::NewChat => self.new_chat(),
-            Action::QuitFinder => self.quit_finder(),
-            Action::QuitSearcher => self.quit_searcher(),
+            Action::QuitFileCreator => self.quit_file_creator(),
+            Action::QuitFinder { dir } => self.quit_finder(dir),
+            Action::QuitSearcher { dir } => self.quit_searcher(dir),
             Action::Bell => self.bell(),
         }
     }
@@ -700,10 +721,18 @@ enum Action {
     },
     /// Ring the bell.
     Bell,
+    /// Go back to the browser from the file creator.
+    QuitFileCreator,
     /// Go back to the browser from the finder.
-    QuitFinder,
+    QuitFinder {
+        /// The directory which was being looked in.
+        dir: PathBuf,
+    },
     /// Go back to the browser from the searcher.
-    QuitSearcher,
+    QuitSearcher {
+        /// The directory which was being searched in.
+        dir: PathBuf,
+    },
     /// Go back to the browser from the chat.
     QuitChat,
     /// Look through the past chats.

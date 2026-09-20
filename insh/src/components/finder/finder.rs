@@ -358,7 +358,9 @@ mod state {
 
         /// Quit.
         fn quit(&mut self) -> Option<Effect> {
-            Some(Effect::Quit)
+            Some(Effect::Quit {
+                dir: self.dir.dir().to_path_buf(),
+            })
         }
     }
 
@@ -431,7 +433,10 @@ mod effect {
         /// Ring the bell.
         Bell,
         /// Quit.
-        Quit,
+        Quit {
+            /// The directory which was being looked in.
+            dir: PathBuf,
+        },
     }
 }
 pub use effect::Effect;
