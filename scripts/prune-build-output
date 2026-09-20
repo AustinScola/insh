@@ -1,0 +1,37 @@
+#!/bin/bash
+
+set -euo pipefail
+
+REPO_ROOT="$(git rev-parse --show-toplevel)"
+
+cd "${REPO_ROOT}"
+
+# Remove the build output of the crates of the workspace, leaving that of the dependencies, so that
+# only what is worth keeping is cached.
+#
+# The crates of the workspace are rebuilt on every CI run no matter what is cached, since checking
+# the repo out gives their sources new modification times and Cargo fingerprints path dependencies
+# by modification time. Dependencies escape that because Cargo fingerprints them by version and
+# checksum instead, so those are the ones the cache is for. In the test job the workspace artifacts
+# are test executables carrying debug info, which is most of what the cache holds.
+#
+# The fingerprints and the build script output are deliberately left alone. Running the build
+# scripts again would mean building pgvector and downloading the embedding model, which costs far
+# more than removing their artifacts saves.
+#
+# The names are read from the manifests rather than from `cargo metadata` so that this needs
+# neither jq nor yq, which are not both available everywhere this runs. Only short option names are
+# used for the same reason: this also runs on macOS, where rm is not GNU rm.
+MEMBERS="$(awk '/^members = \[/{inside=1; next} /^\]/{inside=0} inside' Cargo.toml | tr -d ' ",')"
+
+while read -r MEMBER; do
+    CRATE="$(awk -F'"' '/^name = /{print $2; exit}' "${MEMBER}/Cargo.toml")"
+
+    # A crate is named with dashes but its artifacts are named with underscores.
+    LIBRARY="${CRATE//-/_}"
+
+    rm -f "target/debug/deps/${LIBRARY}-"* "target/debug/deps/lib${LIBRARY}-"*
+    rm -f "target/debug/${CRATE}" "target/debug/${CRATE}.d"
+done <<< "${MEMBERS}"
+
+rm -rf target/debug/incremental
