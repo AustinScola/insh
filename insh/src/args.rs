@@ -2,6 +2,7 @@
 
 use std::path::PathBuf;
 
+use crate::components::Chat;
 use crate::current_dir;
 use crate::programs::{Vim, VimArgs, VimArgsBuilder};
 
@@ -147,17 +148,27 @@ impl Args {
                 }
                 Some(effects)
             }
+            // Whether there is an inference engine to talk to is asked for here because the chat
+            // only gets to return one effect at a time and it is not being opened from anywhere
+            // which could make the request for it.
+            Some(Command::Chat { .. }) => {
+                Some(vec![SystemEffect::Request(Chat::initial_request())])
+            }
             _ => None,
         }
     }
 
     /// Return the starting terminal events.
+    ///
+    /// A prompt which was passed is typed into the chat already, so the carriage return says it.
     pub fn starting_term_events(&self) -> Option<Vec<TermEvent>> {
         match &self.command {
-            Some(Command::Find { .. }) => Some(vec![TermEvent::KeyEvent(KeyEvent {
-                key: Key::CarriageReturn,
-                mods: KeyMods::NONE,
-            })]),
+            Some(Command::Find { .. }) | Some(Command::Chat { prompt: Some(_) }) => {
+                Some(vec![TermEvent::KeyEvent(KeyEvent {
+                    key: Key::CarriageReturn,
+                    mods: KeyMods::NONE,
+                })])
+            }
             _ => None,
         }
     }
@@ -203,6 +214,14 @@ pub enum Command {
         /// "<file>:<line>:<column>". (All forms also accept a trailing colon.)
         #[arg(name = "FILE")]
         file_line_column: Option<FileLineColumn>,
+    },
+
+    /// Start a chat with Inshie.
+    #[command(alias = "c", display_order = 5)]
+    Chat {
+        /// The prompt.
+        #[arg(short, long)]
+        prompt: Option<String>,
     },
 }
 
