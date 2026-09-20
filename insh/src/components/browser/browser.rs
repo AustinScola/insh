@@ -55,6 +55,18 @@ impl Component<Props, Event, Effect> for Browser {
 
     fn handle(&mut self, event: Event) -> Option<Effect> {
         match event {
+            // The directory was already gone to wherever the browser is being told about it from,
+            // so it is not noted as visited again here.
+            Event::SetDir { dir } => {
+                if dir == self.state.dir.dir() {
+                    return None;
+                }
+
+                self.state.dir.handle(DirEvent::SetDir { dir: dir.clone() });
+                let contents_effect: Option<ContentsEffect> =
+                    self.state.contents.handle(ContentsEvent::SetDir { dir });
+                self.handle_contents_effect(contents_effect)
+            }
             Event::Response(response) => {
                 // A completion for the directory bar can arrive after the bar has stopped being
                 // typed in, so responses are routed by what they are rather than by what is
@@ -272,6 +284,11 @@ enum Focus {
 
 /// A browser event.
 pub enum Event {
+    /// Show the files in a different directory.
+    SetDir {
+        /// The directory to show the files in.
+        dir: PathBuf,
+    },
     /// A response.
     Response(Response),
     /// A terminal event.
