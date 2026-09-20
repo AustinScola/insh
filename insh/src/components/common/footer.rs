@@ -18,6 +18,14 @@ mod info {
         fn position(&self) -> String {
             String::new()
         }
+
+        /// Return whether what is shown on the left is still happening rather than finished.
+        ///
+        /// What is still happening is written in a lighter color, so that a count which is still
+        /// climbing can be told from one which has stopped without having to watch it.
+        fn in_progress(&self) -> bool {
+            false
+        }
     }
 }
 pub use info::Info;
@@ -87,6 +95,7 @@ mod footer {
             // together.
             let mut text_cells: Vec<Cell> = Cell::all(&text);
             Cell::truncate(&mut text_cells, size.columns.saturating_sub(right_len + 1));
+            let text_len: usize = text_cells.len();
 
             let mut cells: Vec<Cell> = Vec::with_capacity(size.columns);
             cells.append(&mut text_cells);
@@ -95,6 +104,9 @@ mod footer {
 
             let mut yarn = Yarn::from(cells);
             yarn.color(Color::InvertedText.into());
+            if self.state.info().in_progress() {
+                yarn.color_before(Color::InvertedGrayedText.into(), text_len);
+            }
             yarn.background(Color::FooterBackground.into());
 
             Fabric::from(yarn)

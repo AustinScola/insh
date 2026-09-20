@@ -5,6 +5,7 @@ The insh daemon.
 #![deny(clippy::missing_docs_in_private_items)]
 #![allow(clippy::needless_return)]
 
+mod ai_streamer;
 mod args;
 mod cache;
 mod client;

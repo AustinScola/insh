@@ -4,3 +4,6 @@
 [submodule "bash-lib"]
 	path = bash-lib
 	url = https://github.com/AustinScola/bash-lib
+[submodule "insh-db/pgvector"]
+	path = insh-db/pgvector
+	url = https://github.com/pgvector/pgvector.git

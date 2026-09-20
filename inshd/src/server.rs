@@ -6,6 +6,7 @@ use std::os::unix::net::UnixListener;
 use std::panic;
 use std::panic::PanicHookInfo;
 use std::process::exit;
+use std::sync::Arc;
 use std::thread;
 use std::thread::JoinHandle;
 
@@ -28,6 +29,7 @@ use crate::signal_handler::SignalHandler;
 use crate::stop::Stop;
 
 use common::paths::{INSHD_SOCKET, INSH_FILES_PERMS};
+use embedder::Embedder;
 use insh_db::Database;
 
 use crossbeam::channel::{self, Receiver, Sender};
@@ -66,11 +68,26 @@ impl Server {
             Ok(database) => database,
             Err(error) => {
                 log::error!("Failed to start the database.");
-                return Err(RunError::StartDatabaseError(error));
+                return Err(RunError::StartDatabase(error));
             }
         };
         let db_conn_pool = database.conn_pool();
         let db_version: String = database.version().to_string();
+
+        // The model is embedded in the executable, so this only fails if the executable is
+        // damaged. It is loaded once and shared, since it is tens of megabytes.
+        log::info!("Loading the embedding model...");
+        let embedder: Arc<Embedder> = match Embedder::load() {
+            Ok(embedder) => Arc::new(embedder),
+            Err(error) => {
+                log::error!("Failed to load the embedding model.");
+                // The database was started above and nothing else stops it, so giving up here
+                // would leave the server running with no daemon in front of it.
+                database.stop();
+                return Err(RunError::LoadEmbedder(error));
+            }
+        };
+        log::info!("Loaded the embedding model.");
 
         // Create a unix socket for clients to connect to.
         log::debug!("Creating a unix socket {:?}...", *INSHD_SOCKET);
@@ -78,7 +95,8 @@ impl Server {
             Ok(listener) => listener,
             Err(error) => {
                 log::error!("Failed to create the unix domain socket.");
-                return Err(RunError::CreateSocketError(error));
+                database.stop();
+                return Err(RunError::CreateSocket(error));
             }
         };
         log::debug!("Created the unix socket.");
@@ -186,6 +204,7 @@ impl Server {
             .config(config)
             .db_conn_pool(db_conn_pool)
             .db_version(db_version)
+            .embedder(embedder)
             .build();
         let request_handler_manager_handle: JoinHandle<()> = thread::Builder::new()
             .name("request-handler-monitor".to_string())
@@ -371,24 +390,30 @@ mod run_error {
     use std::fmt::{Display, Error as FmtError, Formatter};
     use std::io::Error as IOError;
 
+    use embedder::LoadError as EmbedderLoadError;
     use insh_db::StartError as DatabaseStartError;
 
     /// An error running inshd.
     pub enum RunError {
         /// An error starting the database.
-        StartDatabaseError(DatabaseStartError),
+        StartDatabase(DatabaseStartError),
         /// An error creating the unix socket.
-        CreateSocketError(IOError),
+        CreateSocket(IOError),
+        /// An error loading the embedding model.
+        LoadEmbedder(EmbedderLoadError),
     }
 
     impl Display for RunError {
         fn fmt(&self, formatter: &mut Formatter<'_>) -> Result<(), FmtError> {
             match self {
-                Self::StartDatabaseError(error) => {
+                Self::StartDatabase(error) => {
                     write!(formatter, "Failed to start the database: {}.", error)
                 }
-                Self::CreateSocketError(error) => {
+                Self::CreateSocket(error) => {
                     write!(formatter, "Failed to create the unix socket: {}.", error)
+                }
+                Self::LoadEmbedder(error) => {
+                    write!(formatter, "Failed to load the embedding model: {}.", error)
                 }
             }
         }

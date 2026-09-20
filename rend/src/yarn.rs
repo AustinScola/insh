@@ -21,6 +21,8 @@ pub struct Yarn {
     // NOTE: The style vectors are Allowed to be shorter than the number of characters.
     /// The colors of the text.
     colors: Vec<Option<Color>>,
+    /// Which columns of the text are written in bold.
+    bolds: Vec<bool>,
     /// The background colors of the text.
     backgrounds: Vec<Option<Color>>,
 }
@@ -101,6 +103,10 @@ impl Yarn {
             self.colors.resize(len_before, None);
             self.colors.extend(other.colors);
         }
+        if !other.bolds.is_empty() {
+            self.bolds.resize(len_before, false);
+            self.bolds.extend(other.bolds);
+        }
 
         if !other.backgrounds.is_empty() {
             self.backgrounds.resize(len_before, None);
@@ -130,6 +136,7 @@ impl Yarn {
     pub fn truncate(&mut self, new_len: usize) {
         Cell::truncate(&mut self.cells, new_len);
         self.colors.truncate(new_len);
+        self.bolds.truncate(new_len);
         self.backgrounds.truncate(new_len);
     }
 
@@ -151,6 +158,7 @@ impl Yarn {
                 ]
                 .concat();
                 self.colors = [vec![None; left_pad], self.colors.to_owned()].concat();
+                self.bolds = [vec![false; left_pad], self.bolds.to_owned()].concat();
                 self.backgrounds = [vec![None; left_pad], self.backgrounds.to_owned()].concat();
             }
             Ordering::Less => {
@@ -200,6 +208,16 @@ impl Yarn {
     /// Return the cells of the yarn, one for each column.
     pub fn cells(&self) -> &Vec<Cell> {
         &self.cells
+    }
+
+    /// Write the whole of the yarn in bold.
+    pub fn bold(&mut self) {
+        self.bolds = vec![true; self.len()];
+    }
+
+    /// Return which columns of the yarn are written in bold.
+    pub fn bolds(&self) -> &Vec<bool> {
+        &self.bolds
     }
 
     /// Return the text colors of the yarn.

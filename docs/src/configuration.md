@@ -2,7 +2,7 @@
 
 ## Insh Configuration
 
-Insh can be configured by the file `~/.insh-config.yaml`.
+Insh can be configured by the file `~/.insh/insh-config.yaml`.
 
 **general.tab_width** (`usize`): The width of the `<Tab>` character (default=`4`).
 
@@ -20,7 +20,7 @@ Insh can be configured by the file `~/.insh-config.yaml`.
 
 ## Inshd Configuration
 
-Inshd can be configured by the file `~/.inshd-config.yaml`.
+Inshd can be configured by the file `~/.insh/inshd-config.yaml`.
 
 **server.request_handlers.num** (`usize`): The number of request handlers (default=`8`).
 
@@ -31,3 +31,17 @@ Inshd can be configured by the file `~/.inshd-config.yaml`.
 **finder.history.length** (`usize`): The number of file finds to store (default=`1000`).
 
 **searcher.history.length** (`usize`): The number of searches to store (default=`1000`).
+
+**ai.base_url** (`str`|`null`): The base URL for the AI inference engine (default=`null`).
+
+**ai.api_type** (`anthropic`|`openai`): The AI inference engine type (default=`anthropic`).
+
+**ai.api_key** (`str`|`null`): The AI inference engine API key (default=`null`).
+
+**ai.model** (`str`): The AI model (default=`claude-opus-5`).
+
+**ai.instructions.override** (`str`|`null`): Used to override the AI instructions (default=`null`).
+
+**ai.instructions.additional** (`str`|`null`): Additional AI instructions (default=`null`).
+
+**ai.search.threshold** (`float`): The maximum cosine distance for semantic search to be considered a hit; lower is stricter (default=`0.7`).

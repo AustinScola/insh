@@ -1,4 +1,6 @@
 //! Manages the request handler threads.
+use std::sync::Arc;
+
 use std::thread;
 use std::thread::JoinHandle;
 
@@ -10,6 +12,7 @@ use crate::request_handler::RequestHandler;
 use crate::request_handler_died::RequestHandlerDied;
 use crate::stop::Stop;
 
+use embedder::Embedder;
 use insh_db::DbConnPool;
 
 use crossbeam::channel::{self, select, Receiver, Sender};
@@ -36,6 +39,8 @@ pub struct RequestHandlerManager {
     db_conn_pool: DbConnPool,
     /// The version of the database.
     db_version: String,
+    /// Turns text into vectors.
+    embedder: Arc<Embedder>,
 }
 
 impl RequestHandlerManager {
@@ -69,6 +74,7 @@ impl RequestHandlerManager {
                 .config(self.config.clone())
                 .db_conn_pool(self.db_conn_pool.clone())
                 .db_version(self.db_version.clone())
+                .embedder(self.embedder.clone())
                 .build();
             let name: String = format!("request-handler-{}", request_handler_num).to_string();
             let request_handler_handle: JoinHandle<()> = thread::Builder::new()
@@ -101,6 +107,7 @@ impl RequestHandlerManager {
                         .config(self.config.clone())
                         .db_conn_pool(self.db_conn_pool.clone())
                         .db_version(self.db_version.clone())
+                        .embedder(self.embedder.clone())
                         .build();
                     let name: String = format!("request-handler-{}", number).to_string();
                     let request_handler_handle: JoinHandle<()> = thread::Builder::new()

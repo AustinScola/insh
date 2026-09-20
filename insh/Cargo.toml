@@ -19,6 +19,12 @@ logging = [
 ]
 
 [dependencies]
+# Used to work out which part of some code is what, so it can be shown in color.
+highlighter = { version = "0.1.0", path = "../highlighter" }
+
+# Used to read the markdown which an AI inference engine replies in.
+pulldown-cmark = { workspace = true }
+
 ansi = { version = "0.1.0", path = "../ansi" }
 til = { version = "0.1.0", path = "../til" }
 term = { version = "0.1.0", path = "../term" }

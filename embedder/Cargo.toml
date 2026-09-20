@@ -1,0 +1,24 @@
+[package]
+name = "embedder"
+version = "0.1.0"
+edition = "2021"
+build = "build.rs"
+
+[dependencies]
+# Used to turn text into vectors.
+model2vec-rs = { workspace = true }
+
+# Not used directly. This is depended on to pick the regex backend which `model2vec-rs` needs but
+# does not let you choose without also pulling in a C++ one. See the root `Cargo.toml`.
+tokenizers = { workspace = true }
+
+[build-dependencies]
+# Used to verify the model which is downloaded.
+sha2 = { workspace = true }
+
+# Used to download the model.
+ureq = { workspace = true }
+
+[dev-dependencies]
+# Used for parameterizing tests.
+test-case = { workspace = true }

@@ -3,10 +3,12 @@
 use std::path::PathBuf;
 
 use crate::components::browser::{Browser, BrowserEffect, BrowserEvent, BrowserProps};
+use crate::components::chat::{Chat, ChatEffect, ChatProps};
 use crate::components::file_creator::{
     FileCreator, FileCreatorEffect, FileCreatorEvent, FileCreatorProps,
 };
 use crate::components::finder::{Finder, FinderEffect, FinderProps};
+use crate::components::history::{History, HistoryEffect, HistorySearcher, HistorySearcherEffect};
 use crate::components::searcher::{Searcher, SearcherEffect, SearcherProps};
 use crate::config::Config;
 use crate::current_dir;
@@ -140,6 +142,26 @@ impl Component<Props, Event<Response>, SystemEffect<Request>> for Insh {
             }
         }
 
+        // A reply goes on arriving while the past chats are being looked through, and it belongs
+        // to the chat rather than to whatever is being looked at. Without this the mode which is
+        // showing would drop it, leaving the reply short of whatever came while it was away and,
+        // if the last piece came then, never told that it was over at all.
+        let replying: bool = match &event {
+            Event::Response(response) => matches!(response.params(), ResponseParams::Chat(_)),
+            Event::TermEvent(_) => false,
+        };
+        if replying && !matches!(self.state.mode, Mode::Chat) {
+            let chat = self.state.chat.as_mut()?;
+
+            return match chat.handle(event) {
+                Some(ChatEffect::Request(request)) => Some(SystemEffect::Request(request)),
+                Some(ChatEffect::Bell) => self.state.bell(),
+                // Where the chat goes next is for whoever is looking at it to say, and they are
+                // not looking at it.
+                Some(ChatEffect::OpenHistory) | Some(ChatEffect::Quit) | None => None,
+            };
+        }
+
         let mut action: Option<Action> = None;
 
         match self.state.mode {
@@ -157,6 +179,9 @@ impl Component<Props, Event<Response>, SystemEffect<Request>> for Insh {
                     }
                     Some(BrowserEffect::OpenFinder { dir }) => {
                         action = Some(Action::Find { dir });
+                    }
+                    Some(BrowserEffect::OpenChat { dir }) => {
+                        action = Some(Action::Chat { dir });
                     }
                     Some(BrowserEffect::OpenSearcher { dir }) => {
                         action = Some(Action::Search { dir });
@@ -252,6 +277,66 @@ impl Component<Props, Event<Response>, SystemEffect<Request>> for Insh {
                     None => {}
                 }
             }
+            Mode::Chat => {
+                let chat = self.state.chat.as_mut().unwrap();
+                match chat.handle(event) {
+                    Some(ChatEffect::Request(request)) => {
+                        return Some(SystemEffect::Request(request));
+                    }
+                    Some(ChatEffect::Bell) => {
+                        action = Some(Action::Bell);
+                    }
+                    Some(ChatEffect::OpenHistory) => {
+                        action = Some(Action::History);
+                    }
+                    Some(ChatEffect::Quit) => {
+                        action = Some(Action::QuitChat);
+                    }
+                    None => {}
+                }
+            }
+            Mode::History => {
+                let history = self.state.history.as_mut().unwrap();
+                match history.handle(event) {
+                    Some(HistoryEffect::Request(request)) => {
+                        return Some(SystemEffect::Request(request));
+                    }
+                    Some(HistoryEffect::Open { id }) => {
+                        action = Some(Action::OpenChat { id });
+                    }
+                    Some(HistoryEffect::New) => {
+                        action = Some(Action::NewChat);
+                    }
+                    Some(HistoryEffect::Bell) => {
+                        action = Some(Action::Bell);
+                    }
+                    Some(HistoryEffect::Search) => {
+                        action = Some(Action::SearchHistory);
+                    }
+                    Some(HistoryEffect::Quit) => {
+                        action = Some(Action::QuitHistory);
+                    }
+                    None => {}
+                }
+            }
+            Mode::HistorySearcher => {
+                let searcher = self.state.history_searcher.as_mut().unwrap();
+                match searcher.handle(event) {
+                    Some(HistorySearcherEffect::Request(request)) => {
+                        return Some(SystemEffect::Request(request));
+                    }
+                    Some(HistorySearcherEffect::Open { id }) => {
+                        action = Some(Action::OpenChat { id });
+                    }
+                    Some(HistorySearcherEffect::Bell) => {
+                        action = Some(Action::Bell);
+                    }
+                    Some(HistorySearcherEffect::Quit) => {
+                        action = Some(Action::History);
+                    }
+                    None => {}
+                }
+            }
             Mode::Nothing => {
                 return Some(SystemEffect::Exit);
             }
@@ -271,6 +356,9 @@ impl Component<Props, Event<Response>, SystemEffect<Request>> for Insh {
             Mode::FileCreator => self.state.file_creator.as_ref().unwrap().render(size),
             Mode::Finder => self.state.finder.as_ref().unwrap().render(size),
             Mode::Searcher => self.state.searcher.as_ref().unwrap().render(size),
+            Mode::Chat => self.state.chat.as_ref().unwrap().render(size),
+            Mode::History => self.state.history.as_ref().unwrap().render(size),
+            Mode::HistorySearcher => self.state.history_searcher.as_ref().unwrap().render(size),
             Mode::Nothing => Fabric::new(size),
         }
     }
@@ -288,6 +376,12 @@ struct State {
     finder: Option<Finder>,
     /// The searcher.
     searcher: Option<Searcher>,
+    /// The chat.
+    chat: Option<Chat>,
+    /// The past chats.
+    history: Option<History>,
+    /// The search of the past chats.
+    history_searcher: Option<HistorySearcher>,
     /// The configuration.
     config: Config,
 }
@@ -311,6 +405,9 @@ impl From<Props> for State {
                 file_creator: None,
                 finder: None,
                 searcher: None,
+                chat: None,
+                history: None,
+                history_searcher: None,
                 config: props.config().clone(),
             },
             Start::Finder { phrase } => {
@@ -326,6 +423,9 @@ impl From<Props> for State {
                     file_creator: None,
                     finder,
                     searcher: None,
+                    chat: None,
+                    history: None,
+                    history_searcher: None,
                     config: props.config().clone(),
                 }
             }
@@ -344,6 +444,9 @@ impl From<Props> for State {
                     file_creator: None,
                     finder: None,
                     searcher,
+                    chat: None,
+                    history: None,
+                    history_searcher: None,
                     config: props.config().clone(),
                 }
             }
@@ -353,6 +456,9 @@ impl From<Props> for State {
                 file_creator: None,
                 finder: None,
                 searcher: None,
+                chat: None,
+                history: None,
+                history_searcher: None,
                 config: props.config().clone(),
             },
         }
@@ -427,6 +533,15 @@ impl State {
         None
     }
 
+    /// Chat about a directory.
+    fn chat(&mut self, dir: PathBuf) -> Option<SystemEffect<Request>> {
+        self.mode = Mode::Chat;
+        let size: Size = Term::size().unwrap();
+        let chat_props = ChatProps::builder().dir(dir).size(size).build();
+        self.chat = Some(Chat::new(chat_props));
+        Some(SystemEffect::Request(Chat::initial_request()))
+    }
+
     /// Go back to the browser from the finder.
     fn quit_finder(&mut self) -> Option<SystemEffect<Request>> {
         self.mode = Mode::Browse;
@@ -436,6 +551,66 @@ impl State {
     /// Go back to the browser from the searcher.
     fn quit_searcher(&mut self) -> Option<SystemEffect<Request>> {
         self.mode = Mode::Browse;
+        None
+    }
+
+    /// Go back to the browser from the chat.
+    fn quit_chat(&mut self) -> Option<SystemEffect<Request>> {
+        self.mode = Mode::Browse;
+        None
+    }
+
+    /// Look through the past chats.
+    fn history(&mut self) -> Option<SystemEffect<Request>> {
+        self.mode = Mode::History;
+        self.history = Some(History::new(Term::size().unwrap()));
+        Some(SystemEffect::Request(History::initial_request()))
+    }
+
+    /// Search the past chats.
+    fn search_history(&mut self) -> Option<SystemEffect<Request>> {
+        self.mode = Mode::HistorySearcher;
+        self.history_searcher = Some(HistorySearcher::new(Term::size().unwrap()));
+        None
+    }
+
+    /// Go back to the chat from the past chats.
+    fn quit_history(&mut self) -> Option<SystemEffect<Request>> {
+        self.mode = Mode::Chat;
+        self.resize_chat();
+        None
+    }
+
+    /// Tell the chat how big the terminal is now.
+    ///
+    /// Only the mode which is showing is told when the terminal changes size, so a chat which was
+    /// left to look through the past ones has to be told again on the way back. How far back what
+    /// was said can be read depends on how much of it fits, so a chat which was told the wrong
+    /// size scrolls by the wrong amount.
+    fn resize_chat(&mut self) {
+        let size: Size = match Term::size() {
+            Ok(size) => size,
+            Err(_) => return,
+        };
+
+        if let Some(chat) = self.chat.as_mut() {
+            chat.handle(Event::TermEvent(TermEvent::Resize(size)));
+        }
+    }
+
+    /// Open a chat from the past chats.
+    fn open_chat(&mut self, id: i64) -> Option<SystemEffect<Request>> {
+        self.mode = Mode::Chat;
+        self.resize_chat();
+        let request = self.chat.as_mut()?.open(id);
+        Some(SystemEffect::Request(request))
+    }
+
+    /// Start a new chat from the past chats.
+    fn new_chat(&mut self) -> Option<SystemEffect<Request>> {
+        self.mode = Mode::Chat;
+        self.resize_chat();
+        self.chat.as_mut()?.start_new();
         None
     }
 
@@ -456,6 +631,13 @@ impl Stateful<Action, SystemEffect<Request>> for State {
             Action::CreateFile { dir, file_type } => self.create_file(dir, file_type),
             Action::Find { dir } => self.find(dir),
             Action::Search { dir } => self.search(dir),
+            Action::Chat { dir } => self.chat(dir),
+            Action::QuitChat => self.quit_chat(),
+            Action::History => self.history(),
+            Action::SearchHistory => self.search_history(),
+            Action::QuitHistory => self.quit_history(),
+            Action::OpenChat { id } => self.open_chat(id),
+            Action::NewChat => self.new_chat(),
             Action::QuitFinder => self.quit_finder(),
             Action::QuitSearcher => self.quit_searcher(),
             Action::Bell => self.bell(),
@@ -475,6 +657,12 @@ enum Mode {
     Finder,
     /// Searching files for a phrase.
     Searcher,
+    /// Chatting with an AI inference engine.
+    Chat,
+    /// Looking through the past chats.
+    History,
+    /// Searching the past chats.
+    HistorySearcher,
     /// Nothing, so insh exits when anything happens.
     Nothing,
 }
@@ -505,10 +693,30 @@ enum Action {
         /// The directory to search in.
         dir: PathBuf,
     },
+    /// Chat about a directory.
+    Chat {
+        /// The directory to chat about.
+        dir: PathBuf,
+    },
     /// Ring the bell.
     Bell,
     /// Go back to the browser from the finder.
     QuitFinder,
     /// Go back to the browser from the searcher.
     QuitSearcher,
+    /// Go back to the browser from the chat.
+    QuitChat,
+    /// Look through the past chats.
+    History,
+    /// Search the past chats.
+    SearchHistory,
+    /// Go back to the chat from the past chats.
+    QuitHistory,
+    /// Open a chat from the past chats.
+    OpenChat {
+        /// Which chat to open.
+        id: i64,
+    },
+    /// Start a new chat from the past chats.
+    NewChat,
 }

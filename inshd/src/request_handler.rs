@@ -1,14 +1,18 @@
 //! Handles requests from clients.
+use std::sync::Arc;
+
 use crate::config::Config;
 use crate::contexted_request::ContextedRequest;
 use crate::contexted_response::ContextedResponse;
 use crate::log_subscription::LogSubscription;
 use crate::request_handlers::{
-    CreateFile, DatabaseInfo, FindFiles, GetFileContents, GetFiles, SearchPhrase, StreamLogs,
-    SuggestDir, SuggestFindPattern, SuggestSearchPhrase, VisitDir,
+    AiStatus, Chat, CreateFile, DatabaseInfo, DeleteChat, FindFiles, GetChat, GetFileContents,
+    GetFiles, ListChats, SearchChats, SearchPhrase, StreamLogs, SuggestDir, SuggestFindPattern,
+    SuggestSearchPhrase, VisitDir,
 };
 use crate::stop::Stop;
 
+use embedder::Embedder;
 use insh_api::{Request, RequestParams, Response, ResponseParamsAndLast};
 use insh_db::DbConnPool;
 
@@ -36,6 +40,8 @@ pub struct RequestHandler {
     db_conn_pool: DbConnPool,
     /// The version of the database.
     db_version: String,
+    /// Turns text into vectors.
+    embedder: Arc<Embedder>,
 }
 
 impl RequestHandler {
@@ -88,6 +94,24 @@ impl RequestHandler {
                         }
                         RequestParams::DatabaseInfo(_params) => {
                             Box::new(DatabaseInfo::builder().version(self.db_version.clone()).build())
+                        }
+                        RequestParams::AiStatus(_params) => {
+                            Box::new(AiStatus::builder().configured(self.config.ai().configured()).build())
+                        }
+                        RequestParams::Chat(params) => {
+                            Box::new(Chat::run(params, self.config.clone(), &self.db_conn_pool, self.embedder.clone()))
+                        }
+                        RequestParams::ListChats(params) => {
+                            Box::new(ListChats::new(params, self.db_conn_pool.clone()))
+                        }
+                        RequestParams::SearchChats(params) => {
+                            Box::new(SearchChats::new(params, self.db_conn_pool.clone(), self.embedder.clone(), self.config.ai().search().threshold()))
+                        }
+                        RequestParams::GetChat(params) => {
+                            Box::new(GetChat::new(params, self.db_conn_pool.clone()))
+                        }
+                        RequestParams::DeleteChat(params) => {
+                            Box::new(DeleteChat::new(params, self.db_conn_pool.clone()))
                         }
                     };
 

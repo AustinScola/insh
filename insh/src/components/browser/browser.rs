@@ -196,6 +196,7 @@ impl Browser {
             }
             Some(ContentsEffect::OpenFinder { dir }) => Some(Effect::OpenFinder { dir }),
             Some(ContentsEffect::OpenSearcher { dir }) => Some(Effect::OpenSearcher { dir }),
+            Some(ContentsEffect::OpenChat { dir }) => Some(Effect::OpenChat { dir }),
             Some(ContentsEffect::OpenVim(vim_args)) => Some(Effect::OpenVim(vim_args)),
             Some(ContentsEffect::RunBash { dir }) => Some(Effect::RunBash { dir }),
             Some(ContentsEffect::Bell) => Some(Effect::Bell),
@@ -302,6 +303,11 @@ pub enum Effect {
     /// Search files for a phrase.
     OpenSearcher {
         /// The directory to search in.
+        dir: PathBuf,
+    },
+    /// Chat about the directory.
+    OpenChat {
+        /// The directory to chat about.
         dir: PathBuf,
     },
     /// Edit a file.

@@ -10,6 +10,12 @@ path = "src/main.rs"
 
 [dependencies]
 common = { version = "0.1.0", path = "../common" }
+
+# Used to stream replies from an AI inference engine.
+ai-client = { version = "0.1.0", path = "../ai-client" }
+
+# Used to turn the messages of a chat into vectors so they can be searched by meaning.
+embedder = { version = "0.1.0", path = "../embedder" }
 insh-api = { version = "0.1.0", path = "../insh-api" }
 insh-db = { version = "0.1.0", path = "../insh-db" }
 inshd-client = { version = "0.1.0", path = "../inshd-client" }
