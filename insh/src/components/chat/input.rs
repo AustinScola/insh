@@ -1,8 +1,22 @@
 //! Contains the [`Input`] component.
 
+/// Contains the [`Props`] struct.
+mod props {
+    use typed_builder::TypedBuilder;
+
+    /// The properties of the input.
+    #[derive(TypedBuilder)]
+    pub struct Props {
+        /// What is being typed to start with.
+        #[builder(default)]
+        pub value: Option<String>,
+    }
+}
+pub use props::Props;
+
 /// Contains the [`Input`] component.
 mod input {
-    use super::{Action, Effect, Event, State};
+    use super::{Action, Effect, Event, Props, State};
     use crate::color::Color;
     use crate::stateful::Stateful;
 
@@ -11,15 +25,16 @@ mod input {
     use til::Component;
 
     /// The box which what to say is typed into.
-    #[derive(Default)]
     pub struct Input {
         /// The state of the input.
         state: State,
     }
 
-    impl Component<(), Event, Effect> for Input {
-        fn new(_props: ()) -> Self {
-            Self::default()
+    impl Component<Props, Event, Effect> for Input {
+        fn new(props: Props) -> Self {
+            Self {
+                state: State::from(props),
+            }
         }
 
         fn handle(&mut self, event: Event) -> Option<Effect> {
@@ -190,14 +205,21 @@ use action::Action;
 
 /// Contains the [`State`] struct.
 mod state {
-    use super::{Action, Effect};
+    use super::{Action, Effect, Props};
     use crate::stateful::Stateful;
 
     /// The state of the input.
-    #[derive(Default)]
     pub struct State {
         /// What is being typed.
         value: String,
+    }
+
+    impl From<Props> for State {
+        fn from(props: Props) -> Self {
+            Self {
+                value: props.value.unwrap_or_default(),
+            }
+        }
     }
 
     impl State {
@@ -246,7 +268,7 @@ use state::State;
 
 #[cfg(test)]
 mod tests {
-    use super::{Event, Input};
+    use super::{Event, Input, Props};
 
     use term::{Key, KeyEvent, KeyMods, TermEvent};
     use til::Component;
@@ -255,7 +277,7 @@ mod tests {
 
     /// Return an input with some text typed into it.
     fn typed(text: &str) -> Input {
-        let mut input = Input::new(());
+        let mut input = Input::new(Props::builder().build());
 
         for character in text.chars() {
             // A new line is put in with control and o, since enter sends what was typed.

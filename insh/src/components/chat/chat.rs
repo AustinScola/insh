@@ -33,6 +33,9 @@ mod props {
         pub dir: PathBuf,
         /// The size of the chat.
         pub size: Size,
+        /// What to say to start with.
+        #[builder(default)]
+        pub prompt: Option<String>,
     }
 }
 pub use props::Props;
@@ -40,7 +43,7 @@ pub use props::Props;
 /// Contains the [`Chat`] component.
 mod chat {
     use super::super::{
-        Input, InputEffect, InputEvent, Transcript, TranscriptEffect, TranscriptEvent,
+        Input, InputEffect, InputEvent, InputProps, Transcript, TranscriptEffect, TranscriptEvent,
     };
     use super::{Action, Effect, Props, State};
     use crate::components::common::{Footer, FooterProps};
@@ -76,17 +79,21 @@ mod chat {
     impl Component<Props, Event<Response>, Effect> for Chat {
         fn new(props: Props) -> Self {
             let size: Size = props.size;
+            // A chat which was started with a prompt has it typed in already, so that the
+            // carriage return which insh starts with says it.
+            let input = Input::new(InputProps::builder().value(props.prompt.clone()).build());
+
             let mut transcript = Transcript::new(());
             // How far back the reading can go depends on how much of it fits, which only the size
             // says, so the transcript is told it up front and again whenever it changes.
             transcript.handle(TranscriptEvent::Resize {
-                size: Self::transcript_size(size, 1),
+                size: Self::transcript_size(size, input.rows(size.columns)),
             });
 
             Self {
                 state: State::from(props),
                 transcript,
-                input: Input::new(()),
+                input,
             }
         }
 
@@ -641,6 +648,17 @@ mod tests {
         )
     }
 
+    /// Return a chat which has just been opened with something to say.
+    fn chat_with_prompt(size: Size, prompt: &str) -> Chat {
+        Chat::new(
+            Props::builder()
+                .dir(PathBuf::from("/tmp"))
+                .size(size)
+                .prompt(Some(prompt.to_string()))
+                .build(),
+        )
+    }
+
     /// Return the event for pressing a key.
     fn press(key: Key, mods: KeyMods) -> Event<Response> {
         Event::TermEvent(TermEvent::KeyEvent(KeyEvent { key, mods }))
@@ -725,6 +743,23 @@ mod tests {
         };
         match next.params() {
             RequestParams::Chat(params) => assert_eq!(params.chat_id(), None),
+            _ => panic!("The request has to be one for a reply."),
+        }
+    }
+
+    /// A chat which was started with a prompt says it when insh presses enter for it.
+    #[test]
+    fn test_a_prompt_is_said_as_it_was_passed() {
+        let size: Size = Size::new(24, 80);
+        let mut chat: Chat = chat_with_prompt(size, "hi");
+
+        let request: Request = match chat.handle(press(Key::CarriageReturn, KeyMods::NONE)) {
+            Some(Effect::Request(request)) => request,
+            _ => panic!("The prompt has to be said as soon as enter is pressed."),
+        };
+
+        match request.params() {
+            RequestParams::Chat(params) => assert_eq!(params.message(), "hi"),
             _ => panic!("The request has to be one for a reply."),
         }
     }

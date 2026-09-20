@@ -92,6 +92,11 @@ mod props {
             /// The phrase to start with.
             phrase: Option<String>,
         },
+        /// The chat.
+        Chat {
+            /// What to say to start with.
+            prompt: Option<String>,
+        },
         /// Nothing, because a program is being run instead.
         Nothing,
     }
@@ -102,6 +107,7 @@ mod props {
                 Some(Command::Browse) | None => Start::Browser,
                 Some(Command::Search { phrase }) => Start::Searcher { phrase },
                 Some(Command::Find { phrase }) => Start::Finder { phrase },
+                Some(Command::Chat { prompt }) => Start::Chat { prompt },
                 Some(Command::Edit { browse, .. }) => match browse {
                     true => Start::Browser,
                     false => Start::Nothing,
@@ -445,6 +451,25 @@ impl From<Props> for State {
                     finder: None,
                     searcher,
                     chat: None,
+                    history: None,
+                    history_searcher: None,
+                    config: props.config().clone(),
+                }
+            }
+            Start::Chat { prompt } => {
+                let chat_props = ChatProps::builder()
+                    .dir(dir)
+                    .size(size)
+                    .prompt(prompt.clone())
+                    .build();
+                let chat = Some(Chat::new(chat_props));
+                Self {
+                    mode: Mode::Chat,
+                    browser,
+                    file_creator: None,
+                    finder: None,
+                    searcher: None,
+                    chat,
                     history: None,
                     history_searcher: None,
                     config: props.config().clone(),

@@ -9,4 +9,5 @@ mod history;
 mod insh;
 mod searcher;
 
+pub use chat::Chat;
 pub use insh::{Insh, Props as InshProps};
