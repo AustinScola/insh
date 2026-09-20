@@ -7,4 +7,5 @@
   - [File Creator](file-creator.md)
   - [Finder](finder.md)
   - [Searcher](searcher.md)
+  - [Inshie](inshie.md)
 - [Configuration](configuration.md)

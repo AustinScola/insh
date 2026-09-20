@@ -1,7 +1,10 @@
 [workspace]
 resolver = "2"
 members = [
+    "ai-client",
     "ansi",
+    "embedder",
+    "highlighter",
     "insh",
     "inshd",
     "common",
@@ -113,6 +116,10 @@ postgresql_embedded = { version = "0.21.0", default-features = false, features =
 # Used to run `pg_ctl` directly in order to stop a PostgreSQL server which was left running.
 postgresql_commands = "0.21.0"
 
+# Used at build time to get the PostgreSQL headers and PGXS makefiles which pgvector is built
+# against. This is the same archive that `postgresql_embedded` runs the server from.
+postgresql_archive = { version = "0.21.0", default-features = false, features = ["blocking", "theseus", "tls-rustls-ring"] }
+
 # Used as an ORM for the database.
 diesel = { version = "2.3.12", features = ["postgres", "r2d2"] }
 
@@ -123,6 +130,53 @@ diesel_migrations = "2.3.2"
 # feature to build libpq from source, so it is depended on here to enable that feature. TLS is not
 # enabled because the database is only reachable over a local unix socket.
 pq-sys = { version = "0.7.5", features = ["bundled_without_openssl"] }
+
+# Used for the vector column type and the distance operators that pgvector adds.
+pgvector = { version = "0.4.2", default-features = false, features = ["diesel"] }
+
+# Used for HTTP requests to AI inference engines. This is blocking all the way down, unlike
+# `reqwest`, which would run an asynchronous runtime inside inshd's threads.
+ureq = { version = "3.4.1", features = ["json"] }
+
+# Used for the JSON which AI inference engines send and receive.
+serde_json = "1.0.145"
+
+# Used to turn text into vectors. Model2Vec models are static, so embedding is a lookup and a
+# pooling rather than a forward pass, which is why no inference runtime is needed.
+#
+# NOTE: The default features pull in `hf-hub` and with it a second major version of `ureq`. The
+# model is embedded in the executable at build time, so nothing is ever downloaded at run time and
+# `local-only` is what is wanted.
+model2vec-rs = { version = "0.2.1", default-features = false, features = ["local-only"] }
+
+# Not used directly. `model2vec-rs` depends on this, and `tokenizers` fails to compile unless a
+# regex backend is picked. The features `model2vec-rs` exposes for that (`onig`, `fancy-regex`)
+# both also turn on `esaxx_fast`, which needs a C++ compiler, so the backend is chosen here
+# instead. `fancy-regex` is the one which is written in Rust.
+tokenizers = { version = "0.21.4", default-features = false, features = ["fancy-regex"] }
+
+# Used to verify the model which the build script downloads.
+sha2 = "0.10.9"
+
+# Used to highlight code by parsing it. Tree-sitter is what editors use, so the grammars are worth
+# having beyond showing code in a chat.
+tree-sitter-highlight = "0.27.0"
+
+# The grammars which code is highlighted with. Each is the parser for one language, generated as C
+# and built by its own build script.
+tree-sitter-bash = "0.25.1"
+tree-sitter-c = "0.24.2"
+tree-sitter-go = "0.25.0"
+tree-sitter-javascript = "0.25.0"
+tree-sitter-json = "0.24.8"
+tree-sitter-python = "0.25.0"
+tree-sitter-rust = "0.24.2"
+tree-sitter-sequel = "0.3.11"
+tree-sitter-toml-ng = "0.7.0"
+tree-sitter-yaml = "0.7.2"
+
+# Used to read the markdown which an AI inference engine replies in.
+pulldown-cmark = { version = "0.13.4", default-features = false }
 
 # Used for parameterizing tests.
 test-case = "3.3.1"

@@ -1,12 +1,14 @@
 /*!
-Configuration options loaded from the YAML file `~/.inshd-config.yaml` if it exists.
+Configuration options loaded from the YAML file `~/.insh/inshd-config.yaml` if it exists.
 */
-use std::fs::File;
+use std::fs::{metadata, File};
 use std::io::ErrorKind as IOErrorKind;
-use std::path::PathBuf;
+use std::os::unix::fs::PermissionsExt;
+use std::path::{Path, PathBuf};
 
-use common::paths::HOME_DIR;
+use common::paths::INSH_DIR;
 
+use ai_client::Api;
 use serde::Deserialize;
 
 /// The number of request handlers to run.
@@ -18,8 +20,38 @@ const DEFAULT_BROWSER_HISTORY_LENGTH: usize = 1000;
 /// The maximum length of the Finder history.
 const DEFAULT_FINDER_HISTORY_LENGTH: usize = 1000;
 
+/// The model which replies in a chat.
+const DEFAULT_AI_MODEL: &str = "claude-opus-5";
+
+/// What the inference engine is told about how to answer, when nothing is configured to replace
+/// it.
+const DEFAULT_AI_INSTRUCTIONS: &str = r#"# General
+- Be concise.
+- Hard cap: 30 words; only more if depth is explicitly asked for.
+- No preamble.
+- Do not include context in answers.
+- Here is an example of how concise I want. If I ask "what color is the sky?" answer "blue" (don't even bother with a period).
+- Use bullets when appropriate (for example when ask you to list things).
+
+# Code
+- End comments with periods.
+"#;
+
+/// The permission bits which let anyone other than the owner read a file.
+const OTHERS_CAN_READ: u32 = 0o077;
+
+/// How far apart the vectors of two texts can be before a search stops calling them a match.
+///
+/// This is a cosine distance, where nothing at all alike is around one. Measured with the model
+/// which is embedded, over a set of chat messages: what a search is really after lands under 0.63
+/// ("burrito" and "how do I make a burrito" are 0.12 apart, "shell scripting" and "write a bash
+/// script to rename every file in a directory" are 0.51), while the nearest thing which is not
+/// what was meant is 0.79 ("dinner" and "the best taco recipe") and the rest of an unrelated set
+/// sits around 0.9 to 1.1. The gap in the middle is where this goes.
+const DEFAULT_AI_SEARCH_THRESHOLD: f64 = 0.7;
+
 /// Configuration options.
-#[derive(Deserialize, Debug, Default, Clone, Eq, PartialEq)]
+#[derive(Deserialize, Debug, Default, Clone, PartialEq)]
 pub struct Config {
     /// Configuration of the Browser.
     #[serde(default)]
@@ -36,13 +68,16 @@ pub struct Config {
     /// Configuration of the server.
     #[serde(default)]
     server: ServerConfig,
+    /// Configuration of the AI inference engine.
+    #[serde(default)]
+    ai: AiConfig,
 }
 
 impl Config {
     /// Return the default path of the file that configuration is loaded from.
     pub fn default_path() -> PathBuf {
-        let mut path: PathBuf = HOME_DIR.clone();
-        path.push(".inshd-config.yaml");
+        let mut path: PathBuf = INSH_DIR.clone();
+        path.push("inshd-config.yaml");
         path
     }
 
@@ -70,6 +105,7 @@ impl Config {
             }
         };
         config.check()?;
+        Self::check_perms(&path);
 
         Ok(config)
     }
@@ -104,6 +140,30 @@ impl Config {
     /// Return the server configuration.
     pub fn server(&self) -> &ServerConfig {
         &self.server
+    }
+
+    /// Return the AI configuration.
+    pub fn ai(&self) -> &AiConfig {
+        &self.ai
+    }
+
+    /// Warn if anyone other than the owner can read the configuration file.
+    ///
+    /// The API key is kept in this file, and nothing else checks how it is protected.
+    fn check_perms(path: &Path) {
+        let metadata = match metadata(path) {
+            Ok(metadata) => metadata,
+            Err(_) => return,
+        };
+
+        if metadata.permissions().mode() & OTHERS_CAN_READ != 0 {
+            log::warn!(
+                "The configuration file {:?} can be read by users other than you, and it is where \
+                 the AI API key is kept. Consider `chmod 600 {}`.",
+                path,
+                path.display()
+            );
+        }
     }
 
     /// Return the maximum number of connections to the database.
@@ -267,6 +327,169 @@ impl FinderHistoryConfig {
     }
 }
 
+/// Configuration for the AI inference engine.
+///
+/// Nothing here has to be set. When it is not, insh says that no inference engine is configured
+/// rather than treating it as a mistake, since most people will not use the chat at all.
+#[derive(Deserialize, Debug, Clone, PartialEq)]
+pub struct AiConfig {
+    /// The URL of the inference engine, without a path.
+    #[serde(default)]
+    base_url: Option<String>,
+    /// The key which authenticates requests.
+    #[serde(default)]
+    api_key: Option<String>,
+    /// The model which replies.
+    #[serde(default = "AiConfig::default_model")]
+    model: String,
+    /// The kind of API the inference engine speaks.
+    #[serde(default)]
+    api_type: Api,
+    /// What the inference engine should be told about how to answer.
+    #[serde(default)]
+    instructions: AiInstructionsConfig,
+    /// Configuration of searching through what was said.
+    #[serde(default)]
+    search: AiSearchConfig,
+}
+
+impl Default for AiConfig {
+    fn default() -> Self {
+        Self {
+            base_url: None,
+            api_key: None,
+            model: Self::default_model(),
+            api_type: Api::default(),
+            instructions: AiInstructionsConfig::default(),
+            search: AiSearchConfig::default(),
+        }
+    }
+}
+
+impl AiConfig {
+    /// Return the default model.
+    fn default_model() -> String {
+        DEFAULT_AI_MODEL.to_string()
+    }
+
+    /// Return the URL of the inference engine.
+    pub fn base_url(&self) -> Option<&String> {
+        self.base_url.as_ref()
+    }
+
+    /// Return the key which authenticates requests.
+    pub fn api_key(&self) -> Option<&String> {
+        self.api_key.as_ref()
+    }
+
+    /// Return the model which replies.
+    pub fn model(&self) -> &str {
+        &self.model
+    }
+
+    /// Return the kind of API the inference engine speaks.
+    pub fn api_type(&self) -> Api {
+        self.api_type
+    }
+
+    /// Return what the inference engine should be told about how to answer, which is nothing if
+    /// the instructions have been overridden with nothing.
+    pub fn instructions(&self) -> Option<String> {
+        self.instructions.resolve()
+    }
+
+    /// Return configuration of searching through what was said.
+    pub fn search(&self) -> &AiSearchConfig {
+        &self.search
+    }
+
+    /// Return whether there is enough here to ask an inference engine for a reply.
+    ///
+    /// Anthropic will not answer without a key. Ollama and LM Studio do not ask for one, so a key
+    /// is not required for them.
+    pub fn configured(&self) -> bool {
+        if self.base_url.is_none() {
+            return false;
+        }
+
+        if matches!(self.api_type, Api::Anthropic) && self.api_key.is_none() {
+            return false;
+        }
+
+        true
+    }
+}
+
+/// Configuration of what the inference engine is told about how to answer.
+#[derive(Deserialize, Debug, Default, Clone, Eq, PartialEq)]
+pub struct AiInstructionsConfig {
+    /// What to say instead of the instructions which come with inshd.
+    #[serde(rename = "override", default)]
+    overridden: Option<String>,
+    /// What to say after the instructions.
+    #[serde(default)]
+    additional: Option<String>,
+}
+
+impl AiInstructionsConfig {
+    /// Return what the inference engine is told about how to answer, which is nothing if the
+    /// instructions have been overridden with nothing.
+    ///
+    /// Anything additional comes after whichever instructions are being used, so that it adds to
+    /// an override as well as to the ones which come with inshd.
+    fn resolve(&self) -> Option<String> {
+        let instructions: &str = match &self.overridden {
+            Some(overridden) => overridden,
+            None => DEFAULT_AI_INSTRUCTIONS,
+        }
+        .trim();
+
+        let additional: &str = match &self.additional {
+            Some(additional) => additional,
+            None => return Some(instructions.to_string()).filter(|text| !text.is_empty()),
+        }
+        .trim();
+
+        let instructions: String = match (instructions.is_empty(), additional.is_empty()) {
+            (true, true) => return None,
+            (true, false) => additional.to_string(),
+            (false, true) => instructions.to_string(),
+            (false, false) => format!("{}\n\n{}", instructions, additional),
+        };
+
+        Some(instructions)
+    }
+}
+
+/// Configuration of searching through what was said.
+#[derive(Deserialize, Debug, Clone, PartialEq)]
+pub struct AiSearchConfig {
+    /// How far apart the vectors of two texts can be before a search stops calling them a match.
+    #[serde(default = "AiSearchConfig::default_threshold")]
+    threshold: f64,
+}
+
+impl Default for AiSearchConfig {
+    fn default() -> Self {
+        Self {
+            threshold: Self::default_threshold(),
+        }
+    }
+}
+
+impl AiSearchConfig {
+    /// Return the default threshold.
+    fn default_threshold() -> f64 {
+        DEFAULT_AI_SEARCH_THRESHOLD
+    }
+
+    /// Return how far apart the vectors of two texts can be before a search stops calling them a
+    /// match.
+    pub fn threshold(&self) -> f64 {
+        self.threshold
+    }
+}
+
 /// Configuration for the Searcher.
 #[derive(Deserialize, Debug, Default, Clone, Eq, PartialEq)]
 pub struct SearcherConfig {
@@ -345,11 +568,26 @@ mod load_error {
                     )
                 }
                 Self::ParseFailed { path, error } => {
-                    write!(
-                        formatter,
-                        "Failed to parse the configuration file {:?}: {}",
-                        path, error
-                    )
+                    // The message from the parser quotes the value it could not make sense of, and
+                    // the AI API key is one of the values in this file, so only where the problem
+                    // is gets reported. Otherwise a typo on the wrong line writes the key into the
+                    // logs.
+                    match error.location() {
+                        Some(location) => write!(
+                            formatter,
+                            "Failed to parse the configuration file {:?} at line {} column {}",
+                            path,
+                            location.line(),
+                            location.column()
+                        ),
+                        None => {
+                            write!(
+                                formatter,
+                                "Failed to parse the configuration file {:?}",
+                                path
+                            )
+                        }
+                    }
                 }
                 Self::NoRequestHandlers => {
                     write!(
@@ -368,3 +606,123 @@ mod load_error {
     }
 }
 pub use load_error::LoadError;
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    use test_case::test_case;
+
+    /// A value which stands in for an API key.
+    const SECRET: &str = "sk-ant-api03-NOT-A-REAL-KEY";
+
+    /// Saying where the inference engine is and how to get in has to be enough on its own.
+    ///
+    /// Everything else about the AI has a default, so a configuration which sets only these two
+    /// must parse and leave the rest alone.
+    #[test]
+    fn test_only_a_base_url_and_a_key_are_needed() {
+        let yaml: String = format!(
+            "ai:\n  base_url: https://api.anthropic.com\n  api_key: {}\n",
+            SECRET
+        );
+
+        let config: Config = serde_yaml_ng::from_str(&yaml).unwrap();
+
+        assert!(config.ai().configured());
+        assert_eq!(config.ai().model(), DEFAULT_AI_MODEL);
+        assert_eq!(config.ai().api_type(), Api::Anthropic);
+        assert_eq!(
+            config.ai().instructions(),
+            Some(DEFAULT_AI_INSTRUCTIONS.trim().to_string())
+        );
+        assert_eq!(
+            config.ai().search().threshold(),
+            DEFAULT_AI_SEARCH_THRESHOLD
+        );
+    }
+
+    /// The message for a configuration which cannot be parsed must not quote what is in the file.
+    ///
+    /// The API key lives in this file, and a mistake anywhere in it used to put the offending
+    /// value into the daemon logs in the clear.
+    #[test]
+    fn test_parse_error_does_not_leak_values() {
+        let yaml: String = format!(
+            "ai:\n  base_url: https://example.com\n  api_type: {}\n",
+            SECRET
+        );
+
+        let error = match serde_yaml_ng::from_str::<Config>(&yaml) {
+            Ok(_) => panic!("The configuration should not have parsed."),
+            Err(error) => error,
+        };
+        let message: String = LoadError::ParseFailed {
+            path: PathBuf::from("/home/someone/.insh/inshd-config.yaml"),
+            error,
+        }
+        .to_string();
+
+        assert!(
+            !message.contains(SECRET),
+            "The message gave away a value from the file: {}",
+            message
+        );
+        // It still has to say where to look.
+        assert!(
+            message.contains("line"),
+            "The message is unhelpful: {}",
+            message
+        );
+    }
+
+    /// The instructions which come with inshd are used when nothing replaces them.
+    #[test]
+    fn test_instructions_default_to_the_ones_which_come_with_inshd() {
+        let config: AiInstructionsConfig = AiInstructionsConfig::default();
+
+        assert_eq!(
+            config.resolve(),
+            Some(DEFAULT_AI_INSTRUCTIONS.trim().to_string())
+        );
+    }
+
+    /// An override is said instead of the instructions which come with inshd.
+    #[test]
+    fn test_an_override_replaces_the_instructions() {
+        let config: AiInstructionsConfig = AiInstructionsConfig {
+            overridden: Some("Answer in French.".to_string()),
+            additional: None,
+        };
+
+        assert_eq!(config.resolve(), Some("Answer in French.".to_string()));
+    }
+
+    /// Anything additional comes after whichever instructions are being used.
+    #[test_case(None, DEFAULT_AI_INSTRUCTIONS ; "the ones which come with inshd")]
+    #[test_case(Some("Be terse."), "Be terse." ; "an override")]
+    fn test_anything_additional_comes_after(overridden: Option<&str>, before: &str) {
+        let config: AiInstructionsConfig = AiInstructionsConfig {
+            overridden: overridden.map(str::to_string),
+            additional: Some("Answer in French.".to_string()),
+        };
+
+        let instructions: String = config.resolve().unwrap();
+
+        assert_eq!(
+            instructions,
+            format!("{}\n\nAnswer in French.", before.trim())
+        );
+    }
+
+    /// Overriding the instructions with nothing leaves the inference engine without any.
+    #[test]
+    fn test_overriding_with_nothing_says_nothing() {
+        let config: AiInstructionsConfig = AiInstructionsConfig {
+            overridden: Some(String::new()),
+            additional: None,
+        };
+
+        assert_eq!(config.resolve(), None);
+    }
+}

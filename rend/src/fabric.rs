@@ -23,6 +23,8 @@ pub struct Fabric {
     colors: Vec<Vec<Option<Color>>>,
     /// The background colors of the text.
     backgrounds: Vec<Vec<Option<Color>>>,
+    /// Which columns of which rows are written in bold.
+    bolds: Vec<Vec<bool>>,
 }
 
 impl Fabric {
@@ -31,11 +33,13 @@ impl Fabric {
         let characters = vec![vec![Cell::BLANK; size.columns]; size.rows];
         let colors = vec![vec![]; size.rows];
         let backgrounds = vec![vec![]; size.rows];
+        let bolds = vec![vec![]; size.rows];
         Fabric {
             size,
             characters,
             colors,
             backgrounds,
+            bolds,
         }
     }
 
@@ -80,6 +84,7 @@ impl Fabric {
             .cells(cells)
             .colors(Self::row_of(&self.colors, row))
             .backgrounds(Self::row_of(&self.backgrounds, row))
+            .bolds(Self::bolds_of(&self.bolds, row))
             .build();
     }
 
@@ -96,6 +101,14 @@ impl Fabric {
         };
     }
 
+    /// Return the given row of the bolds, which is none of them when it is not there.
+    fn bolds_of(bolds: &[Vec<bool>], row: usize) -> &[bool] {
+        return match bolds.get(row) {
+            Some(bolds) => bolds,
+            None => &[],
+        };
+    }
+
     /// Move the rows of the band the given number of rows up, or down when that is negative, and
     /// bring blank rows in behind them.
     pub fn scroll(&mut self, band: Range<usize>, rows: isize) {
@@ -104,6 +117,7 @@ impl Fabric {
         Self::scroll_rows(&mut self.characters, &band, rows, blank);
         Self::scroll_rows(&mut self.colors, &band, rows, Vec::new());
         Self::scroll_rows(&mut self.backgrounds, &band, rows, Vec::new());
+        Self::scroll_rows(&mut self.bolds, &band, rows, Vec::new());
     }
 
     /// Move the rows of the band the given number of rows up, or down when that is negative, and
@@ -146,6 +160,11 @@ impl Fabric {
         &self.backgrounds
     }
 
+    /// Return which columns of which rows are written in bold.
+    pub fn bolds(&self) -> &Vec<Vec<bool>> {
+        &self.bolds
+    }
+
     /// Vertically pad the fabric to `new_rows` by adding rows above and below.
     ///
     /// If the new number of rows is less than the current rows, then panic (for now).
@@ -154,6 +173,7 @@ impl Fabric {
         match new_rows.cmp(&self.size.rows) {
             Ordering::Greater => {
                 let difference = new_rows - self.size.rows;
+                self.size = Size::new(new_rows, self.size.columns);
 
                 let top_pad_rows = difference / 2;
                 let bottom_pad_rows = difference - top_pad_rows;
@@ -174,6 +194,12 @@ impl Fabric {
                     vec![vec![None; self.size.columns]; top_pad_rows],
                     self.backgrounds.to_owned(),
                     vec![vec![None; self.size.columns]; bottom_pad_rows],
+                ]
+                .concat();
+                self.bolds = [
+                    vec![vec![false; self.size.columns]; top_pad_rows],
+                    self.bolds.to_owned(),
+                    vec![vec![false; self.size.columns]; bottom_pad_rows],
                 ]
                 .concat();
             }
@@ -198,6 +224,7 @@ impl Fabric {
                     .extend(vec![vec![Cell::BLANK; columns]; difference]);
                 self.colors.extend(vec![vec![]; difference]);
                 self.backgrounds.extend(vec![vec![]; difference]);
+                self.bolds.extend(vec![vec![]; difference]);
             }
             Ordering::Less => {
                 panic!("Cannot pad a yarn to smaller than the current rows.")
@@ -209,12 +236,16 @@ impl Fabric {
     /// Combine this fabric with another adding the contents of the other fabric to the bottom of
     /// this one.
     pub fn quilt_bottom(mut self, other: Fabric) -> Fabric {
-        for (row, row_colors, row_backgrounds) in
-            izip!(other.characters, other.colors, other.backgrounds)
-        {
+        for (row, row_colors, row_backgrounds, row_bolds) in izip!(
+            other.characters,
+            other.colors,
+            other.backgrounds,
+            other.bolds
+        ) {
             self.characters.push(row.to_vec());
             self.colors.push(row_colors.to_vec());
             self.backgrounds.push(row_backgrounds.to_vec());
+            self.bolds.push(row_bolds.to_vec());
         }
 
         self.size.rows += other.size.rows;
@@ -223,6 +254,72 @@ impl Fabric {
         // the end of a row which does not reach across are blanks. Taking the wider of the two is
         // what keeps the rows of the other one from being cut off at the width of this one.
         self.size.columns = self.size.columns.max(other.size.columns);
+
+        self
+    }
+
+    /// Combine this fabric with another putting the contents of the other fabric to the right of
+    /// this one.
+    ///
+    /// This is what puts two panes side by side.
+    pub fn quilt_right(mut self, other: Fabric) -> Fabric {
+        let rows: usize = self.size.rows.max(other.size.rows);
+        let columns: usize = self.size.columns;
+
+        self.characters.resize(rows, Vec::new());
+        self.colors.resize(rows, Vec::new());
+        self.backgrounds.resize(rows, Vec::new());
+        self.bolds.resize(rows, Vec::new());
+
+        for row in 0..rows {
+            // A row is only as long as the text in it, and the columns past the end are blanks. It
+            // has to be filled out to the full width first, or the other fabric would start part
+            // way into this one on every row which does not reach across.
+            self.characters[row].resize(columns, Cell::BLANK);
+            if row < other.size.rows {
+                let mut characters: Vec<Cell> = other.characters[row].clone();
+                characters.resize(other.size.columns, Cell::BLANK);
+                self.characters[row].append(&mut characters);
+            }
+
+            // An empty row of colors means that nothing in the row is colored, so it is left empty
+            // rather than filled with nothing, which is what a fabric built from text looks like.
+            let other_colors: &[Option<Color>] = match row < other.size.rows {
+                true => &other.colors[row],
+                false => &[],
+            };
+            if !self.colors[row].is_empty() || !other_colors.is_empty() {
+                self.colors[row].resize(columns, None);
+                let mut colors: Vec<Option<Color>> = other_colors.to_vec();
+                colors.resize(other.size.columns, None);
+                self.colors[row].append(&mut colors);
+            }
+
+            let other_backgrounds: &[Option<Color>] = match row < other.size.rows {
+                true => &other.backgrounds[row],
+                false => &[],
+            };
+            if !self.backgrounds[row].is_empty() || !other_backgrounds.is_empty() {
+                self.backgrounds[row].resize(columns, None);
+                let mut backgrounds: Vec<Option<Color>> = other_backgrounds.to_vec();
+                backgrounds.resize(other.size.columns, None);
+                self.backgrounds[row].append(&mut backgrounds);
+            }
+
+            let other_bolds: &[bool] = match row < other.size.rows {
+                true => &other.bolds[row],
+                false => &[],
+            };
+            if !self.bolds[row].is_empty() || !other_bolds.is_empty() {
+                self.bolds[row].resize(columns, false);
+                let mut bolds: Vec<bool> = other_bolds.to_vec();
+                bolds.resize(other.size.columns, false);
+                self.bolds[row].append(&mut bolds);
+            }
+        }
+
+        self.size.rows = rows;
+        self.size.columns = columns + other.size.columns;
 
         self
     }
@@ -259,12 +356,14 @@ impl From<Vec<Yarn>> for Fabric {
         let colors: Vec<Vec<Option<Color>>> = rows.iter().map(|row| row.colors().clone()).collect();
         let backgrounds: Vec<Vec<Option<Color>>> =
             rows.iter().map(|row| row.backgrounds().clone()).collect();
+        let bolds: Vec<Vec<bool>> = rows.iter().map(|row| row.bolds().clone()).collect();
 
         Fabric {
             size,
             characters,
             colors,
             backgrounds,
+            bolds,
         }
     }
 }
@@ -280,12 +379,14 @@ impl From<Yarn> for Fabric {
         let characters = vec![row.cells().to_vec()];
         let colors = vec![row.colors().to_vec()];
         let backgrounds = vec![row.backgrounds().to_vec()];
+        let bolds = vec![row.bolds().to_vec()];
 
         Fabric {
             size,
             characters,
             colors,
             backgrounds,
+            bolds,
         }
     }
 }
@@ -343,5 +444,68 @@ mod tests {
         let result = fabric.quilt_bottom(other);
 
         assert_eq!(result, expected);
+    }
+
+    #[test_case(
+        Fabric::from(vec!["ab", "cd"]),
+        Fabric::from(vec!["ef", "gh"]),
+        Fabric::from(vec!["abef", "cdgh"]);
+        "two of the same size"
+    )]
+    // The rows past the end of the other fabric are left as they are. A row which does not reach
+    // across is blank from there on, so there is nothing to add to it.
+    #[test_case(
+        Fabric::from(vec!["ab", "cd"]),
+        Fabric::from(vec!["ef"]),
+        Fabric::from(vec!["abef", "cd"]);
+        "the right one is shorter"
+    )]
+    #[test_case(
+        Fabric::from(vec!["ab"]),
+        Fabric::from(vec!["ef", "gh"]),
+        Fabric::from(vec!["abef", "  gh"]);
+        "the left one is shorter"
+    )]
+    #[test_case(
+        Fabric::from(vec!["ab", "c"]),
+        Fabric::from(vec!["ef", "gh"]),
+        Fabric::from(vec!["abef", "c gh"]);
+        "a row of the left one does not reach across"
+    )]
+    #[test_case(
+        Fabric::new(Size::new(2, 2)),
+        Fabric::from(vec!["ef", "gh"]),
+        Fabric::from(vec!["  ef", "  gh"]);
+        "the left one is blank"
+    )]
+    fn test_quilt_right(fabric: Fabric, other: Fabric, expected: Fabric) {
+        let result = fabric.quilt_right(other);
+
+        assert_eq!(result, expected);
+    }
+
+    // Padding used to add the rows without saying that it had, which left whoever drew the fabric
+    // painting only the rows it started with and leaving whatever was under the rest on screen.
+    #[test_case(2, 5; "padding out")]
+    #[test_case(2, 3; "padding a little")]
+    #[test_case(2, 2; "padding to the size it already is")]
+    fn test_pad_says_how_big_it_is(rows: usize, new_rows: usize) {
+        let mut fabric = Fabric::new(Size::new(rows, 4));
+
+        fabric.pad(new_rows);
+
+        assert_eq!(fabric.size().rows, new_rows);
+        assert_eq!(fabric.cells().len(), new_rows);
+    }
+
+    #[test_case(2, 5; "padding out")]
+    #[test_case(2, 2; "padding to the size it already is")]
+    fn test_pad_bottom_says_how_big_it_is(rows: usize, new_rows: usize) {
+        let mut fabric = Fabric::new(Size::new(rows, 4));
+
+        fabric.pad_bottom(new_rows);
+
+        assert_eq!(fabric.size().rows, new_rows);
+        assert_eq!(fabric.cells().len(), new_rows);
     }
 }

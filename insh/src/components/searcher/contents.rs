@@ -47,6 +47,7 @@ pub use props::Props;
 
 /// Contains the [`Contents`] component.
 mod contents {
+    use std::cell::RefCell;
     use std::path::MAIN_SEPARATOR as PATH_SEPARATOR;
 
     use super::{Action, Effect, Event, Props, State};
@@ -56,12 +57,37 @@ mod contents {
     use crate::Config;
     use crate::Stateful;
 
+    use highlighter::{Highlighter, Language};
     use phrase_searcher::{FileHit, LineHit};
     use rend::{Fabric, Size, Yarn};
     use term::{Key, KeyEvent, KeyMods, TermEvent};
     use til::{CommandParser, Component, KeyPattern, Parsed};
 
     impl Contents {
+        /// Return a line of a file, colored the way an editor would color it.
+        ///
+        /// A file in a language which is not known is left in whatever the terminal writes in,
+        /// which is what it looked like before there was any coloring at all.
+        fn highlight(&self, line: &str, language: Option<Language>) -> Yarn {
+            let language: Language = match language {
+                Some(language) => language,
+                None => return Yarn::from(line),
+            };
+
+            let mut yarn: Yarn = Yarn::from("");
+            for span in self.highlighter.borrow_mut().highlight(line, language) {
+                let mut piece: Yarn = Yarn::from(span.text.as_str());
+
+                if let Some(color) = Color::of_code(span.kind) {
+                    piece.color(color.into());
+                }
+
+                yarn = yarn.concat(piece);
+            }
+
+            yarn
+        }
+
         /// Return a parser for the keys which the contents responds to.
         fn command_parser() -> CommandParser<Action> {
             CommandParser::new()
@@ -83,11 +109,7 @@ mod contents {
                     Action::ReallyDown,
                 )
                 .bind(
-                    [KeyPattern::exact(Key::Char('j'), KeyMods::CONTROL)],
-                    Action::ScrollDown,
-                )
-                .bind(
-                    [KeyPattern::exact(Key::Down, KeyMods::CONTROL)],
+                    [KeyPattern::exact(Key::Char('e'), KeyMods::CONTROL)],
                     Action::ScrollDown,
                 )
                 .bind(
@@ -104,11 +126,7 @@ mod contents {
                     Action::ReallyUp,
                 )
                 .bind(
-                    [KeyPattern::exact(Key::Char('k'), KeyMods::CONTROL)],
-                    Action::ScrollUp,
-                )
-                .bind(
-                    [KeyPattern::exact(Key::Up, KeyMods::CONTROL)],
+                    [KeyPattern::exact(Key::Char('y'), KeyMods::CONTROL)],
                     Action::ScrollUp,
                 )
                 .bind(
@@ -155,6 +173,12 @@ mod contents {
         state: State,
         /// Parses the keys pressed into actions.
         command_parser: CommandParser<Action>,
+        /// Works out which part of a line of code is what.
+        ///
+        /// Drawing is done from what is there rather than by being told to, so this is only
+        /// reachable through a shared reference. It holds the grammars, which are slow to read and
+        /// worth keeping.
+        highlighter: RefCell<Highlighter>,
     }
 
     impl Component<Props, Event, Effect> for Contents {
@@ -164,6 +188,7 @@ mod contents {
                 config: props.config,
                 state,
                 command_parser: Self::command_parser(),
+                highlighter: RefCell::new(Highlighter::new()),
             }
         }
 
@@ -251,18 +276,27 @@ mod contents {
                                     line_hits = line_hits.into_iter().skip(line_offset).collect();
                                 }
                             }
+                            // Which language the file is written in, so that what is in it can be
+                            // shown the way it would be in an editor.
+                            let language: Option<Language> = file_hit
+                                .path()
+                                .extension()
+                                .and_then(|extension| extension.to_str())
+                                .and_then(Language::of_extension);
+
                             for (line_hit_number, line_hit) in line_hits {
                                 if yarns.len() == rows {
                                     break;
                                 }
 
-                                let mut string: String = line_hit.line_number().to_string();
-                                string.push_str(": ");
-                                string.push_str(
-                                    &line_hit.line().detab(self.config.general().tab_width()),
-                                );
+                                let number: String = format!("{}: ", line_hit.line_number());
+                                let line: String =
+                                    line_hit.line().detab(self.config.general().tab_width());
 
-                                let mut yarn = Yarn::from(string);
+                                let mut yarn = Yarn::from(number.as_str());
+                                yarn.color(Color::LightGrayedText.into());
+                                yarn = yarn.concat(self.highlight(&line, language));
+
                                 yarn.resize(columns);
                                 if file_hit_is_focused
                                     && self.state.is_line_selected()

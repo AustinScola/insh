@@ -411,16 +411,19 @@ mod tests {
     }
 
     #[test]
-    fn test_both_colors_are_set_when_what_the_terminal_is_writing_in_is_not_known() {
+    fn test_the_whole_style_is_set_when_what_the_terminal_is_writing_in_is_not_known() {
         let fabric = Fabric::from(Yarn::from("abc"));
 
         let frame: Frame = Loom::builder().fabric(&fabric).build().weave();
 
+        // The weight is said as well as the colors. A program which had the terminal before this
+        // one may have left it writing in bold, and nothing else would put it back.
         assert_eq!(
             frame,
             Frame::from(vec![
                 move_to(0, 0),
                 restyle(vec![
+                    GraphicRendition::NormalIntensity,
                     GraphicRendition::Foreground(Color::Default),
                     GraphicRendition::Background(Color::Default),
                 ]),

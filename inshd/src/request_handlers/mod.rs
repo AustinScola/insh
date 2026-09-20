@@ -1,9 +1,15 @@
 //! Handlers for individual request types.
+mod ai_status;
+mod chat;
 mod create_file;
 mod database_info;
+mod delete_chat;
 mod find_files;
+mod get_chat;
 mod get_file_contents;
 mod get_files;
+mod list_chats;
+mod search_chats;
 mod search_phrase;
 mod stream_logs;
 mod suggest_dir;
@@ -11,11 +17,17 @@ mod suggest_find_pattern;
 mod suggest_search_phrase;
 mod visit_dir;
 
+pub use ai_status::AiStatus;
+pub use chat::Chat;
 pub use create_file::CreateFile;
 pub use database_info::DatabaseInfo;
+pub use delete_chat::DeleteChat;
 pub use find_files::FindFiles;
+pub use get_chat::GetChat;
 pub use get_file_contents::GetFileContents;
 pub use get_files::GetFiles;
+pub use list_chats::ListChats;
+pub use search_chats::SearchChats;
 pub use search_phrase::SearchPhrase;
 pub use stream_logs::StreamLogs;
 pub use suggest_dir::SuggestDir;

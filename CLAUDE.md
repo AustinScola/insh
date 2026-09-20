@@ -11,8 +11,11 @@ facing keybindings and the `~/.insh-config.yaml` configuration options.
 
 ## Repository setup
 
-The repo uses git submodules (`cargo-scripts`, `bash-lib`). Clone/checkout with
-`git submodule update --init` or the scripts under `cargo-scripts/` will be missing.
+The repo uses git submodules (`cargo-scripts`, `bash-lib`, `insh-db/pgvector`). Clone/checkout with
+`git submodule update --init` or the scripts under `cargo-scripts/` will be missing. `insh-db`
+**will not build at all** without its submodule — `insh-db/build.rs` compiles pgvector from it —
+so the build script panics with that command when the directory is empty. `cargo install --git`
+fetches submodules itself, so installing does not need anything extra.
 
 `.envrc` adds `cargo-scripts/` and `scripts/` to `PATH` via `direnv`, so the scripts are typically
 invoked by bare name (`check`, `lint`, `all`). Without direnv, invoke them by path

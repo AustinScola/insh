@@ -563,6 +563,14 @@ impl Contents {
                 [KeyPattern::exact(Key::Home, KeyMods::NONE)],
                 Action::ReallyUp,
             )
+            .bind(
+                [KeyPattern::exact(Key::Char('e'), KeyMods::CONTROL)],
+                Action::ScrollDown,
+            )
+            .bind(
+                [KeyPattern::exact(Key::Char('y'), KeyMods::CONTROL)],
+                Action::ScrollUp,
+            )
             .bind([KeyPattern::any(Key::Char('r'))], Action::Refresh)
             .bind([KeyPattern::any(Key::Char('l'))], Action::Push)
             .bind([KeyPattern::any(Key::CarriageReturn)], Action::Push)
@@ -603,6 +611,10 @@ impl Contents {
             )
             .bind([KeyPattern::any(Key::Char('f'))], Action::OpenFinder)
             .bind([KeyPattern::any(Key::Char('s'))], Action::OpenSearcher)
+            .bind(
+                [KeyPattern::exact(Key::Char('a'), KeyMods::NONE)],
+                Action::OpenChat,
+            )
             .bind(
                 [KeyPattern::exact(Key::Char('m'), KeyMods::NONE)],
                 Action::ToggleMetadata,
@@ -846,6 +858,48 @@ impl State {
         self.size = new_size;
 
         None
+    }
+
+    /// Show the entries after the ones which are shown, without moving which one is selected
+    /// unless it would go out of view.
+    fn scroll_down(&mut self) -> Option<Effect> {
+        let count: usize = self.entry_count()?;
+
+        if self.size.rows == 0 || self.offset + self.size.rows >= count {
+            return None;
+        }
+
+        self.offset += 1;
+        // Where the selection is is counted from the top of the view, so it moves up by one as the
+        // view moves down, which leaves the same entry selected.
+        if let Some(selected) = self.selected {
+            self.selected = Some(selected.saturating_sub(1));
+        }
+
+        None
+    }
+
+    /// Show the entries before the ones which are shown, without moving which one is selected
+    /// unless it would go out of view.
+    fn scroll_up(&mut self) -> Option<Effect> {
+        if self.offset == 0 || self.size.rows == 0 {
+            return None;
+        }
+
+        self.offset -= 1;
+        if let Some(selected) = self.selected {
+            self.selected = Some(cmp::min(selected + 1, self.size.rows - 1));
+        }
+
+        None
+    }
+
+    /// Return how many entries there are, if they are known.
+    fn entry_count(&self) -> Option<usize> {
+        match self.file_infos.as_ref()? {
+            Ok(file_infos) => Some(file_infos.len()),
+            Err(_) => None,
+        }
     }
 
     /// Select the next file.
@@ -1112,6 +1166,13 @@ impl State {
         })
     }
 
+    /// Chat about the directory.
+    fn open_chat(&self) -> Option<Effect> {
+        Some(Effect::OpenChat {
+            dir: self.dir.clone(),
+        })
+    }
+
     /// Run a shell.
     fn run_bash(&self) -> Option<Effect> {
         Some(Effect::RunBash {
@@ -1274,6 +1335,8 @@ impl Stateful<Action, Effect> for State {
             Action::Down => self.down(),
             Action::ReallyDown => self.really_down(),
             Action::Up => self.up(),
+            Action::ScrollDown => self.scroll_down(),
+            Action::ScrollUp => self.scroll_up(),
             Action::ReallyUp => self.really_up(),
             Action::Refresh => self.refresh(),
             Action::Push => self.push(),
@@ -1284,6 +1347,7 @@ impl Stateful<Action, Effect> for State {
             Action::OpenFileCreator { file_type } => self.open_file_creator(file_type),
             Action::OpenFinder => self.open_finder(),
             Action::OpenSearcher => self.open_searcher(),
+            Action::OpenChat => self.open_chat(),
             Action::RunBash => self.run_bash(),
             Action::ToggleMetadata => self.toggle_metadata(),
             Action::UnknownCommand { keys } => self.unknown_command(keys),
@@ -1315,6 +1379,10 @@ enum Action {
     ReallyDown,
     /// Select the previous file.
     Up,
+    /// Show the files after the ones which are shown.
+    ScrollDown,
+    /// Show the files before the ones which are shown.
+    ScrollUp,
     /// Select the first file.
     ReallyUp,
     /// Get the files again.
@@ -1338,6 +1406,8 @@ enum Action {
     OpenFinder,
     /// Search files for a phrase.
     OpenSearcher,
+    /// Chat about the directory.
+    OpenChat,
     /// Run a shell.
     RunBash,
     /// Show or hide the metadata of the files.
@@ -1386,6 +1456,11 @@ pub enum Effect {
     /// Search files for a phrase.
     OpenSearcher {
         /// The directory to search in.
+        dir: PathBuf,
+    },
+    /// Chat about the directory.
+    OpenChat {
+        /// The directory to chat about.
         dir: PathBuf,
     },
     /// Edit a file.

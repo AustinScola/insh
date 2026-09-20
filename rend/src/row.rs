@@ -23,6 +23,9 @@ pub struct Row<'fabric> {
     /// The colors the text is written on.
     #[builder(default = &[])]
     backgrounds: &'fabric [Option<Color>],
+    /// Which columns of the text are written in bold.
+    #[builder(default = &[])]
+    bolds: &'fabric [bool],
 }
 
 impl<'fabric> Row<'fabric> {
@@ -39,6 +42,7 @@ impl<'fabric> Row<'fabric> {
         let style: Style = Style::builder()
             .color(self.colors.get(column).copied().flatten())
             .background(self.backgrounds.get(column).copied().flatten())
+            .bold(self.bolds.get(column).copied().unwrap_or(false))
             .build();
 
         return Spot::builder().cell(cell).style(style).build();

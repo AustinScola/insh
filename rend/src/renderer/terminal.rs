@@ -176,10 +176,22 @@ impl Terminal {
             GraphicRendition::Foreground(foreground) => Style::builder()
                 .color(color(foreground))
                 .background(self.style.background())
+                .bold(self.style.bold())
                 .build(),
             GraphicRendition::Background(background) => Style::builder()
                 .color(self.style.color())
                 .background(color(background))
+                .bold(self.style.bold())
+                .build(),
+            GraphicRendition::Bold => Style::builder()
+                .color(self.style.color())
+                .background(self.style.background())
+                .bold(true)
+                .build(),
+            GraphicRendition::NormalIntensity => Style::builder()
+                .color(self.style.color())
+                .background(self.style.background())
+                .bold(false)
                 .build(),
             _ => panic!("The terminal does not know how to write {:?}.", rendition),
         };

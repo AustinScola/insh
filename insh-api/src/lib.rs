@@ -65,6 +65,18 @@ pub enum RequestParams {
     StreamLogs(StreamLogsRequestParams),
     /// Get information about the database.
     DatabaseInfo(DatabaseInfoRequestParams),
+    /// Find out whether an AI inference engine is configured.
+    AiStatus(AiStatusRequestParams),
+    /// Say something in a chat and get the reply.
+    Chat(ChatRequestParams),
+    /// List the chats.
+    ListChats(ListChatsRequestParams),
+    /// Search the chats.
+    SearchChats(SearchChatsRequestParams),
+    /// Get the messages of a chat.
+    GetChat(GetChatRequestParams),
+    /// Delete a chat.
+    DeleteChat(DeleteChatRequestParams),
 }
 
 /// Request parameters for getting the files in a directory.
@@ -269,6 +281,207 @@ impl SuggestSearchPhraseRequestParams {
 #[derive(Debug, TypedBuilder, Serialize, Deserialize)]
 pub struct StreamLogsRequestParams {}
 
+/// A chat.
+#[derive(Debug, Clone, TypedBuilder, Serialize, Deserialize)]
+pub struct Chat {
+    /// Which chat it is.
+    id: i64,
+    /// What the chat is called.
+    #[builder(setter(into))]
+    title: String,
+    /// The directory the chat was started in.
+    #[builder(setter(into))]
+    dir: PathBuf,
+}
+
+impl Chat {
+    /// Return which chat it is.
+    pub fn id(&self) -> i64 {
+        self.id
+    }
+
+    /// Return what the chat is called.
+    pub fn title(&self) -> &str {
+        &self.title
+    }
+
+    /// Return the directory the chat was started in.
+    pub fn dir(&self) -> &Path {
+        &self.dir
+    }
+}
+
+/// Who sent a message.
+#[derive(Debug, Clone, Copy, Eq, PartialEq, Serialize, Deserialize)]
+pub enum ChatRole {
+    /// The person using insh.
+    User,
+    /// The inference engine.
+    Assistant,
+}
+
+/// A message of a chat.
+#[derive(Debug, Clone, TypedBuilder, Serialize, Deserialize)]
+pub struct ChatMessage {
+    /// Who sent the message.
+    role: ChatRole,
+    /// What the message says.
+    #[builder(setter(into))]
+    content: String,
+}
+
+impl ChatMessage {
+    /// Return who sent the message.
+    pub fn role(&self) -> ChatRole {
+        self.role
+    }
+
+    /// Return what the message says.
+    pub fn content(&self) -> &str {
+        &self.content
+    }
+}
+
+/// A message which a search found, along with the chat it is in.
+#[derive(Debug, Clone, TypedBuilder, Serialize, Deserialize)]
+pub struct ChatHit {
+    /// The chat the message is in.
+    chat: Chat,
+    /// What the message says.
+    #[builder(setter(into))]
+    content: String,
+}
+
+impl ChatHit {
+    /// Return the chat the message is in.
+    pub fn chat(&self) -> &Chat {
+        &self.chat
+    }
+
+    /// Return what the message says.
+    pub fn content(&self) -> &str {
+        &self.content
+    }
+}
+
+/// How to search the chats.
+#[derive(Debug, Clone, Copy, Default, Eq, PartialEq, Serialize, Deserialize)]
+pub enum ChatSearchMode {
+    /// By the words which were used.
+    Keyword,
+    /// By what was meant.
+    Semantic,
+    /// By both.
+    #[default]
+    Both,
+}
+
+/// Request parameters for finding out whether an AI inference engine is configured.
+#[derive(Debug, TypedBuilder, Serialize, Deserialize)]
+pub struct AiStatusRequestParams {}
+
+/// Request parameters for saying something in a chat.
+#[derive(Debug, TypedBuilder, Serialize, Deserialize)]
+pub struct ChatRequestParams {
+    /// Which chat to say it in, or nothing to start one.
+    #[builder(default)]
+    chat_id: Option<i64>,
+    /// The directory the chat is about.
+    dir: PathBuf,
+    /// What to say.
+    #[builder(setter(into))]
+    message: String,
+}
+
+impl ChatRequestParams {
+    /// Return which chat to say it in, or nothing to start one.
+    pub fn chat_id(&self) -> Option<i64> {
+        self.chat_id
+    }
+
+    /// Return the directory the chat is about.
+    pub fn dir(&self) -> &Path {
+        &self.dir
+    }
+
+    /// Return what to say.
+    pub fn message(&self) -> &str {
+        &self.message
+    }
+}
+
+/// Request parameters for listing the chats.
+#[derive(Debug, TypedBuilder, Serialize, Deserialize)]
+pub struct ListChatsRequestParams {
+    /// The most chats to list.
+    limit: usize,
+}
+
+impl ListChatsRequestParams {
+    /// Return the most chats to list.
+    pub fn limit(&self) -> usize {
+        self.limit
+    }
+}
+
+/// Request parameters for searching the chats.
+#[derive(Debug, TypedBuilder, Serialize, Deserialize)]
+pub struct SearchChatsRequestParams {
+    /// What to search for.
+    #[builder(setter(into))]
+    text: String,
+    /// How to search.
+    #[builder(default)]
+    mode: ChatSearchMode,
+    /// The most chats to return.
+    limit: usize,
+}
+
+impl SearchChatsRequestParams {
+    /// Return what to search for.
+    pub fn text(&self) -> &str {
+        &self.text
+    }
+
+    /// Return how to search.
+    pub fn mode(&self) -> ChatSearchMode {
+        self.mode
+    }
+
+    /// Return the most chats to return.
+    pub fn limit(&self) -> usize {
+        self.limit
+    }
+}
+
+/// Request parameters for getting the messages of a chat.
+#[derive(Debug, TypedBuilder, Serialize, Deserialize)]
+pub struct GetChatRequestParams {
+    /// Which chat to get the messages of.
+    chat_id: i64,
+}
+
+impl GetChatRequestParams {
+    /// Return which chat to get the messages of.
+    pub fn chat_id(&self) -> i64 {
+        self.chat_id
+    }
+}
+
+/// Request parameters for deleting a chat.
+#[derive(Debug, TypedBuilder, Serialize, Deserialize)]
+pub struct DeleteChatRequestParams {
+    /// Which chat to delete.
+    chat_id: i64,
+}
+
+impl DeleteChatRequestParams {
+    /// Return which chat to delete.
+    pub fn chat_id(&self) -> i64 {
+        self.chat_id
+    }
+}
+
 /// Request parameters for getting information about the database.
 #[derive(Debug, TypedBuilder, Serialize, Deserialize)]
 pub struct DatabaseInfoRequestParams {}
@@ -327,6 +540,18 @@ pub enum ResponseParams {
     StreamLogs(StreamLogsResponseParams),
     /// Information about the database.
     DatabaseInfo(DatabaseInfoResponseParams),
+    /// Whether an AI inference engine is configured.
+    AiStatus(AiStatusResponseParams),
+    /// A piece of a reply.
+    Chat(ChatResponseParams),
+    /// The chats.
+    ListChats(ListChatsResponseParams),
+    /// The chats which were found.
+    SearchChats(SearchChatsResponseParams),
+    /// The messages of a chat.
+    GetChat(GetChatResponseParams),
+    /// Whether the chat was deleted.
+    DeleteChat(DeleteChatResponseParams),
 }
 
 /// Response parameters and whether they are the last.
@@ -697,5 +922,170 @@ impl Display for LogLevel {
             Self::Trace => "TRACE",
         };
         write!(formatter, "{}", string)
+    }
+}
+
+/// Response parameters for whether an AI inference engine is configured.
+#[derive(Debug, Clone, TypedBuilder, Serialize, Deserialize)]
+pub struct AiStatusResponseParams {
+    /// Whether an AI inference engine is configured.
+    configured: bool,
+}
+
+impl AiStatusResponseParams {
+    /// Return whether an AI inference engine is configured.
+    pub fn configured(&self) -> bool {
+        self.configured
+    }
+}
+
+/// Response parameters for a piece of a reply.
+///
+/// A reply arrives over many of these. Each carries the text which came since the one before it
+/// rather than the reply so far, so the pieces are appended as they arrive.
+#[derive(Debug, Clone, TypedBuilder, Serialize, Deserialize)]
+pub struct ChatResponseParams {
+    /// Which chat the reply is in, once there is one.
+    ///
+    /// This is how the chat which a request started learns which one it is. It is nothing when
+    /// the chat could not be started at all, so that a failure is not taken for a chat.
+    #[builder(default)]
+    chat_id: Option<i64>,
+    /// The text which came since the last piece.
+    #[builder(default, setter(into))]
+    delta: String,
+    /// How many tokens the reply came to, once the inference engine has said.
+    ///
+    /// Engines say this near the end of a reply rather than as it goes, and some do not say at
+    /// all, so it is not there for every piece.
+    #[builder(default)]
+    tokens: Option<usize>,
+    /// Whether the inference engine is thinking rather than answering.
+    #[builder(default)]
+    thinking: bool,
+    /// How many of those tokens were the engine thinking rather than answering.
+    ///
+    /// A model which thinks before it answers is billed for the thinking as well, which is why a
+    /// one word answer can come to far more tokens than the words in it.
+    #[builder(default)]
+    thinking_tokens: Option<usize>,
+    /// How long the reply has been coming.
+    #[builder(default)]
+    duration: Duration,
+    /// What went wrong, if anything did.
+    #[builder(default)]
+    error: Option<String>,
+}
+
+impl ChatResponseParams {
+    /// Return which chat the reply is in, once there is one.
+    pub fn chat_id(&self) -> Option<i64> {
+        self.chat_id
+    }
+
+    /// Return the text which came since the last piece.
+    pub fn delta(&self) -> &str {
+        &self.delta
+    }
+
+    /// Return how many tokens the reply came to, once the inference engine has said.
+    pub fn tokens(&self) -> Option<usize> {
+        self.tokens
+    }
+
+    /// Return whether the inference engine is thinking rather than answering.
+    pub fn thinking(&self) -> bool {
+        self.thinking
+    }
+
+    /// Return how many of those tokens were the engine thinking rather than answering.
+    pub fn thinking_tokens(&self) -> Option<usize> {
+        self.thinking_tokens
+    }
+
+    /// Return how long the reply has been coming.
+    pub fn duration(&self) -> Duration {
+        self.duration
+    }
+
+    /// Return what went wrong, if anything did.
+    pub fn error(&self) -> Option<&String> {
+        self.error.as_ref()
+    }
+}
+
+/// Response parameters for the chats.
+#[derive(Debug, Clone, TypedBuilder, Serialize, Deserialize)]
+pub struct ListChatsResponseParams {
+    /// The chats, the ones used most recently first.
+    chats: Vec<Chat>,
+}
+
+impl ListChatsResponseParams {
+    /// Return the chats.
+    pub fn chats(&self) -> &Vec<Chat> {
+        &self.chats
+    }
+}
+
+/// Response parameters for the chats which were found.
+#[derive(Debug, Clone, TypedBuilder, Serialize, Deserialize)]
+pub struct SearchChatsResponseParams {
+    /// The chats which were found by the words which were used.
+    #[builder(default)]
+    chats: Vec<Chat>,
+    /// The messages which were found by what they meant.
+    #[builder(default)]
+    hits: Vec<ChatHit>,
+}
+
+impl SearchChatsResponseParams {
+    /// Return the chats which were found by the words which were used.
+    pub fn chats(&self) -> &Vec<Chat> {
+        &self.chats
+    }
+
+    /// Return the messages which were found by what they meant.
+    pub fn hits(&self) -> &Vec<ChatHit> {
+        &self.hits
+    }
+}
+
+/// Response parameters for the messages of a chat.
+#[derive(Debug, Clone, TypedBuilder, Serialize, Deserialize)]
+pub struct GetChatResponseParams {
+    /// The messages, the oldest first.
+    messages: Vec<ChatMessage>,
+    /// What went wrong reading the chat, if anything did.
+    ///
+    /// A chat which could not be read has no messages, which is the same as one which has nothing
+    /// said in it, so this is what tells the two apart.
+    #[builder(default)]
+    error: Option<String>,
+}
+
+impl GetChatResponseParams {
+    /// Return the messages.
+    pub fn messages(&self) -> &Vec<ChatMessage> {
+        &self.messages
+    }
+
+    /// Return what went wrong reading the chat, if anything did.
+    pub fn error(&self) -> Option<&String> {
+        self.error.as_ref()
+    }
+}
+
+/// Response parameters for whether a chat was deleted.
+#[derive(Debug, Clone, TypedBuilder, Serialize, Deserialize)]
+pub struct DeleteChatResponseParams {
+    /// Whether the chat was deleted.
+    deleted: bool,
+}
+
+impl DeleteChatResponseParams {
+    /// Return whether the chat was deleted.
+    pub fn deleted(&self) -> bool {
+        self.deleted
     }
 }

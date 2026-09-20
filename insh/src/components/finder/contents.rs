@@ -57,6 +57,14 @@ mod contents {
                     [KeyPattern::exact(Key::Char('k'), KeyMods::NONE)],
                     Action::Up,
                 )
+                .bind(
+                    [KeyPattern::exact(Key::Char('e'), KeyMods::CONTROL)],
+                    Action::ScrollDown,
+                )
+                .bind(
+                    [KeyPattern::exact(Key::Char('y'), KeyMods::CONTROL)],
+                    Action::ScrollUp,
+                )
                 .bind([KeyPattern::exact(Key::Up, KeyMods::NONE)], Action::Up)
                 .bind(
                     [KeyPattern::exact(Key::Char('K'), KeyMods::SHIFT)],
@@ -508,6 +516,42 @@ mod state {
         }
 
         /// Select the next file.
+        /// Show the hits after the ones which are shown, without moving which one is selected
+        /// unless it would go out of view.
+        fn scroll_down(&mut self) -> Option<Effect> {
+            if self.entries.is_empty() || self.size.rows == 0 {
+                return None;
+            }
+            if self.offset + self.size.rows >= self.entries.len() {
+                return None;
+            }
+
+            self.offset += 1;
+            // Where the selection is is counted from the top of the view, so it moves up by one as
+            // the view moves down, which leaves the same hit selected.
+            if let Some(selected) = self.selected {
+                self.selected = Some(selected.saturating_sub(1));
+            }
+
+            None
+        }
+
+        /// Show the hits before the ones which are shown, without moving which one is selected
+        /// unless it would go out of view.
+        fn scroll_up(&mut self) -> Option<Effect> {
+            if self.offset == 0 || self.size.rows == 0 {
+                return None;
+            }
+
+            self.offset -= 1;
+            if let Some(selected) = self.selected {
+                self.selected = Some(cmp::min(selected + 1, self.size.rows - 1));
+            }
+
+            None
+        }
+
+        /// Select the next file.
         fn down(&mut self) -> Option<Effect> {
             // There is nowhere to move to if none of the hits are shown (which happens when the
             // terminal is too short for anything but the directory, the phrase, and the footer).
@@ -788,6 +832,8 @@ mod state {
                 Action::Down => self.down(),
                 Action::ReallyDown => self.really_down(),
                 Action::Up => self.up(),
+                Action::ScrollDown => self.scroll_down(),
+                Action::ScrollUp => self.scroll_up(),
                 Action::ReallyUp => self.really_up(),
                 Action::Refresh => self.refresh(),
                 Action::Edit => self.edit(),
@@ -837,6 +883,10 @@ mod action {
         ReallyDown,
         /// Select the previous file.
         Up,
+        /// Show the files after the ones which are shown.
+        ScrollDown,
+        /// Show the files before the ones which are shown.
+        ScrollUp,
         /// Select the first file.
         ReallyUp,
         /// Find the pattern again.

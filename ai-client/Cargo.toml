@@ -1,0 +1,21 @@
+[package]
+name = "ai-client"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+# Used for serialization and deserialization of data structures.
+serde = { workspace = true }
+
+# Used for the JSON which AI inference engines send and receive.
+serde_json = { workspace = true }
+
+# Used for generating the builder pattern for structs.
+typed-builder = { workspace = true }
+
+# Used for HTTP requests to AI inference engines.
+ureq = { workspace = true }
+
+[dev-dependencies]
+# Used for parameterizing tests.
+test-case = { workspace = true }

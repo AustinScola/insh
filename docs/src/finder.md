@@ -15,6 +15,8 @@ the file name.
 | `J` \| `<End>`   | Move the selection to the last hit.                                        |
 | `K` \| `<Home>`  | Move the selection to the first hit.                                       |
 | `l` \| `<Enter>` | Open the hit in vim.                                                       |
+| `<Ctrl>-e`       | Scroll down without changing the selection.                                |
+| `<Ctrl>-y`       | Scroll up without changing the selection.                                  |
 | `g`              | Go to the hit in the file browser.                                         |
 | `G`              | Go to the hit in the file browser and select it.                           |
 | `yE`             | Yank the hit filename to the clipboard.                                    |

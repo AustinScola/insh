@@ -62,6 +62,30 @@ const IDENT_FILE_NAME: &str = "pg_ident.conf";
 /// The name of the mapping of the operating system user to the database user.
 const IDENT_MAP_NAME: &str = "insh";
 
+/// The version of pgvector which is installed.
+///
+/// The build script reads this from the makefile of the submodule it builds, so that it says what
+/// was built rather than what was meant to be.
+const PGVECTOR_VERSION: &str = env!("PGVECTOR_VERSION");
+
+/// The pgvector module, which is built by the build script.
+///
+/// The PostgreSQL binaries come from prebuilt archives which only carry the standard extensions,
+/// so pgvector is built here and installed alongside them.
+const PGVECTOR_MODULE: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/vector.module"));
+
+/// What the pgvector module has to be named to be found.
+///
+/// This is `vector.so` on Linux and `vector.dylib` on macOS. The build script takes it from the
+/// makefiles the server came with, since it is the server which decides what to look for.
+const PGVECTOR_MODULE_NAME: &str = env!("PGVECTOR_MODULE");
+
+/// The description of the pgvector extension.
+const PGVECTOR_CONTROL: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/vector.control"));
+
+/// The statements which create the pgvector extension.
+const PGVECTOR_SQL: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/vector.sql"));
+
 /// The maximum length of the path of the directory that the unix socket is created in.
 ///
 /// Unix socket paths are limited to 108 bytes including the terminating null byte, and PostgreSQL
@@ -125,6 +149,11 @@ impl Database {
 
         // The daemon may have been killed without getting the chance to stop the server.
         Self::stop_orphaned_server(postgres.settings());
+
+        // This comes after the server which was left running has been stopped. It writes over the
+        // module, and a server which is still running has it mapped, so rewriting it underneath
+        // one would take down whatever is using it.
+        Self::install_pgvector(&postgres.settings().installation_dir)?;
 
         log::info!("Starting the database...");
         postgres
@@ -275,8 +304,36 @@ impl Database {
         return Ok(());
     }
 
+    /// Install pgvector alongside the PostgreSQL server.
+    ///
+    /// This is done on every start rather than only when the server is extracted, so that an
+    /// install which was extracted again is repaired.
+    fn install_pgvector(installation_dir: &Path) -> Result<(), StartError> {
+        let lib_dir: PathBuf = installation_dir.join("lib");
+        let extension_dir: PathBuf = installation_dir.join("share").join("extension");
+
+        // These are made by extracting the server, but a partly extracted install would not have
+        // them and the error from writing into a missing directory does not say what is wrong.
+        make_private_dir(&lib_dir).map_err(StartError::CreateDirFailed)?;
+        make_private_dir(&extension_dir).map_err(StartError::CreateDirFailed)?;
+
+        Self::write_private_bytes(&lib_dir.join(PGVECTOR_MODULE_NAME), PGVECTOR_MODULE)?;
+        Self::write_private_bytes(&extension_dir.join("vector.control"), PGVECTOR_CONTROL)?;
+        Self::write_private_bytes(
+            &extension_dir.join(format!("vector--{}.sql", PGVECTOR_VERSION)),
+            PGVECTOR_SQL,
+        )?;
+
+        return Ok(());
+    }
+
     /// Write a file which only the user can read.
     fn write_private_file(path: &Path, contents: &str) -> Result<(), StartError> {
+        return Self::write_private_bytes(path, contents.as_bytes());
+    }
+
+    /// Write a file of bytes which only the user can read.
+    fn write_private_bytes(path: &Path, contents: &[u8]) -> Result<(), StartError> {
         let mut file: File = OpenOptions::new()
             .write(true)
             .create(true)
@@ -284,7 +341,7 @@ impl Database {
             .mode(INSH_FILES_PERMS)
             .open(path)
             .map_err(StartError::WriteFileFailed)?;
-        file.write_all(contents.as_bytes())
+        file.write_all(contents)
             .map_err(StartError::WriteFileFailed)?;
 
         return Ok(());

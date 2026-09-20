@@ -20,6 +20,7 @@ mod config;
 mod current_dir;
 #[cfg(feature = "logging")]
 mod logging;
+mod markdown;
 mod programs;
 mod requester;
 mod response_handler;

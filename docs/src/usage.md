@@ -1,7 +1,6 @@
 # Usage
 
-By default, Insh starts out in a file browser. Insh has two other main components as well: a file
-finder and a file contents searcher.
+By default, Insh starts out in a file browser.
 
 ## Universal commands
 Some commands work from all components:

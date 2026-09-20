@@ -1,5 +1,5 @@
 /*!
-Configuration options loaded from the YAML file `~/.insh-config` if it exists.
+Configuration options loaded from the YAML file `~/.insh/config.yaml` if it exists.
 */
 
 /// Configuration options.
@@ -40,7 +40,8 @@ mod config {
                     return Err(ConfigDefaultPathError::CannotDetermineHomeDirectory);
                 }
             };
-            path.push(".insh-config.yaml");
+            path.push(".insh");
+            path.push("config.yaml");
             Ok(path)
         }
 

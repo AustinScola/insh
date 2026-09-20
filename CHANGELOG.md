@@ -2,6 +2,8 @@
 - Add a new incremental rendering engine (enabled by default). And a `render.engine` configuration
 option to control which rendering engine is used.
 - Add directory editing.
+- Move config files to `~/.insh/config.yaml` and `~/.insh/inshd-config.yaml`.
+- Add `Inshie` an AI chatbot.
 
 # 0.5.0
 - Add `inshd logs` command for streaming logs.
