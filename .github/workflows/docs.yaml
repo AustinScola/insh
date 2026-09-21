@@ -18,12 +18,25 @@ jobs:
   build:
     name: Build
     runs-on: ubuntu-latest
+    timeout-minutes: 20
 
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v7
         with:
           # The site has a version of the docs for each release tag.
           fetch-depth: 0
+
+      # The toolchain is pinned to a version which the runner images do not ship, so without this
+      # every job downloads it before Cargo even starts.
+      - name: Cache the Rust toolchain
+        uses: actions/cache@v6
+        env:
+          cache-name: toolchain
+        with:
+          path: |
+            ~/.rustup/toolchains/
+            ~/.rustup/update-hashes/
+          key: ${{ env.cache-name }}-${{ runner.os }}-${{ hashFiles('rust-toolchain.toml') }}
 
       - name: Get mdbook version
         id: mdbook-version
@@ -32,7 +45,7 @@ jobs:
 
       - name: Restore mdbook binary
         id: cache-mdbook-binary
-        uses: actions/cache/restore@v3
+        uses: actions/cache/restore@v6
         env:
           cache-name: mdbook-binary
         with:
@@ -49,7 +62,7 @@ jobs:
       - if: ${{ steps.cache-mdbook-binary.outputs.cache-hit != 'true' || steps.verify-cached-mdbook-binary.outcome == 'failure' }}
         name: Restore mdbook build dependencies
         id: cache-mdbook-deps
-        uses: actions/cache/restore@v3
+        uses: actions/cache/restore@v6
         env:
           cache-name: mdbook-deps
         with:
@@ -69,14 +82,14 @@ jobs:
       # Save before building since a failing build would skip the post-job saves.
       - if: ${{ steps.install-mdbook.outcome == 'success' && steps.cache-mdbook-deps.outputs.cache-hit != 'true' }}
         name: Save mdbook build dependencies
-        uses: actions/cache/save@v3
+        uses: actions/cache/save@v6
         with:
           path: ~/.cargo/registry/
           key: ${{ steps.cache-mdbook-deps.outputs.cache-primary-key }}
 
       - if: ${{ steps.install-mdbook.outcome == 'success' }}
         name: Save mdbook binary
-        uses: actions/cache/save@v3
+        uses: actions/cache/save@v6
         with:
           path: ~/.cargo/bin/mdbook
           key: ${{ steps.cache-mdbook-binary.outputs.cache-primary-key }}
@@ -100,6 +113,7 @@ jobs:
     needs: build
     if: ${{ github.ref == 'refs/heads/master' || startsWith(github.ref, 'refs/tags/v') }}
     runs-on: ubuntu-latest
+    timeout-minutes: 10
 
     environment:
       name: github-pages

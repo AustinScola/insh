@@ -7,10 +7,28 @@ on:
   schedule:
     - cron: "0 3 * * *"
 
+permissions:
+  contents: read
+
+# Only one run per branch. A push which supersedes another stops it rather than competing with it
+# for runners, except on master and on tags, where every run should finish.
+concurrency:
+  group: rust-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/master' && !startsWith(github.ref, 'refs/tags/') }}
+
 env:
   # Used by `postgresql_embedded` to download the PostgreSQL binaries which are embedded in inshd.
   # Downloading them without a token is subject to a much lower rate limit.
   GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  CARGO_TERM_COLOR: always
+
+  # Incremental artifacts are only useful to the machine which made them, so in CI they are dead
+  # weight which would bloat the cached build output.
+  CARGO_INCREMENTAL: 0
+
+  CARGO_NET_RETRY: 10
+  RUSTUP_MAX_RETRIES: 10
 
 jobs:
   check:
@@ -21,90 +39,141 @@ jobs:
         os: [ubuntu-latest, macos-latest]
 
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
 
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v7
         with:
           submodules: true
 
+      # The toolchain is pinned to a version which the runner images do not ship, so without this
+      # every job downloads it before Cargo even starts.
+      - name: Cache the Rust toolchain
+        uses: actions/cache@v6
+        env:
+          cache-name: toolchain
+        with:
+          path: |
+            ~/.rustup/toolchains/
+            ~/.rustup/update-hashes/
+          key: ${{ env.cache-name }}-${{ runner.os }}-${{ hashFiles('rust-toolchain.toml') }}
+
       - name: Cache build dependencies
-        uses: actions/cache@v3
+        uses: actions/cache@v6
         env:
           cache-name: deps
         with:
           path: ~/.cargo/registry/
-          key: ${{ env.cache-name }}-default-features-${{ hashFiles('Cargo.lock') }}
+          key: ${{ env.cache-name }}-${{ runner.os }}-default-features-${{ hashFiles('Cargo.lock') }}
           restore-keys: |
-            ${{ env.cache-name }}-default-features
-            ${{ env.cache-name }}-
+            ${{ env.cache-name }}-${{ runner.os }}-default-features-
+            ${{ env.cache-name }}-${{ runner.os }}-
 
       - name: Cache the PostgreSQL archive
-        uses: actions/cache@v3
+        uses: actions/cache@v6
         env:
           cache-name: postgresql-archive
         with:
           path: ~/.theseus/
-          key: ${{ env.cache-name }}-${{ hashFiles('.cargo/config.toml') }}
+          key: ${{ env.cache-name }}-${{ runner.os }}-${{ hashFiles('.cargo/config.toml') }}
           restore-keys: |
-            ${{ env.cache-name }}-
+            ${{ env.cache-name }}-${{ runner.os }}-
 
-      - name: Cache build output
-        uses: actions/cache@v3
+      # The check and lint jobs keep their build output apart even though the dependencies in it
+      # are built the same way by both. Sharing it makes whichever of the two saves second rebuild
+      # the crates of the workspace against the other one's fingerprints, which costs more than the
+      # second copy does.
+      - name: Restore the build output
+        id: cache-build-output
+        uses: actions/cache/restore@v6
         env:
           cache-name: rustc
         with:
           path: target/
-          key: ${{ env.cache-name }}-debug-check-default-features
+          key: ${{ env.cache-name }}-${{ runner.os }}-debug-check-default-features-${{ hashFiles('Cargo.lock', 'rust-toolchain.toml') }}
           restore-keys: |
-            ${{ env.cache-name }}-debug-
-            ${{ env.cache-name }}-
+            ${{ env.cache-name }}-${{ runner.os }}-debug-check-default-features-
 
       - name: Check that it compiles
         run: ./cargo-scripts/check
 
+      - if: ${{ steps.cache-build-output.outputs.cache-hit != 'true' }}
+        name: Prune the build output
+        run: ./scripts/prune-build-output
+
+      - if: ${{ steps.cache-build-output.outputs.cache-hit != 'true' }}
+        name: Save the build output
+        uses: actions/cache/save@v6
+        with:
+          path: target/
+          key: ${{ steps.cache-build-output.outputs.cache-primary-key }}
+
   check-with-logging-feature:
     name: Check (with logging feature)
     runs-on: ubuntu-latest
+    timeout-minutes: 20
 
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v7
         with:
           submodules: true
 
+      - name: Cache the Rust toolchain
+        uses: actions/cache@v6
+        env:
+          cache-name: toolchain
+        with:
+          path: |
+            ~/.rustup/toolchains/
+            ~/.rustup/update-hashes/
+          key: ${{ env.cache-name }}-${{ runner.os }}-${{ hashFiles('rust-toolchain.toml') }}
+
       - name: Cache build dependencies
-        uses: actions/cache@v3
+        uses: actions/cache@v6
         env:
           cache-name: deps
         with:
           path: ~/.cargo/registry/
-          key: ${{ env.cache-name }}-with-logging-${{ hashFiles('Cargo.lock') }}
+          key: ${{ env.cache-name }}-${{ runner.os }}-with-logging-${{ hashFiles('Cargo.lock') }}
           restore-keys: |
-            ${{ env.cache-name }}-with-logging-
-            ${{ env.cache-name }}-
+            ${{ env.cache-name }}-${{ runner.os }}-with-logging-
+            ${{ env.cache-name }}-${{ runner.os }}-
 
       - name: Cache the PostgreSQL archive
-        uses: actions/cache@v3
+        uses: actions/cache@v6
         env:
           cache-name: postgresql-archive
         with:
           path: ~/.theseus/
-          key: ${{ env.cache-name }}-${{ hashFiles('.cargo/config.toml') }}
+          key: ${{ env.cache-name }}-${{ runner.os }}-${{ hashFiles('.cargo/config.toml') }}
           restore-keys: |
-            ${{ env.cache-name }}-
+            ${{ env.cache-name }}-${{ runner.os }}-
 
-      - name: Cache build output
-        uses: actions/cache@v3
+      - name: Restore the build output
+        id: cache-build-output
+        uses: actions/cache/restore@v6
         env:
           cache-name: rustc
         with:
           path: target/
-          key: ${{ env.cache-name }}-debug-check-with-logging
+          key: ${{ env.cache-name }}-${{ runner.os }}-debug-check-with-logging-${{ hashFiles('Cargo.lock', 'rust-toolchain.toml') }}
           restore-keys: |
-            ${{ env.cache-name }}-debug-
-            ${{ env.cache-name }}-
+            ${{ env.cache-name }}-${{ runner.os }}-debug-check-with-logging-
 
       - name: Check that it compiles with the logging feature enabled
         run: ./scripts/check-with-logging-feature
+
+      - if: ${{ steps.cache-build-output.outputs.cache-hit != 'true' }}
+        name: Prune the build output
+        run: ./scripts/prune-build-output
+
+      - if: ${{ steps.cache-build-output.outputs.cache-hit != 'true' }}
+        name: Save the build output
+        uses: actions/cache/save@v6
+        with:
+          path: target/
+          key: ${{ steps.cache-build-output.outputs.cache-primary-key }}
+
   lint:
     name: Lint
 
@@ -113,152 +182,154 @@ jobs:
         os: [ubuntu-latest, macos-latest]
 
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
 
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v7
         with:
           submodules: true
 
+      - name: Cache the Rust toolchain
+        uses: actions/cache@v6
+        env:
+          cache-name: toolchain
+        with:
+          path: |
+            ~/.rustup/toolchains/
+            ~/.rustup/update-hashes/
+          key: ${{ env.cache-name }}-${{ runner.os }}-${{ hashFiles('rust-toolchain.toml') }}
+
       - name: Cache build dependencies
-        uses: actions/cache@v3
+        uses: actions/cache@v6
         env:
           cache-name: deps
         with:
           path: ~/.cargo/registry/
-          key: ${{ env.cache-name }}-default-features-${{ hashFiles('Cargo.lock') }}
+          key: ${{ env.cache-name }}-${{ runner.os }}-default-features-${{ hashFiles('Cargo.lock') }}
           restore-keys: |
-            ${{ env.cache-name }}-default-features
-            ${{ env.cache-name }}-
+            ${{ env.cache-name }}-${{ runner.os }}-default-features-
+            ${{ env.cache-name }}-${{ runner.os }}-
 
       - name: Cache the PostgreSQL archive
-        uses: actions/cache@v3
+        uses: actions/cache@v6
         env:
           cache-name: postgresql-archive
         with:
           path: ~/.theseus/
-          key: ${{ env.cache-name }}-${{ hashFiles('.cargo/config.toml') }}
+          key: ${{ env.cache-name }}-${{ runner.os }}-${{ hashFiles('.cargo/config.toml') }}
           restore-keys: |
-            ${{ env.cache-name }}-
+            ${{ env.cache-name }}-${{ runner.os }}-
 
-      - name: Cache build output
-        uses: actions/cache@v3
+      # Kept apart from the check job's build output. See the note there.
+      - name: Restore the build output
+        id: cache-build-output
+        uses: actions/cache/restore@v6
         env:
           cache-name: rustc
         with:
           path: target/
-          key: ${{ env.cache-name }}-debug-lint
+          key: ${{ env.cache-name }}-${{ runner.os }}-debug-lint-${{ hashFiles('Cargo.lock', 'rust-toolchain.toml') }}
           restore-keys: |
-            ${{ env.cache-name }}-debug-
-            ${{ env.cache-name }}-
+            ${{ env.cache-name }}-${{ runner.os }}-debug-lint-
 
       - name: Lint with clippy
         run: ./cargo-scripts/lint
 
+      - if: ${{ steps.cache-build-output.outputs.cache-hit != 'true' }}
+        name: Prune the build output
+        run: ./scripts/prune-build-output
+
+      - if: ${{ steps.cache-build-output.outputs.cache-hit != 'true' }}
+        name: Save the build output
+        uses: actions/cache/save@v6
+        with:
+          path: target/
+          key: ${{ steps.cache-build-output.outputs.cache-primary-key }}
+
   arbsego:
     name: Arbsego
     runs-on: ubuntu-latest
+    timeout-minutes: 15
 
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v7
         with:
           submodules: true
 
-      # Caches getting the Arbsego version from the truth file.
-      - name: Cache Arbsego version
-        id: cache-arbsego-version
-        uses: actions/cache@v3
+      - name: Cache the Rust toolchain
+        uses: actions/cache@v6
         env:
-          cache-name: arbsego-version-${{ hashFiles('truth.yaml') }}
+          cache-name: toolchain
         with:
-          path: ~/arbsego-version.txt
-          key: ${{ env.cache-name }}
+          path: |
+            ~/.rustup/toolchains/
+            ~/.rustup/update-hashes/
+          key: ${{ env.cache-name }}-${{ runner.os }}-${{ hashFiles('rust-toolchain.toml') }}
 
-      - if: ${{ steps.cache-arbsego-version.outputs.cache-hit != 'true' }}
-        name: Cache Homebrew
-        uses: actions/cache@v3
-        env:
-          cache-name: homebrew
-        with:
-          path: ~/.cache/Homebrew
-          key: ${{ env.cache-name }}
-
-      - if: ${{ steps.cache-arbsego-version.outputs.cache-hit != 'true' }}
-        name: Install yq
+      - name: Get Arbsego version
+        id: arbsego-version
         run: |
-          # Make sure Brew is setup.
-          eval "$(/home/linuxbrew/.linuxbrew/bin/brew shellenv)"
-
-          # Install yq using Brew.
-          brew install yq
-
-      - if: ${{ steps.cache-arbsego-version.outputs.cache-hit != 'true' }}
-        name: Get Abrsego version
-        run: |
-          # Make sure brew is setup.
-          eval "$(/home/linuxbrew/.linuxbrew/bin/brew shellenv)"
-
-          # Get the version of Arbsego to use.
-          ARBSEGO_VERSION="$(yq '.arbsego.version' < truth.yaml)"
-
-          # Write the Arbsego version to use to a file.
-          echo "${ARBSEGO_VERSION}" > ~/arbsego-version.txt
+          echo "version=$(yq '.arbsego.version' < truth.yaml)" >> "${GITHUB_OUTPUT}"
 
       # Since we are just testing w/ one platform I think we can get away with this for now.
       - name: Cache Arbsego binary
         id: cache-arbsego-binary
-        uses: actions/cache@v3
+        uses: actions/cache@v6
         env:
           cache-name: arbsego-binary
         with:
           path: ~/.cargo/bin/arbsego
-          key: ${{ env.cache-name }}-${{ hashFiles('~/arbsego-version.txt') }}
+          key: ${{ env.cache-name }}-${{ steps.arbsego-version.outputs.version }}
 
       - if: ${{ steps.cache-arbsego-binary.outputs.cache-hit == 'true' }}
         name: Verify cached Arbsego binary
-        id: very-cached-arbsego-binary
+        id: verify-cached-arbsego-binary
         continue-on-error: true
         run: |
           arbsego --version
 
-      - if: ${{ steps.cache-arbsego-binary.outputs.cache-hit != 'true' ||  steps.very-cached-arbsego-binary.outcome == 'failure' }}
+      - if: ${{ steps.cache-arbsego-binary.outputs.cache-hit != 'true' || steps.verify-cached-arbsego-binary.outcome == 'failure' }}
         name: Cache Arbsego build dependencies
-        uses: actions/cache@v3
+        uses: actions/cache@v6
         env:
-          cache-name: arbsego-deps-${{ hashFiles('~/arbsego-version.txt') }}
+          cache-name: arbsego-deps
         with:
           path: ~/.cargo/registry/
-          key: ${{ env.cache-name }}-${{ hashFiles('~/arbsego-version.txt') }}
+          key: ${{ env.cache-name }}-${{ runner.os }}-${{ steps.arbsego-version.outputs.version }}
           restore-keys: |
-            ${{ env.cache-name }}-
+            ${{ env.cache-name }}-${{ runner.os }}-
 
-
-      - if: ${{ steps.cache-arbsego-binary.outputs.cache-hit != 'true' ||  steps.very-cached-arbsego-binary.outcome == 'failure' }}
+      - if: ${{ steps.cache-arbsego-binary.outputs.cache-hit != 'true' || steps.verify-cached-arbsego-binary.outcome == 'failure' }}
         name: Install Arbsego
         run: |
-          # Get the version of Arbsego to use.
-          ARBSEGO_VERSION="$(cat ~/arbsego-version.txt)"
-  
           # Install Arbsego using cargo.
-          cargo install --git https://github.com/AustinScola/arbsego.git --tag "v${ARBSEGO_VERSION}"
+          cargo install --git https://github.com/AustinScola/arbsego.git \
+            --tag "v${{ steps.arbsego-version.outputs.version }}"
 
       - name: Lint using Arbsego
         env:
           CI: 1
-        run: |
-          # Make sure brew is setup.
-          eval "$(/home/linuxbrew/.linuxbrew/bin/brew shellenv)"
-
-          # Lint using Arbsego.
-          ./scripts/lint-arbsego
+        run: ./scripts/lint-arbsego
 
   format:
     name: Format
     runs-on: ubuntu-latest
+    timeout-minutes: 10
 
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v7
         with:
           submodules: true
+
+      - name: Cache the Rust toolchain
+        uses: actions/cache@v6
+        env:
+          cache-name: toolchain
+        with:
+          path: |
+            ~/.rustup/toolchains/
+            ~/.rustup/update-hashes/
+          key: ${{ env.cache-name }}-${{ runner.os }}-${{ hashFiles('rust-toolchain.toml') }}
 
       - name: Check formatting
         run: ./cargo-scripts/format -- --check
@@ -266,64 +337,134 @@ jobs:
   test:
     name: Test
     runs-on: ubuntu-latest
+    timeout-minutes: 20
 
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v7
         with:
           submodules: true
 
+      - name: Cache the Rust toolchain
+        uses: actions/cache@v6
+        env:
+          cache-name: toolchain
+        with:
+          path: |
+            ~/.rustup/toolchains/
+            ~/.rustup/update-hashes/
+          key: ${{ env.cache-name }}-${{ runner.os }}-${{ hashFiles('rust-toolchain.toml') }}
+
       - name: Cache build dependencies
-        uses: actions/cache@v3
+        uses: actions/cache@v6
         env:
           cache-name: deps
         with:
           path: ~/.cargo/registry/
-          key: ${{ env.cache-name }}-test-${{ hashFiles('Cargo.lock') }}
+          key: ${{ env.cache-name }}-${{ runner.os }}-test-${{ hashFiles('Cargo.lock') }}
           restore-keys: |
-            ${{ env.cache-name }}-test
-            ${{ env.cache-name }}-
+            ${{ env.cache-name }}-${{ runner.os }}-test-
+            ${{ env.cache-name }}-${{ runner.os }}-
 
       - name: Cache the PostgreSQL archive
-        uses: actions/cache@v3
+        uses: actions/cache@v6
         env:
           cache-name: postgresql-archive
         with:
           path: ~/.theseus/
-          key: ${{ env.cache-name }}-${{ hashFiles('.cargo/config.toml') }}
+          key: ${{ env.cache-name }}-${{ runner.os }}-${{ hashFiles('.cargo/config.toml') }}
           restore-keys: |
-            ${{ env.cache-name }}-
+            ${{ env.cache-name }}-${{ runner.os }}-
 
-      - name: Cache build output
-        uses: actions/cache@v3
+      # Installing these with apt costs far more in dpkg than in downloading, so what it installs is
+      # cached and put back directly rather than the packages being cached and installed again.
+      - name: Cache the apt dependencies
+        id: cache-apt-dependencies
+        uses: actions/cache@v6
+        env:
+          cache-name: apt-dependencies
+        with:
+          path: ~/apt-dependencies.tar
+          key: ${{ env.cache-name }}-${{ runner.os }}-${{ env.ImageVersion }}-libxcb1-dev
+
+      - if: ${{ steps.cache-apt-dependencies.outputs.cache-hit != 'true' }}
+        name: Install the apt dependencies
+        run: |
+          # Note which packages are installed so that the ones apt adds can be told apart after.
+          dpkg-query --show --showformat='${Package}\n' | sort > "${RUNNER_TEMP}/packages-before"
+
+          sudo apt-get install -y --no-install-recommends libxcb1-dev
+
+          dpkg-query --show --showformat='${Package}\n' | sort > "${RUNNER_TEMP}/packages-after"
+
+          # Gather the files of the added packages so that later runs can put them back without
+          # apt. Only the regular files are wanted since the directories already exist.
+          comm -13 "${RUNNER_TEMP}/packages-before" "${RUNNER_TEMP}/packages-after" \
+            | xargs dpkg --listfiles \
+            | while read -r FILE; do
+                if [[ -f "${FILE}" ]]; then
+                  echo "${FILE#/}"
+                fi
+              done \
+            | tar --create --file ~/apt-dependencies.tar --directory / --files-from -
+
+      - if: ${{ steps.cache-apt-dependencies.outputs.cache-hit == 'true' }}
+        name: Restore the apt dependencies
+        run: |
+          sudo tar --extract --file ~/apt-dependencies.tar --directory /
+
+          # Nothing here needs these until a dependency is built from scratch, which is rare enough
+          # that a bad tarball would otherwise first show up as a confusing compiler error.
+          test -f /usr/include/xcb/xcb.h
+
+      - name: Restore the build output
+        id: cache-build-output
+        uses: actions/cache/restore@v6
         env:
           cache-name: rustc
         with:
           path: target/
-          key: ${{ env.cache-name }}-debug-test
+          key: ${{ env.cache-name }}-${{ runner.os }}-debug-test-${{ hashFiles('Cargo.lock', 'rust-toolchain.toml') }}
           restore-keys: |
-            ${{ env.cache-name }}-debug-
-            ${{ env.cache-name }}-
-
-      - name: Install apt dependencies
-        run: sudo apt-get install libxcb1-dev
+            ${{ env.cache-name }}-${{ runner.os }}-debug-test-
 
       - name: Test
         run: cargo test
 
+      - if: ${{ steps.cache-build-output.outputs.cache-hit != 'true' }}
+        name: Prune the build output
+        run: ./scripts/prune-build-output
+
+      - if: ${{ steps.cache-build-output.outputs.cache-hit != 'true' }}
+        name: Save the build output
+        uses: actions/cache/save@v6
+        with:
+          path: target/
+          key: ${{ steps.cache-build-output.outputs.cache-primary-key }}
+
   audit:
     name: Audit
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v7
         with:
           submodules: true
+      - name: Cache the Rust toolchain
+        uses: actions/cache@v6
+        env:
+          cache-name: toolchain
+        with:
+          path: |
+            ~/.rustup/toolchains/
+            ~/.rustup/update-hashes/
+          key: ${{ env.cache-name }}-${{ runner.os }}-${{ hashFiles('rust-toolchain.toml') }}
       - name: Get cargo-audit version
         id: cargo-audit-version
         run: |
           echo "version=$(yq '.cargo-audit.version' < truth.yaml)" >> "${GITHUB_OUTPUT}"
       - name: Restore cargo-audit binary
         id: cache-cargo-audit-binary
-        uses: actions/cache/restore@v3
+        uses: actions/cache/restore@v6
         env:
           cache-name: cargo-audit-binary
         with:
@@ -338,14 +479,14 @@ jobs:
       - if: ${{ steps.cache-cargo-audit-binary.outputs.cache-hit != 'true' || steps.verify-cached-cargo-audit-binary.outcome == 'failure' }}
         name: Restore cargo-audit build dependencies
         id: cache-cargo-audit-deps
-        uses: actions/cache/restore@v3
+        uses: actions/cache/restore@v6
         env:
           cache-name: cargo-audit-deps
         with:
           path: ~/.cargo/registry/
-          key: ${{ env.cache-name }}-${{ steps.cargo-audit-version.outputs.version }}
+          key: ${{ env.cache-name }}-${{ runner.os }}-${{ steps.cargo-audit-version.outputs.version }}
           restore-keys: |
-            ${{ env.cache-name }}-
+            ${{ env.cache-name }}-${{ runner.os }}-
       - if: ${{ steps.cache-cargo-audit-binary.outputs.cache-hit != 'true' || steps.verify-cached-cargo-audit-binary.outcome == 'failure' }}
         name: Install cargo-audit
         id: install-cargo-audit
@@ -356,13 +497,13 @@ jobs:
       # Save before auditing since a failing audit would skip the post-job saves.
       - if: ${{ steps.install-cargo-audit.outcome == 'success' && steps.cache-cargo-audit-deps.outputs.cache-hit != 'true' }}
         name: Save cargo-audit build dependencies
-        uses: actions/cache/save@v3
+        uses: actions/cache/save@v6
         with:
           path: ~/.cargo/registry/
           key: ${{ steps.cache-cargo-audit-deps.outputs.cache-primary-key }}
       - if: ${{ steps.install-cargo-audit.outcome == 'success' }}
         name: Save cargo-audit binary
-        uses: actions/cache/save@v3
+        uses: actions/cache/save@v6
         with:
           path: ~/.cargo/bin/cargo-audit
           key: ${{ steps.cache-cargo-audit-binary.outputs.cache-primary-key }}
