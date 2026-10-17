@@ -10,7 +10,7 @@ use crate::fabric::Fabric;
 use crate::location::Location;
 use crate::style::Style;
 
-use ansi::{Color, ControlFunction, EraseInLine, GraphicRendition};
+use ansi::{ControlFunction, EraseInLine, GraphicRendition, Mode};
 use size::Size;
 
 /// A terminal for frames to be drawn on.
@@ -29,6 +29,8 @@ pub struct Terminal {
     region: Range<usize>,
     /// The colors which text is being written in and on.
     style: Style,
+    /// Whether the cursor is being shown.
+    shown: bool,
 }
 
 impl Terminal {
@@ -45,6 +47,14 @@ impl Terminal {
     /// Return what each column of each row is showing.
     pub fn screen(&self) -> &Vec<Vec<Shown>> {
         return &self.screen;
+    }
+
+    /// Return where the cursor is being shown, which is nowhere at all when it is not being shown.
+    pub fn cursor(&self) -> Option<Location> {
+        return match self.shown {
+            true => Some(self.cursor),
+            false => None,
+        };
     }
 
     /// Do what the control function says.
@@ -107,6 +117,9 @@ impl Terminal {
                     self.screen[self.cursor.row][column] = erased.clone();
                 }
             }
+            ControlFunction::SetMode { modes, set } if modes == &[Mode::CursorVisible] => {
+                self.shown = *set;
+            }
             _ => panic!("The terminal does not know what to do with {:?}.", function),
         }
     }
@@ -164,37 +177,13 @@ impl Terminal {
         );
     }
 
-    /// Write what follows in and on the colors the rendition says.
+    /// Write what follows the way the rendition says.
     fn render(&mut self, rendition: &GraphicRendition) {
-        let color = |color: &Color| match color {
-            Color::Default => None,
-            color => Some(*color),
-        };
-
-        self.style = match rendition {
-            GraphicRendition::Reset => Style::default(),
-            GraphicRendition::Foreground(foreground) => Style::builder()
-                .color(color(foreground))
-                .background(self.style.background())
-                .bold(self.style.bold())
-                .build(),
-            GraphicRendition::Background(background) => Style::builder()
-                .color(self.style.color())
-                .background(color(background))
-                .bold(self.style.bold())
-                .build(),
-            GraphicRendition::Bold => Style::builder()
-                .color(self.style.color())
-                .background(self.style.background())
-                .bold(true)
-                .build(),
-            GraphicRendition::NormalIntensity => Style::builder()
-                .color(self.style.color())
-                .background(self.style.background())
-                .bold(false)
-                .build(),
-            _ => panic!("The terminal does not know how to write {:?}.", rendition),
-        };
+        assert!(
+            self.style.apply(rendition),
+            "The terminal does not know how to write {:?}.",
+            rendition
+        );
     }
 
     /// Write the text where the cursor is, moving it along.
@@ -223,6 +212,7 @@ impl From<Size> for Terminal {
             cursor: Location::default(),
             region: 0..size.rows,
             style: Style::default(),
+            shown: true,
         }
     }
 }

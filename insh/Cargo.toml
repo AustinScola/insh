@@ -1,6 +1,6 @@
 [package]
 name = "insh"
-version = "0.5.0"
+version = "0.6.0"
 edition = "2021"
 
 [[bin]]
@@ -29,6 +29,20 @@ ansi = { version = "0.1.0", path = "../ansi" }
 til = { version = "0.1.0", path = "../til" }
 term = { version = "0.1.0", path = "../term" }
 rend = { version = "0.1.0", path = "../rend" }
+
+# Used for declaring which ways the line between panes carries on from a spot.
+bitflags = { workspace = true }
+
+# Used for the time of day which the footer along the bottom of a session shows.
+chrono = { workspace = true }
+
+# Provides friendly bindings for *nix platform APIs.
+#
+# Used for asking what the machine is called, which the footer along the bottom of a session shows.
+nix = { workspace = true }
+
+# Used for the rows of the screen of a pane, which the daemon sends.
+terminal-emulator = { version = "0.1.0", path = "../terminal-emulator", features = ["serde"] }
 common = { version = "0.1.0", path = "../common" }
 insh-api = { version = "0.1.0", path = "../insh-api" }
 inshd-client = { version = "0.1.0", path = "../inshd-client" }

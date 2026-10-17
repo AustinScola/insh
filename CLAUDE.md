@@ -7,7 +7,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 Insh is a graphical, interactive terminal environment (a TUI file browser / file finder / file
 contents searcher). It ships as two binaries: `insh` (the terminal client) and `inshd` (a
 background daemon that does filesystem work on the client's behalf). See `README.md` for the user
-facing keybindings and the `~/.insh-config.yaml` configuration options.
+facing keybindings and the `~/.insh/config.yaml` configuration options.
 
 ## Repository setup
 
@@ -79,7 +79,7 @@ mistakes here — plain `cargo check` will not.
   protocol.
 - **`inshd`** — the daemon. Multi-threaded server over a unix socket that performs file
   finding/getting/creating, contents searching, search suggestions, and owns persistent data
-  (in an embedded PostgreSQL database) and its own config (`~/.inshd-config.yaml`).
+  (in an embedded PostgreSQL database) and its own config (`~/.insh/inshd-config.yaml`).
 - **`insh-api`** — the wire protocol shared by both: `Request`/`RequestParams` and
   `Response`/`ResponseParams`, postcard-serialized.
 - **`insh-db`** — the embedded PostgreSQL database and everything Diesel: the `Database` lifecycle,
@@ -246,8 +246,8 @@ have been moved or removed. `dir_history::suggest` therefore returns several can
 one, and `request_handlers/suggest_dir.rs` takes the first which is still a directory before
 falling back to reading the parent of what has been typed for a subdirectory which matches.
 
-Configuration is split by binary and read-only for each: `insh` reads `~/.insh-config.yaml` via
-`insh/src/config.rs`; `inshd` separately reads `~/.inshd-config.yaml` via `inshd/src/config.rs`
+Configuration is split by binary and read-only for each: `insh` reads `~/.insh/config.yaml` via
+`insh/src/config.rs`; `inshd` separately reads `~/.insh/inshd-config.yaml` via `inshd/src/config.rs`
 (`browser.history.length`, `finder.history.length` and `searcher.history.length`, which govern how
 many rows `inshd` keeps in `dir_history`, `find_history` and `search_history`;
 `server.request_handlers`; and `database.pool.size`, which defaults to `server.request_handlers` —

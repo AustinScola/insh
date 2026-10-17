@@ -9,11 +9,23 @@ edition = "2021"
 [lib]
 bench = false
 
+[features]
+# Explicitly, the default features are none.
+default = []
+
+# Lets what is written where and the way it is written be sent somewhere else and read back, which
+# is what carrying the screen of a pane from the daemon to a client needs.
+serde = ["dep:serde", "ansi/serde", "size/serde", "bitflags/serde"]
+
 [dependencies]
 ansi = { version = "0.1.0", path = "../ansi" }
 size = { version = "0.1.0", path = "../size" }
 
-itertools = { workspace = true }
+# Used for sending what is written somewhere else. (Only included if the serde feature is enabled.)
+serde = { workspace = true, optional = true }
+
+# Used for declaring the attributes which text is written with.
+bitflags = { workspace = true }
 
 # Used for generating the builder pattern for structs.
 typed-builder = { workspace = true }

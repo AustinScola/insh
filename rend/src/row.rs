@@ -5,8 +5,6 @@ use super::cell::Cell;
 use super::spot::Spot;
 use super::style::Style;
 
-use ansi::Color;
-
 use typed_builder::TypedBuilder;
 
 /// One row of a fabric.
@@ -17,33 +15,24 @@ use typed_builder::TypedBuilder;
 pub struct Row<'fabric> {
     /// What is written in each column.
     cells: &'fabric [Cell],
-    /// The colors the text is written in.
+    /// The way each column is written.
     #[builder(default = &[])]
-    colors: &'fabric [Option<Color>],
-    /// The colors the text is written on.
-    #[builder(default = &[])]
-    backgrounds: &'fabric [Option<Color>],
-    /// Which columns of the text are written in bold.
-    #[builder(default = &[])]
-    bolds: &'fabric [bool],
+    styles: &'fabric [Style],
 }
 
 impl<'fabric> Row<'fabric> {
-    /// Return what is in the given column, which is a blank with no colors of its own for a column
-    /// off the end of the row.
+    /// Return what is in the given column, which is a blank written the way a terminal writes when
+    /// nothing has been picked for a column off the end of the row.
     pub fn spot(&self, column: usize) -> Spot<'fabric> {
         let cell: &'fabric Cell = match self.cells.get(column) {
             Some(cell) => cell,
             None => return Spot::blank(),
         };
 
-        // NOTE: The colors are allowed to be given for fewer columns than there are cells, and a
-        // column off the end of them has no color of its own.
-        let style: Style = Style::builder()
-            .color(self.colors.get(column).copied().flatten())
-            .background(self.backgrounds.get(column).copied().flatten())
-            .bold(self.bolds.get(column).copied().unwrap_or(false))
-            .build();
+        // NOTE: The styles are allowed to be given for fewer columns than there are cells, and a
+        // column off the end of them is written the way a terminal writes when nothing has been
+        // picked.
+        let style: Style = self.styles.get(column).copied().unwrap_or_default();
 
         return Spot::builder().cell(cell).style(style).build();
     }

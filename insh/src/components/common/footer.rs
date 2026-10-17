@@ -33,6 +33,7 @@ pub use info::Info;
 /// Contains the [`Props`] struct.
 mod props {
     use super::Info;
+    use crate::color::Color;
 
     use typed_builder::TypedBuilder;
 
@@ -44,6 +45,9 @@ mod props {
         pub name: String,
         /// What the component shows in its footer.
         pub info: &'a I,
+        /// The color it is written on.
+        #[builder(default = Color::FooterBackground)]
+        pub background: Color,
     }
 }
 pub use props::Props;
@@ -107,7 +111,7 @@ mod footer {
             if self.state.info().in_progress() {
                 yarn.color_before(Color::InvertedGrayedText.into(), text_len);
             }
-            yarn.background(Color::FooterBackground.into());
+            yarn.background(self.state.background().into());
 
             Fabric::from(yarn)
         }
@@ -178,6 +182,7 @@ pub use event::Event;
 /// Contains the [`State`] struct.
 mod state {
     use super::{Info, Props};
+    use crate::color::Color;
 
     /// The state of a footer.
     pub struct State<'a, I: Info> {
@@ -185,6 +190,8 @@ mod state {
         name: String,
         /// What the component shows in its footer.
         info: &'a I,
+        /// The color it is written on.
+        background: Color,
     }
 
     impl<'a, I: Info> From<Props<'a, I>> for State<'a, I> {
@@ -192,6 +199,7 @@ mod state {
             Self {
                 name: props.name,
                 info: props.info,
+                background: props.background,
             }
         }
     }
@@ -205,6 +213,11 @@ mod state {
         /// Return what the component shows in its footer.
         pub fn info(&self) -> &'a I {
             self.info
+        }
+
+        /// Return the color it is written on.
+        pub fn background(&self) -> Color {
+            self.background
         }
     }
 }

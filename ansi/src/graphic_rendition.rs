@@ -247,6 +247,7 @@ impl GraphicRendition {
 
 /// The way in which text is underlined.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum Underline {
     /// Underlined with one line, which is what `4` on its own means.
     #[default]
@@ -296,6 +297,7 @@ impl Underline {
 
 /// A color to write text in or on.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum Color {
     /// Black.
     Black,

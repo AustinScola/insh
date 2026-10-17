@@ -3,6 +3,7 @@ The insh daemon.
 */
 #![deny(missing_docs)]
 #![deny(clippy::missing_docs_in_private_items)]
+#![allow(clippy::module_inception)]
 #![allow(clippy::needless_return)]
 
 mod ai_streamer;
@@ -24,6 +25,7 @@ mod file_searcher;
 mod log_forwarder;
 mod log_subscription;
 mod logging;
+mod multiplexer;
 mod paths;
 mod pid_file;
 mod pid_waiter;

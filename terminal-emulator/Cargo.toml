@@ -1,0 +1,31 @@
+[package]
+name = "terminal-emulator"
+version = "0.1.0"
+edition = "2021"
+description = "The screen which the bytes a program writes mean to show."
+
+[features]
+# Explicitly, the default features are none.
+default = []
+
+# Lets the rows of a screen and the ways it has been asked to behave be sent somewhere else and
+# read back, which is what carrying a pane from the daemon to a client needs.
+serde = ["dep:serde", "rend/serde", "bitflags/serde"]
+
+[dependencies]
+ansi = { version = "0.1.0", path = "../ansi" }
+rend = { version = "0.1.0", path = "../rend" }
+size = { version = "0.1.0", path = "../size" }
+
+# Used for declaring the ways a screen has been asked to behave.
+bitflags = { workspace = true }
+
+# Used for sending the rows of a screen somewhere else. (Only included if the serde feature is
+# enabled.)
+serde = { workspace = true, optional = true }
+
+# Used for generating the builder pattern for structs.
+typed-builder = { workspace = true }
+
+[dev-dependencies]
+test-case = { workspace = true }

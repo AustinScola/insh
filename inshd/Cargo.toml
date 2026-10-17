@@ -1,6 +1,6 @@
 [package]
 name = "inshd"
-version = "0.5.0"
+version = "0.6.0"
 edition = "2021"
 description = "A daemon for insh."
 
@@ -17,6 +17,12 @@ ai-client = { version = "0.1.0", path = "../ai-client" }
 # Used to turn the messages of a chat into vectors so they can be searched by meaning.
 embedder = { version = "0.1.0", path = "../embedder" }
 insh-api = { version = "0.1.0", path = "../insh-api" }
+
+# Used for working out what the bytes a program writes mean to show.
+terminal-emulator = { version = "0.1.0", path = "../terminal-emulator", features = ["serde"] }
+
+# Used for the rows and columns which a pane is drawn in.
+rend = { version = "0.1.0", path = "../rend", features = ["serde"] }
 insh-db = { version = "0.1.0", path = "../insh-db" }
 inshd-client = { version = "0.1.0", path = "../inshd-client" }
 path-finder = { version = "0.1.0", path = "../path-finder" }

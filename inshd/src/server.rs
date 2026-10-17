@@ -20,6 +20,7 @@ use crate::contexted_response::ContextedResponse;
 use crate::disconnected_client::DisconnectedClient;
 use crate::log_forwarder::LogForwarder;
 use crate::log_subscription::LogSubscription;
+use crate::multiplexer::{Multiplexer, Output};
 use crate::paths::INSHD_PID_FILE;
 use crate::request_handler_died::RequestHandlerDied;
 use crate::request_handler_manager::RequestHandlerManager;
@@ -175,6 +176,35 @@ impl Server {
             .spawn(move || log_forwarder.run())
             .unwrap();
 
+        // Create and spawn a multiplexer thread. The multiplexer owns every session, runs the
+        // programs in their panes, and tells the clients showing one about whatever happens to it.
+        let (multiplexer_requests_tx, multiplexer_requests_rx): (
+            Sender<ContextedRequest>,
+            Receiver<ContextedRequest>,
+        ) = channel::unbounded();
+        let (pane_output_tx, pane_output_rx): (Sender<Output>, Receiver<Output>) =
+            channel::unbounded();
+        let (multiplexer_disconnected_clients_tx, multiplexer_disconnected_clients_rx): (
+            Sender<DisconnectedClient>,
+            Receiver<DisconnectedClient>,
+        ) = channel::unbounded();
+        disconnected_clients_txs.push(multiplexer_disconnected_clients_tx.clone());
+        let (multiplexer_stop_tx, multiplexer_stop_rx): (Sender<Stop>, Receiver<Stop>) =
+            channel::unbounded();
+        let mut multiplexer = Multiplexer::builder()
+            .requests_rx(multiplexer_requests_rx)
+            .output_rx(pane_output_rx)
+            .output_tx(pane_output_tx)
+            .disconnected_clients_rx(multiplexer_disconnected_clients_rx)
+            .contexted_responses_tx(contexted_responses_tx.clone())
+            .stop_rx(multiplexer_stop_rx)
+            .buffer_size(config.multiplexing().pane().buffer_size())
+            .build();
+        let multiplexer_handle: JoinHandle<()> = thread::Builder::new()
+            .name("multiplexer".to_string())
+            .spawn(move || multiplexer.run())
+            .unwrap();
+
         // Create and spawn a request handler manager thread. The request handler manager starts
         // the request handler threads, restarts them if they die, and stops when it is time.
         let mut contexted_requests_rxs: Vec<Receiver<ContextedRequest>> =
@@ -222,6 +252,7 @@ impl Server {
             .num_request_handlers(num_request_handlers)
             .contexted_requests_txs(contexted_requests_txs.clone())
             .contexted_requests_rx(contexted_requests_rx)
+            .multiplexer_requests_tx(multiplexer_requests_tx.clone())
             .stop(scheduler_stop_rx)
             .build();
         let scheduler_handle: JoinHandle<_> = thread::Builder::new()
@@ -294,6 +325,11 @@ impl Server {
 
         log_forwarder_stop_tx.send(Stop::new()).unwrap();
         let _ = log_forwarder_handle.join();
+
+        log::info!("Stopping the multiplexer...");
+        multiplexer_stop_tx.send(Stop::new()).unwrap();
+        let _ = multiplexer_handle.join();
+        log::info!("Multiplexer stopped.");
         log::info!("Log forwarder stopped.");
 
         let _ = signal_handler_handle.join();

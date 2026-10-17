@@ -23,5 +23,5 @@ pub use renderer::{Engine, Frame, Instruction, Renderer, Text};
 pub use row::Row;
 pub use size::Size;
 pub use spot::Spot;
-pub use style::Style;
+pub use style::{Attributes, Style};
 pub use yarn::Yarn;

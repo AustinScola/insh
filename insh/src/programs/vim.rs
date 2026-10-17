@@ -40,28 +40,11 @@ impl Program for Vim {
 
     /// Return the args for running vim.
     fn args(&self) -> Vec<OsString> {
-        let mut args: Vec<OsString> = vec![];
-
-        if let Some(path) = self.args.path() {
-            args.push(path.clone().into());
-        }
-
-        if let Some(line) = self.args.line() {
-            args.push(format!("+{}", line).into());
-        }
-
-        if let Some(column) = self.args.column() {
-            if column > 1 {
-                args.push("-c".into());
-                args.push(format!("norm {}l", column - 1).into());
-            }
-        }
-
-        // See https://github.com/vim/vim/issues/6365
-        args.push("--cmd".into());
-        args.push("set t_u7=".into());
-
-        args
+        self.args
+            .strings()
+            .into_iter()
+            .map(OsString::from)
+            .collect()
     }
 
     fn stdout_pipe(&self) -> Option<Box<dyn StdoutPipe>> {
@@ -93,6 +76,32 @@ impl Args {
     /// Return the starting column number.
     pub fn column(&self) -> Option<usize> {
         self.column
+    }
+
+    /// Return the arguments which say to open the file where these say.
+    pub fn strings(&self) -> Vec<String> {
+        let mut args: Vec<String> = Vec::new();
+
+        if let Some(path) = self.path() {
+            args.push(path.to_string_lossy().into_owned());
+        }
+
+        if let Some(line) = self.line() {
+            args.push(format!("+{}", line));
+        }
+
+        if let Some(column) = self.column() {
+            if column > 1 {
+                args.push(String::from("-c"));
+                args.push(format!("norm {}l", column - 1));
+            }
+        }
+
+        // See https://github.com/vim/vim/issues/6365
+        args.push(String::from("--cmd"));
+        args.push(String::from("set t_u7="));
+
+        args
     }
 }
 

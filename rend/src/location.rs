@@ -4,7 +4,8 @@ This module contains the [`Location`] struct which is used to represent 2D locat
 use typed_builder::TypedBuilder;
 
 /// A 2D location.
-#[derive(TypedBuilder, Default, Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(TypedBuilder, Default, Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct Location {
     /// The vertical component of the location.
     pub row: usize,

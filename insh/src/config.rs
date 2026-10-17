@@ -29,6 +29,9 @@ mod config {
         /// Configuration of the Browser.
         #[serde(default)]
         browser: BrowserConfig,
+        /// Configuration of the panes, windows and sessions.
+        #[serde(default)]
+        multiplexing: MultiplexingConfig,
     }
 
     impl Config {
@@ -94,6 +97,43 @@ mod config {
         /// Return the browser configuration.
         pub fn browser(&self) -> &BrowserConfig {
             &self.browser
+        }
+
+        /// Return the configuration of the panes, windows and sessions.
+        pub fn multiplexing(&self) -> &MultiplexingConfig {
+            &self.multiplexing
+        }
+    }
+
+    /// Configuration of the panes, windows and sessions.
+    #[derive(Deserialize, Debug, Clone, Eq, PartialEq)]
+    pub struct MultiplexingConfig {
+        /// Whether insh shows a session rather than only one thing at a time.
+        #[serde(default = "MultiplexingConfig::default_enabled")]
+        enabled: bool,
+    }
+
+    impl Default for MultiplexingConfig {
+        fn default() -> Self {
+            Self {
+                enabled: Self::default_enabled(),
+            }
+        }
+    }
+
+    impl MultiplexingConfig {
+        /// Return whether insh shows a session unless it is configured not to.
+        fn default_enabled() -> bool {
+            true
+        }
+
+        /// Return whether insh shows a session rather than only one thing at a time.
+        ///
+        /// With this off insh is only the one thing it is running, with no panes, no windows, no
+        /// sessions, and none of the footer along the bottom which says which of them is being
+        /// looked at.
+        pub fn enabled(&self) -> bool {
+            self.enabled
         }
     }
 

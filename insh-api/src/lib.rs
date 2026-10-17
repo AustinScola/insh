@@ -9,6 +9,21 @@ use std::fmt::{Display, Error as FmtError, Formatter};
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
+mod multiplexer;
+
+pub use multiplexer::{
+    AttachRequestParams, DetachRequestParams, DetachedResponseParams, DragPaneRequestParams,
+    KillPaneRequestParams, Layout, LayoutResponseParams, ListSessionsRequestParams,
+    NewSessionRequestParams, NewWindowRequestParams, PaneExitedResponseParams, PaneKind,
+    PaneLayout, PaneRow, PaneScreen, PaneScreenResponseParams, PaneSummary,
+    RenameSessionRequestParams, RenameWindowRequestParams, ResizeClientRequestParams,
+    RunCommandRequestParams, RunCommandResponseParams, RunInPaneRequestParams,
+    ScrollPaneRequestParams, SelectPaneRequestParams, SelectWindowRequestParams, SessionSummary,
+    SessionsResponseParams, Split, SplitPaneRequestParams, SuggestCommandRequestParams,
+    SuggestCommandResponseParams, SwapPaneRequestParams, SyncPanesRequestParams, Window,
+    WindowSummary, WritePaneRequestParams, ZoomPaneRequestParams, COMMAND_NAMES,
+};
+
 use file_info::FileInfo;
 use file_type::FileType;
 use path_finder::Entry;
@@ -65,6 +80,49 @@ pub enum RequestParams {
     StreamLogs(StreamLogsRequestParams),
     /// Get information about the database.
     DatabaseInfo(DatabaseInfoRequestParams),
+
+    /// Show a session, which goes on being reported on until the client stops showing it.
+    Attach(AttachRequestParams),
+    /// Stop showing a session.
+    Detach(DetachRequestParams),
+    /// Send what was typed to a pane.
+    WritePane(WritePaneRequestParams),
+    /// Split a pane in two.
+    SplitPane(SplitPaneRequestParams),
+    /// Send what is typed to another pane.
+    SelectPane(SelectPaneRequestParams),
+    /// Close a pane.
+    KillPane(KillPaneRequestParams),
+    /// Run a program in a pane.
+    RunInPane(RunInPaneRequestParams),
+    /// Move the line on the far side of a pane.
+    DragPane(DragPaneRequestParams),
+    /// Make one pane fill the window, or put it back.
+    ZoomPane(ZoomPaneRequestParams),
+    /// Send what is typed to every pane of the window at once, or stop.
+    SyncPanes(SyncPanesRequestParams),
+    /// Call the session a client is showing something else.
+    RenameSession(RenameSessionRequestParams),
+    /// Call a window something else.
+    RenameWindow(RenameWindowRequestParams),
+    /// Look back through what has scrolled off the top of a pane.
+    ScrollPane(ScrollPaneRequestParams),
+    /// Swap a pane with the one before or after it.
+    SwapPane(SwapPaneRequestParams),
+    /// Make a new window.
+    NewWindow(NewWindowRequestParams),
+    /// Look at another window.
+    SelectWindow(SelectWindowRequestParams),
+    /// Make a new session.
+    NewSession(NewSessionRequestParams),
+    /// List the sessions there are.
+    ListSessions(ListSessionsRequestParams),
+    /// Take note that the terminal the client is in has changed size.
+    ResizeClient(ResizeClientRequestParams),
+    /// Suggest a command for the multiplexer.
+    SuggestCommand(SuggestCommandRequestParams),
+    /// Take note that a command was run.
+    RunCommand(RunCommandRequestParams),
     /// Find out whether an AI inference engine is configured.
     AiStatus(AiStatusRequestParams),
     /// Say something in a chat and get the reply.
@@ -540,6 +598,21 @@ pub enum ResponseParams {
     StreamLogs(StreamLogsResponseParams),
     /// Information about the database.
     DatabaseInfo(DatabaseInfoResponseParams),
+
+    /// Where the panes and windows of the session a client is showing are.
+    Layout(LayoutResponseParams),
+    /// Part of the screen of a pane has been written on.
+    PaneScreen(PaneScreenResponseParams),
+    /// The program of a pane has finished.
+    PaneExited(PaneExitedResponseParams),
+    /// The client is no longer showing a session.
+    Detached(DetachedResponseParams),
+    /// The sessions there are.
+    Sessions(SessionsResponseParams),
+    /// A suggested command for the multiplexer.
+    SuggestCommand(SuggestCommandResponseParams),
+    /// A command was taken note of.
+    RunCommand(RunCommandResponseParams),
     /// Whether an AI inference engine is configured.
     AiStatus(AiStatusResponseParams),
     /// A piece of a reply.

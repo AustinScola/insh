@@ -10,6 +10,9 @@ use crate::components::file_creator::{
 use crate::components::finder::{Finder, FinderEffect, FinderProps};
 use crate::components::history::{History, HistoryEffect, HistorySearcher, HistorySearcherEffect};
 use crate::components::searcher::{Searcher, SearcherEffect, SearcherProps};
+use crate::components::session::{
+    Effect as SessionEffect, Event as SessionEvent, Props as SessionProps, Session,
+};
 use crate::config::Config;
 use crate::current_dir;
 use crate::programs::{Bash, Vim};
@@ -47,6 +50,9 @@ mod props {
         /// The pending request for the hits.
         #[builder(default)]
         pending_search_request: Option<Uuid>,
+        /// The request which the session is reported on.
+        #[builder(default)]
+        pending_session_request: Option<Uuid>,
         /// The configuration.
         config: Config,
     }
@@ -72,6 +78,11 @@ mod props {
             &self.pending_search_request
         }
 
+        /// Return the request which the session is reported on.
+        pub fn pending_session_request(&self) -> &Option<Uuid> {
+            &self.pending_session_request
+        }
+
         /// Return the configuration.
         pub fn config(&self) -> &Config {
             &self.config
@@ -80,6 +91,8 @@ mod props {
 
     /// What insh starts in.
     pub enum Start {
+        /// The panes of a session.
+        Session,
         /// The browser.
         Browser,
         /// The finder.
@@ -104,6 +117,10 @@ mod props {
     impl From<Option<Command>> for Start {
         fn from(command: Option<Command>) -> Self {
             match command {
+                // NOTE: Running insh without saying what to do shows a session, the way running
+                // tmux does, so that whatever is running in it is always there to come back to.
+                // Whoever starts insh is what says so, since being configured not to multiplex
+                // means there is no session to show.
                 Some(Command::Browse) | None => Start::Browser,
                 Some(Command::Search { phrase }) => Start::Searcher { phrase },
                 Some(Command::Find { phrase }) => Start::Finder { phrase },
@@ -171,6 +188,29 @@ impl Component<Props, Event<Response>, SystemEffect<Request>> for Insh {
         let mut action: Option<Action> = None;
 
         match self.state.mode {
+            Mode::Session => {
+                let session_event: SessionEvent = match event {
+                    Event::TermEvent(term_event) => SessionEvent::TermEvent(term_event),
+                    Event::Response(response) => SessionEvent::Response(response),
+                };
+
+                let session = self.state.session.as_mut().unwrap();
+                match session.handle(session_event) {
+                    Some(SessionEffect::Request(request)) => {
+                        return Some(SystemEffect::Request(request));
+                    }
+                    Some(SessionEffect::Requests(requests)) => {
+                        return Some(SystemEffect::Requests(requests));
+                    }
+                    Some(SessionEffect::Bell) => {
+                        action = Some(Action::Bell);
+                    }
+                    Some(SessionEffect::Quit) => {
+                        return Some(SystemEffect::Exit);
+                    }
+                    None => {}
+                }
+            }
             Mode::Browse => {
                 let event: BrowserEvent = match event {
                     Event::TermEvent(term_event) => BrowserEvent::TermEvent(term_event),
@@ -358,6 +398,7 @@ impl Component<Props, Event<Response>, SystemEffect<Request>> for Insh {
 
     fn render(&self, size: Size) -> Fabric {
         match self.state.mode {
+            Mode::Session => self.state.session.as_ref().unwrap().render(size),
             Mode::Browse => self.state.browser.as_ref().unwrap().render(size),
             Mode::FileCreator => self.state.file_creator.as_ref().unwrap().render(size),
             Mode::Finder => self.state.finder.as_ref().unwrap().render(size),
@@ -382,6 +423,8 @@ struct State {
     finder: Option<Finder>,
     /// The searcher.
     searcher: Option<Searcher>,
+    /// The panes of a session.
+    session: Option<Session>,
     /// The chat.
     chat: Option<Chat>,
     /// The past chats.
@@ -405,12 +448,33 @@ impl From<Props> for State {
             .build();
         let browser = Some(Browser::new(browser_props));
         match props.start() {
+            Start::Session => {
+                let session_props = SessionProps::builder()
+                    .request(props.pending_session_request().unwrap_or_default())
+                    .size(size)
+                    .dir(dir.clone())
+                    .config(props.config().clone())
+                    .build();
+                Self {
+                    mode: Mode::Session,
+                    browser: None,
+                    file_creator: None,
+                    finder: None,
+                    searcher: None,
+                    session: Some(Session::new(session_props)),
+                    chat: None,
+                    history: None,
+                    history_searcher: None,
+                    config: props.config().clone(),
+                }
+            }
             Start::Browser => Self {
                 mode: Mode::Browse,
                 browser,
                 file_creator: None,
                 finder: None,
                 searcher: None,
+                session: None,
                 chat: None,
                 history: None,
                 history_searcher: None,
@@ -429,6 +493,7 @@ impl From<Props> for State {
                     file_creator: None,
                     finder,
                     searcher: None,
+                    session: None,
                     chat: None,
                     history: None,
                     history_searcher: None,
@@ -450,6 +515,7 @@ impl From<Props> for State {
                     file_creator: None,
                     finder: None,
                     searcher,
+                    session: None,
                     chat: None,
                     history: None,
                     history_searcher: None,
@@ -469,6 +535,7 @@ impl From<Props> for State {
                     file_creator: None,
                     finder: None,
                     searcher: None,
+                    session: None,
                     chat,
                     history: None,
                     history_searcher: None,
@@ -481,6 +548,7 @@ impl From<Props> for State {
                 file_creator: None,
                 finder: None,
                 searcher: None,
+                session: None,
                 chat: None,
                 history: None,
                 history_searcher: None,
@@ -694,6 +762,8 @@ impl Stateful<Action, SystemEffect<Request>> for State {
 /// Which mode insh is in.
 #[derive(Default)]
 enum Mode {
+    /// The panes of a session.
+    Session,
     /// Browsing the files in a directory.
     #[default]
     Browse,

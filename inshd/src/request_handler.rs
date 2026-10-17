@@ -7,8 +7,8 @@ use crate::contexted_response::ContextedResponse;
 use crate::log_subscription::LogSubscription;
 use crate::request_handlers::{
     AiStatus, Chat, CreateFile, DatabaseInfo, DeleteChat, FindFiles, GetChat, GetFileContents,
-    GetFiles, ListChats, SearchChats, SearchPhrase, StreamLogs, SuggestDir, SuggestFindPattern,
-    SuggestSearchPhrase, VisitDir,
+    GetFiles, ListChats, RunCommand, SearchChats, SearchPhrase, StreamLogs, SuggestCommand,
+    SuggestDir, SuggestFindPattern, SuggestSearchPhrase, VisitDir,
 };
 use crate::stop::Stop;
 
@@ -57,8 +57,9 @@ impl RequestHandler {
                 recv(self.contexted_requests_rx) -> contexted_request => {
                     let contexted_request: ContextedRequest = contexted_request.unwrap();
                     let client_uuid: Uuid = *contexted_request.client_uuid();
+                    log::info!("Handling request {}.", contexted_request.request().uuid());
+
                     let request: &Request = contexted_request.request();
-                    log::info!("Handling request {}.", request.uuid());
 
                     let response_params_and_last_iter: Box<dyn Iterator<Item = ResponseParamsAndLast>> = match request.params() {
                         RequestParams::GetFiles(params) => Box::new(GetFiles::new(params)),
@@ -72,6 +73,19 @@ impl RequestHandler {
                         RequestParams::SuggestDir(params) => {
                             Box::new(SuggestDir::builder()
                                 .partial(params.partial())
+                                .db_conn_pool(self.db_conn_pool.clone())
+                                .build())
+                        }
+                        RequestParams::SuggestCommand(params) => {
+                            Box::new(SuggestCommand::builder()
+                                .partial(params.partial())
+                                .db_conn_pool(self.db_conn_pool.clone())
+                                .build())
+                        }
+                        RequestParams::RunCommand(params) => {
+                            Box::new(RunCommand::builder()
+                                .command(params.command())
+                                .config(self.config.clone())
                                 .db_conn_pool(self.db_conn_pool.clone())
                                 .build())
                         }
@@ -112,6 +126,14 @@ impl RequestHandler {
                         }
                         RequestParams::DeleteChat(params) => {
                             Box::new(DeleteChat::new(params, self.db_conn_pool.clone()))
+                        }
+                        // NOTE: Everything about panes, windows and sessions is routed to the
+                        // multiplexer by the scheduler and never reaches a request handler, so
+                        // getting here means one was added without the scheduler being told about
+                        // it. Saying so is what keeps that from going unnoticed.
+                        params => {
+                            log::error!("No request handler knows what to do with {:?}.", params);
+                            Box::new(std::iter::empty())
                         }
                     };
 

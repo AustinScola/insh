@@ -9,6 +9,11 @@ phrase-searcher = { version = "0.1.0", path = "../phrase-searcher" }
 file-type = { version = "0.1.0", path = "../file-type" }
 file-info = { version = "0.1.0", path = "../file-info" }
 
+# The screen of a pane is carried as the rows it is written on, so the types for those come from
+# the crates which own them rather than being written out again here.
+rend = { version = "0.1.0", path = "../rend", features = ["serde"] }
+terminal-emulator = { version = "0.1.0", path = "../terminal-emulator", features = ["serde"] }
+
 # Used for generating the builder pattern for structs.
 typed-builder = { workspace = true }
 

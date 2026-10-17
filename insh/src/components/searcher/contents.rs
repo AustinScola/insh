@@ -199,8 +199,9 @@ mod contents {
                 Event::Unfocus => Action::Unfocus,
                 Event::Response(response) => Action::HandleResponse(response),
                 Event::TermEvent(TermEvent::Resize(size)) => Action::Resize { size },
-                // There is nothing to paste into a list of hits.
-                Event::TermEvent(TermEvent::Paste(_)) => {
+                // There is nothing to paste into a list of hits, and nothing here is done with
+                // the mouse.
+                Event::TermEvent(TermEvent::Paste(_) | TermEvent::Mouse(_)) => {
                     return None;
                 }
                 Event::TermEvent(TermEvent::KeyEvent(key_event)) => {

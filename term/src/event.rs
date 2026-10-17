@@ -14,12 +14,60 @@ use bitflags::bitflags;
 /// A terminal event.
 #[derive(Debug, Clone)]
 pub enum TermEvent {
+    /// Something was done with the mouse.
+    Mouse(MouseEvent),
     /// A key was pressed.
     KeyEvent(KeyEvent),
     /// Text which was pasted into the terminal.
     Paste(String),
     /// The terminal was resized.
     Resize(Size),
+}
+
+/// Which button of the mouse it was.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MouseButton {
+    /// The left button.
+    Left,
+    /// The middle button, which is usually the wheel pressed down.
+    Middle,
+    /// The right button.
+    Right,
+    /// A button which is none of the above.
+    Other(u16),
+}
+
+/// What was done with the mouse.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MouseEventKind {
+    /// A button was pressed.
+    Press(MouseButton),
+    /// A button was let go of.
+    Release(MouseButton),
+    /// The mouse was moved with a button held.
+    Drag(MouseButton),
+    /// The wheel was rolled away from the hand.
+    ScrollUp,
+    /// The wheel was rolled towards the hand.
+    ScrollDown,
+    /// The mouse was moved with no button held.
+    Moved,
+}
+
+/// Something which was done with the mouse, and where on the screen it was done.
+///
+/// The row and the column are counted from zero, the way everything else which lays text out
+/// counts them, rather than from one the way a terminal reports them.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MouseEvent {
+    /// What was done.
+    pub kind: MouseEventKind,
+    /// Which row it was done on.
+    pub row: usize,
+    /// Which column it was done in.
+    pub column: usize,
+    /// The modifiers which were held at the time.
+    pub mods: KeyMods,
 }
 
 /// A key event.
@@ -91,14 +139,23 @@ impl ParsedTermEvent {
         }
 
         match ParsedAnsiEscapeSequence::try_from(bytes) {
-            Ok(ParsedAnsiEscapeSequence { sequence, len }) => match Self::key_event(&sequence) {
-                Some(key_event) => Ok(Self {
-                    event: TermEvent::KeyEvent(key_event),
-                    len,
-                }),
-                // The sequence is one the terminal sends as a reply rather than for a key.
-                None => Err(TermEventParseError::Unrecognized(len)),
-            },
+            Ok(ParsedAnsiEscapeSequence { sequence, len }) => {
+                if let Some(mouse_event) = Self::mouse_event(&sequence) {
+                    return Ok(Self {
+                        event: TermEvent::Mouse(mouse_event),
+                        len,
+                    });
+                }
+
+                match Self::key_event(&sequence) {
+                    Some(key_event) => Ok(Self {
+                        event: TermEvent::KeyEvent(key_event),
+                        len,
+                    }),
+                    // The sequence is one the terminal sends as a reply rather than for a key.
+                    None => Err(TermEventParseError::Unrecognized(len)),
+                }
+            }
             Err(AnsiEscapeSequenceParseError::Need(needed)) => {
                 Err(TermEventParseError::Need(needed))
             }
@@ -114,6 +171,90 @@ impl ParsedTermEvent {
                 | AnsiEscapeSequenceParseError::NotAnEscapeSequence,
             ) => Self::parse_alt(bytes),
         }
+    }
+
+    /// The bit of what a mouse report says which is set when shift was held.
+    const MOUSE_SHIFT: u16 = 0b0000_0100;
+
+    /// The bit which is set when alt was held.
+    const MOUSE_ALT: u16 = 0b0000_1000;
+
+    /// The bit which is set when control was held.
+    const MOUSE_CONTROL: u16 = 0b0001_0000;
+
+    /// The bit which is set when the mouse was moved rather than clicked.
+    const MOUSE_MOVED: u16 = 0b0010_0000;
+
+    /// The bit which is set when the wheel was rolled rather than a button used.
+    const MOUSE_WHEEL: u16 = 0b0100_0000;
+
+    /// Which button it was, which is the bits below the ones above.
+    const MOUSE_BUTTON: u16 = 0b0000_0011;
+
+    /// Return what the sequence says was done with the mouse, which is nothing at all when it
+    /// does not report the mouse.
+    ///
+    /// NOTE: Only the form which says where the mouse is as numbers is read, which is the one
+    /// asked for by turning on mode 1006. The older form puts the row and the column in single
+    /// bytes, which cannot say where the mouse is past the two hundred and twenty third column.
+    fn mouse_event(sequence: &AnsiEscapeSequence) -> Option<MouseEvent> {
+        let control: &ControlSequence = match sequence {
+            AnsiEscapeSequence::ControlSequence(control) => control,
+            _ => return None,
+        };
+        if control.private != Some(b'<') {
+            return None;
+        }
+
+        let pressed: bool = match control.final_byte {
+            b'M' => true,
+            b'm' => false,
+            _ => return None,
+        };
+
+        let what: u16 = control.parameter(0)?;
+        // A terminal counts its rows and columns from one and everything here counts them from
+        // zero.
+        let column: usize = usize::from(control.parameter(1)?).checked_sub(1)?;
+        let row: usize = usize::from(control.parameter(2)?).checked_sub(1)?;
+
+        let mut mods = KeyMods::NONE;
+        mods.set(KeyMods::SHIFT, what & Self::MOUSE_SHIFT != 0);
+        mods.set(KeyMods::ALT, what & Self::MOUSE_ALT != 0);
+        mods.set(KeyMods::CONTROL, what & Self::MOUSE_CONTROL != 0);
+
+        let button: MouseButton = match what & Self::MOUSE_BUTTON {
+            0 => MouseButton::Left,
+            1 => MouseButton::Middle,
+            2 => MouseButton::Right,
+            other => MouseButton::Other(other),
+        };
+
+        let kind: MouseEventKind = if what & Self::MOUSE_WHEEL != 0 {
+            match what & Self::MOUSE_BUTTON {
+                0 => MouseEventKind::ScrollUp,
+                _ => MouseEventKind::ScrollDown,
+            }
+        } else if what & Self::MOUSE_MOVED != 0 {
+            match what & Self::MOUSE_BUTTON {
+                // NOTE: A mouse moved with nothing held reports the button bits as if the right
+                // one past the ones there are was held.
+                3 => MouseEventKind::Moved,
+                _ => MouseEventKind::Drag(button),
+            }
+        } else {
+            match pressed {
+                true => MouseEventKind::Press(button),
+                false => MouseEventKind::Release(button),
+            }
+        };
+
+        Some(MouseEvent {
+            kind,
+            row,
+            column,
+            mods,
+        })
     }
 
     /// Parse an escape followed by the bytes which a key held with <Alt> sends.

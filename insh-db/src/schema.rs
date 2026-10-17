@@ -33,6 +33,14 @@ diesel::joinable!(chat_messages -> chats (chat_id));
 diesel::allow_tables_to_appear_in_same_query!(chat_messages, chats);
 
 diesel::table! {
+    command_history (id) {
+        id -> Int8,
+        command -> Text,
+        last_run -> Timestamptz,
+    }
+}
+
+diesel::table! {
     dir_history (id) {
         id -> Int8,
         path -> Text,

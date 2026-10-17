@@ -33,7 +33,7 @@ use std::path::PathBuf;
 use std::process::exit;
 
 use crate::args::{Args, Command};
-use crate::components::{Insh, InshProps};
+use crate::components::{Insh, InshProps, InshStart as Start, Session};
 use crate::config::{Config, RenderEngineConfig};
 #[cfg(feature = "logging")]
 use crate::logging::{configure_logging, ConfigureLoggingResult};
@@ -48,7 +48,7 @@ use insh_api::{
 };
 use inshd_client::{RequestWriter, ResponseReader};
 use rend::{Engine, Renderer};
-use term::TermEvent;
+use term::{Term, TermEvent};
 use til::{App, AppRunOptions, Component, Requester, ResponseHandler, Stopper, SystemEffect};
 
 use clap::Parser;
@@ -82,9 +82,16 @@ fn main() {
         }
     };
 
+    // Running insh without saying what to do shows a session, so it asks the daemon for one and
+    // goes on being told about it on that request for as long as it is showing it. Being
+    // configured not to multiplex is what makes insh only the one thing it is running instead.
+    let multiplexing: bool = args.command().is_none() && config.multiplexing().enabled();
+
     // Determine the starting effects.
     let mut starting_effects: Option<Vec<SystemEffect<Request>>> = args.starting_effects();
-    let pending_browser_request: Option<Uuid> = if args.browse() {
+    // NOTE: A session shows the browser in a pane of its own and asks for the files itself, so
+    // nothing is asked for here when there is going to be one.
+    let pending_browser_request: Option<Uuid> = if args.browse() && !multiplexing {
         let dir: PathBuf = args.dir().clone().unwrap_or_else(current_dir::current_dir);
         let request = Request::builder()
             .params(RequestParams::GetFiles(
@@ -140,6 +147,22 @@ fn main() {
         None
     };
 
+    let pending_session_request: Option<Uuid> = if multiplexing {
+        let request: Request = Session::attach(Term::size().unwrap_or_default());
+        let request_uuid: Uuid = *request.uuid();
+
+        let effect = SystemEffect::Request(request);
+        if let Some(ref mut starting_effects) = starting_effects {
+            starting_effects.push(effect);
+        } else {
+            starting_effects = Some(vec![effect]);
+        }
+
+        Some(request_uuid)
+    } else {
+        None
+    };
+
     // Determine the starting term events.
     let starting_term_events: Option<Vec<TermEvent>> = args.starting_term_events();
 
@@ -157,11 +180,17 @@ fn main() {
         )
         .build();
 
+    let start: Start = match multiplexing {
+        true => Start::Session,
+        false => args.command().clone().into(),
+    };
+
     let insh_props: InshProps = InshProps::builder()
         .dir(args.dir().clone())
-        .start(args.command().clone().into())
+        .start(start)
         .pending_browser_request(pending_browser_request)
         .pending_search_request(pending_search_request)
+        .pending_session_request(pending_session_request)
         .config(config)
         .build();
     let root = Insh::new(insh_props);

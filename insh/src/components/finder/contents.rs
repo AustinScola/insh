@@ -134,8 +134,9 @@ mod contents {
                 Event::Unfocus => Action::Unfocus,
                 Event::TermEvent(term_event) => match term_event {
                     TermEvent::Resize(size) => Action::Resize { size },
-                    // There is nothing to paste into a list of hits.
-                    TermEvent::Paste(_) => {
+                    // There is nothing to paste into a list of hits, and nothing here is done
+                    // with the mouse.
+                    TermEvent::Paste(_) | TermEvent::Mouse(_) => {
                         return None;
                     }
                     TermEvent::KeyEvent(key_event) => match self.command_parser.parse(key_event) {

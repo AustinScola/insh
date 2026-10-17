@@ -10,7 +10,7 @@ use std::os::fd::RawFd;
 use std::os::unix::ffi::OsStringExt;
 use std::panic;
 use std::thread::{self, JoinHandle};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use crate::ascii::ASCII;
 use crate::component::Component;
@@ -74,6 +74,12 @@ impl App {
     /// is only so that events arriving without a pause — the results of a large search coming in
     /// faster than they can be handled, say — cannot put drawing the screen off for ever.
     const MAX_EVENTS_PER_RENDER: usize = 1024;
+
+    /// How often the screen is drawn again when nothing at all has happened.
+    ///
+    /// This is what keeps something which goes out of date on its own, such as the time of day in
+    /// a footer, from standing still until a key is pressed.
+    const REDRAW_EVERY: Duration = Duration::from_secs(1);
 
     /// Run the app.
     pub fn run<Props, Request, Response>(
@@ -185,6 +191,8 @@ impl App {
                 }
             }
 
+            let redraw: Receiver<Instant> = channel::tick(Self::REDRAW_EVERY);
+
             'app: loop {
                 let fabric: Fabric = root.render(self.size);
 
@@ -220,6 +228,13 @@ impl App {
                                 }
                             };
                             event = Event::Response(response);
+                        }
+                        // NOTE: Nothing has happened, but something which is shown may have gone
+                        // out of date anyway, such as the time of day. Going around the loop draws
+                        // the screen again, and nothing is sent to the terminal unless what is
+                        // drawn has actually changed.
+                        recv(redraw) -> _tick => {
+                            continue 'app;
                         }
                     }
                 }
@@ -365,6 +380,7 @@ impl App {
         self.term.save_attrs().unwrap();
         self.term.enable_raw().unwrap();
         self.lazy_enable_bracketed_paste();
+        self.lazy_enable_mouse();
         self.lazy_hide_cursor();
 
         // NOTE: The colors are put back before the screen is cleared rather than after, because a
@@ -383,6 +399,7 @@ impl App {
         self.renderer.reset();
 
         self.lazy_disable_bracketed_paste();
+        self.lazy_disable_mouse();
         self.lazy_disable_alternate_terminal();
         self.term.restore_attrs().unwrap();
         self.lazy_show_cursor();
@@ -570,6 +587,10 @@ impl App {
                             bytes.extend_from_slice(BracketedPaste::END);
                             Some(bytes)
                         }
+                        // NOTE: The terminal is asked to stop reporting the mouse while a program
+                        // has it, so that the program asks for the reports itself if it wants them
+                        // and the terminal sends them straight to it.
+                        TermEvent::Mouse(_) => None,
                         TermEvent::Resize(size) => {
                             self.size = *size;
                             #[cfg(feature = "logging")]
@@ -645,6 +666,7 @@ impl App {
         // NOTE: The program takes the terminal over while it runs, including saying for itself
         // whether pasted text is wrapped, so stop asking for it on its behalf.
         self.lazy_disable_bracketed_paste();
+        self.lazy_disable_mouse();
 
         // NOTE: A frame leaves the terminal writing in the colors the last thing it drew was
         // written in, so they are put back before the program has the terminal. A terminal which
@@ -681,6 +703,7 @@ impl App {
 
         // The program will have stopped the terminal from wrapping pasted text on its way out.
         self.lazy_enable_bracketed_paste();
+        self.lazy_enable_mouse();
 
         self.update_terminal();
 
@@ -728,6 +751,16 @@ impl App {
         self.lazy_control_function(&Self::bracketed_paste(false));
     }
 
+    /// Queue asking the terminal to report what is done with the mouse.
+    fn lazy_enable_mouse(&mut self) {
+        self.lazy_control_function(&Self::mouse(true));
+    }
+
+    /// Queue asking the terminal to stop reporting what is done with the mouse.
+    fn lazy_disable_mouse(&mut self) {
+        self.lazy_control_function(&Self::mouse(false));
+    }
+
     /// Queue moving the cursor to the top left of the screen.
     fn lazy_move_cursor_home(&mut self) {
         self.lazy_control_function(&ControlFunction::CursorPosition { row: 1, column: 1 });
@@ -754,6 +787,26 @@ impl App {
     fn bracketed_paste(set: bool) -> ControlFunction {
         ControlFunction::SetMode {
             modes: vec![Mode::BracketedPaste],
+            set,
+        }
+    }
+
+    /// Return the control function which asks the terminal to report what is done with the mouse,
+    /// or to stop reporting it.
+    ///
+    /// Moving the mouse with a button held is asked for as well as clicking, so that a line
+    /// between two panes can be dragged.
+    ///
+    /// The reports are asked for in the form which says where the mouse is as numbers, because
+    /// the older form puts the row and the column in single bytes and so cannot say where the
+    /// mouse is on a wide screen.
+    fn mouse(set: bool) -> ControlFunction {
+        ControlFunction::SetMode {
+            modes: vec![
+                Mode::ReportMouseClicks,
+                Mode::ReportMouseDrags,
+                Mode::ControlSequenceMouseReports,
+            ],
             set,
         }
     }

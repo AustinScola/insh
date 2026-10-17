@@ -16,6 +16,7 @@ use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
 /// Keeping one of these per column rather than one per cluster is what lets everything which lays
 /// text out go on counting in columns.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum Cell {
     /// A column holding one character.
     Char(char),
