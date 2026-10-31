@@ -431,6 +431,20 @@ mod tests {
     }
 
     #[test]
+    fn test_the_cursor_moves_when_nothing_else_changed() {
+        let mut renderer: Renderer<Vec<u8>> = Renderer::builder().writer(Vec::new()).build();
+        let mut terminal = Terminal::from(Size::new(1, 3));
+        terminal.draw(&renderer.render(with_cursor("abc", Some(2))));
+
+        terminal.draw(&renderer.render(with_cursor("abc", Some(1))));
+
+        assert_eq!(
+            terminal.cursor(),
+            Some(Location::builder().row(0).column(1).build())
+        );
+    }
+
+    #[test]
     fn test_nothing_is_said_about_the_cursor_when_nothing_about_it_changed() {
         let mut renderer: Renderer<Vec<u8>> = Renderer::builder().writer(Vec::new()).build();
         let fabric = with_cursor("abc", Some(1));
