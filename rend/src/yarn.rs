@@ -2,13 +2,15 @@
 This module contains the [`Yarn`] struct which is used for representing styled text.
 */
 use std::cmp::Ordering;
+use std::ops::Range;
 
 use super::cell::Cell;
+use super::style::Style;
 
 use ansi::Color;
 
 // MAYBE TODO: Store ranges instead of using `Vec` to save memory?
-/// A yarn is a string with text colors and background colors.
+/// A yarn is a string along with the way each column of it is written.
 ///
 /// It is measured in columns of a terminal rather than in characters, which are not the same thing:
 /// a letter with a combining accent on it is several characters in the one column, and a character
@@ -18,13 +20,10 @@ pub struct Yarn {
     // MAYBE TODO: Store the length separately so we can represent a blank yarn without wasting mem?
     /// The cells, one for each column.
     cells: Vec<Cell>,
-    // NOTE: The style vectors are Allowed to be shorter than the number of characters.
-    /// The colors of the text.
-    colors: Vec<Option<Color>>,
-    /// Which columns of the text are written in bold.
-    bolds: Vec<bool>,
-    /// The background colors of the text.
-    backgrounds: Vec<Option<Color>>,
+    // NOTE: The styles are allowed to be given for fewer columns than there are cells. A column
+    // off the end of them is written the way a terminal writes when nothing has been picked.
+    /// The way each column is written.
+    styles: Vec<Style>,
 }
 
 impl Yarn {
@@ -99,18 +98,9 @@ impl Yarn {
         let len_before: usize = self.len();
         self.cells.extend(other.cells);
 
-        if !other.colors.is_empty() {
-            self.colors.resize(len_before, None);
-            self.colors.extend(other.colors);
-        }
-        if !other.bolds.is_empty() {
-            self.bolds.resize(len_before, false);
-            self.bolds.extend(other.bolds);
-        }
-
-        if !other.backgrounds.is_empty() {
-            self.backgrounds.resize(len_before, None);
-            self.backgrounds.extend(other.backgrounds);
+        if !other.styles.is_empty() {
+            self.styles.resize(len_before, Style::default());
+            self.styles.extend(other.styles);
         }
 
         self
@@ -135,9 +125,7 @@ impl Yarn {
     /// If the yarn is already shorter than the `new_len` then this has no effect.
     pub fn truncate(&mut self, new_len: usize) {
         Cell::truncate(&mut self.cells, new_len);
-        self.colors.truncate(new_len);
-        self.bolds.truncate(new_len);
-        self.backgrounds.truncate(new_len);
+        self.styles.truncate(new_len);
     }
 
     /// Pad on both sides so that the contents are centered and the length is equal `new_len`.
@@ -157,9 +145,7 @@ impl Yarn {
                     vec![Cell::BLANK; right_pad],
                 ]
                 .concat();
-                self.colors = [vec![None; left_pad], self.colors.to_owned()].concat();
-                self.bolds = [vec![false; left_pad], self.bolds.to_owned()].concat();
-                self.backgrounds = [vec![None; left_pad], self.backgrounds.to_owned()].concat();
+                self.styles = [vec![Style::default(); left_pad], self.styles.to_owned()].concat();
             }
             Ordering::Less => {
                 panic!("Cannot pad a yarn to a smaller length.")
@@ -170,39 +156,58 @@ impl Yarn {
 
     /// Set the text color of the entire yarn to the `color`.
     pub fn color(&mut self, color: Color) {
-        self.colors = vec![Some(color); self.len()];
+        self.restyle(0..self.len(), |style| style.set_color(Some(color)));
     }
 
     /// Change the color of all text before the given position.
     pub fn color_before(&mut self, color: Color, position: usize) {
-        if self.colors.len() < position {
-            self.colors.clear();
-            self.colors.resize(position, Some(color));
-        } else {
-            for index in 0..position {
-                self.colors[index] = Some(color);
-            }
-        }
+        self.restyle(0..position.min(self.len()), |style| {
+            style.set_color(Some(color))
+        });
     }
 
     /// Change the color of all text after (and including) the given position.
     ///
     /// The text before the position keeps the color it already has (if it has one).
     pub fn color_after(&mut self, color: Color, position: usize) {
-        let num_chars: usize = self.cells.len();
-
-        if self.colors.len() < num_chars {
-            self.colors.resize(num_chars, None);
-        }
-
-        for index in position..num_chars {
-            self.colors[index] = Some(color);
-        }
+        let len: usize = self.len();
+        self.restyle(position.min(len)..len, |style| style.set_color(Some(color)));
     }
 
     /// Set the background color of the entire yarn to the `color`.
     pub fn background(&mut self, color: Color) {
-        self.backgrounds = vec![Some(color); self.len()];
+        self.restyle(0..self.len(), |style| style.set_background(Some(color)));
+    }
+
+    /// Write the whole of the yarn in bold.
+    pub fn bold(&mut self) {
+        self.restyle(0..self.len(), |style| style.set_bold(true));
+    }
+
+    /// Write every column of the range the given way.
+    pub fn style(&mut self, style: Style, columns: Range<usize>) {
+        let len: usize = self.len();
+        self.restyle(columns.start.min(len)..columns.end.min(len), |written| {
+            *written = style
+        });
+    }
+
+    /// Change the way every column of the range is written.
+    ///
+    /// The styles are only given for as many columns as have been styled, so they are filled out
+    /// as far as the range before any of them is changed.
+    fn restyle(&mut self, columns: Range<usize>, restyle: impl Fn(&mut Style)) {
+        if columns.is_empty() {
+            return;
+        }
+
+        if self.styles.len() < columns.end {
+            self.styles.resize(columns.end, Style::default());
+        }
+
+        for style in &mut self.styles[columns] {
+            restyle(style);
+        }
     }
 
     /// Return the cells of the yarn, one for each column.
@@ -210,24 +215,10 @@ impl Yarn {
         &self.cells
     }
 
-    /// Write the whole of the yarn in bold.
-    pub fn bold(&mut self) {
-        self.bolds = vec![true; self.len()];
-    }
-
-    /// Return which columns of the yarn are written in bold.
-    pub fn bolds(&self) -> &Vec<bool> {
-        &self.bolds
-    }
-
-    /// Return the text colors of the yarn.
-    pub fn colors(&self) -> &Vec<Option<Color>> {
-        &self.colors
-    }
-
-    /// Return the background colors of the yarn.
-    pub fn backgrounds(&self) -> &Vec<Option<Color>> {
-        &self.backgrounds
+    /// Return the way each column of the yarn is written, which may be given for fewer columns
+    /// than there are cells.
+    pub fn styles(&self) -> &Vec<Style> {
+        &self.styles
     }
 }
 
@@ -267,10 +258,30 @@ mod tests {
     /// Another color used for testing.
     const OTHER_COLOR: Color = Color::Blue;
 
+    /// Return the color each column of the yarn is written in.
+    fn colors(yarn: &Yarn) -> Vec<Option<Color>> {
+        return (0..yarn.len())
+            .map(|column| {
+                yarn.styles()
+                    .get(column)
+                    .copied()
+                    .unwrap_or_default()
+                    .color()
+            })
+            .collect();
+    }
+
     /// Return a yarn with the text before the position colored the other color.
     fn colored_before(string: &str, position: usize) -> Yarn {
         let mut yarn: Yarn = Yarn::from(string);
         yarn.color_before(OTHER_COLOR, position);
+        yarn
+    }
+
+    /// Return a yarn of the text with all of it colored.
+    fn colored(string: &str, color: Color) -> Yarn {
+        let mut yarn: Yarn = Yarn::from(string);
+        yarn.color(color);
         yarn
     }
 
@@ -284,7 +295,19 @@ mod tests {
     fn test_color_after(mut yarn: Yarn, position: usize, expected_colors: Vec<Option<Color>>) {
         yarn.color_after(COLOR, position);
 
-        assert_eq!(yarn.colors, expected_colors);
+        assert_eq!(colors(&yarn), expected_colors);
+    }
+
+    #[test]
+    fn test_coloring_the_text_and_the_background_keeps_both() {
+        let mut yarn = colored("ab", COLOR);
+        yarn.background(OTHER_COLOR);
+
+        for column in 0..yarn.len() {
+            let style: Style = yarn.styles()[column];
+            assert_eq!(style.color(), Some(COLOR));
+            assert_eq!(style.background(), Some(OTHER_COLOR));
+        }
     }
 
     #[test_case("", 0, Yarn::new(); "an empty string and no length")]
@@ -300,10 +323,18 @@ mod tests {
         assert_eq!(result, expected_result);
     }
 
+    /// Return a yarn of one blank column written the given way.
+    fn spot(style: Option<Style>) -> Yarn {
+        Yarn {
+            cells: vec![Cell::BLANK; 1],
+            styles: style.into_iter().collect(),
+        }
+    }
+
     #[test_case(Yarn::new(), Yarn::new(), Yarn::new(); "an empty yarn with an empty yarn is an empty yarn")]
-    #[test_case(Yarn::new(), Yarn {cells: vec![Cell::BLANK; 1], ..Default::default()}, Yarn {cells: vec![Cell::BLANK; 1], ..Default::default()}; "an empty yarn with a one space yarn is a one space yarn")]
-    #[test_case(Yarn {cells: vec![Cell::BLANK; 1], ..Default::default()}, Yarn::new(), Yarn {cells: vec![Cell::BLANK; 1], ..Default::default()}; "a one space yarn with an empty yarn is a one space yarn")]
-    #[test_case(Yarn {cells: vec![Cell::BLANK; 1], ..Default::default()}, Yarn {cells: vec![Cell::BLANK; 1], colors: vec![Some(Color::Black)], ..Default::default()}, Yarn {cells: vec![Cell::BLANK; 2], colors: vec![None, Some(Color::Black)], ..Default::default()}; "concatenating two one space yarns preserves colors")]
+    #[test_case(Yarn::new(), spot(None), spot(None); "an empty yarn with a one space yarn is a one space yarn")]
+    #[test_case(spot(None), Yarn::new(), spot(None); "a one space yarn with an empty yarn is a one space yarn")]
+    #[test_case(spot(None), spot(Some(Style::builder().color(Some(Color::Black)).build())), Yarn {cells: vec![Cell::BLANK; 2], styles: vec![Style::default(), Style::builder().color(Some(Color::Black)).build()]}; "concatenating two one space yarns preserves how they are written")]
     fn test_concat(yarn: Yarn, other: Yarn, expected_yarn: Yarn) {
         let result: Yarn = yarn.concat(other);
 

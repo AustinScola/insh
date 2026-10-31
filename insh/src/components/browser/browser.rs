@@ -67,6 +67,18 @@ impl Component<Props, Event, Effect> for Browser {
                     self.state.contents.handle(ContentsEvent::SetDir { dir });
                 self.handle_contents_effect(contents_effect)
             }
+            Event::SetFocus { focused } => {
+                // NOTE: Only the contents is told, because the directory bar shows whether it is
+                // being typed in by whether the browser has focused it, which is a different
+                // thing from whether what is typed reaches the browser at all.
+                let contents_event: ContentsEvent = match focused {
+                    true => ContentsEvent::Focus,
+                    false => ContentsEvent::Unfocus,
+                };
+                let contents_effect: Option<ContentsEffect> =
+                    self.state.contents.handle(contents_event);
+                self.handle_contents_effect(contents_effect)
+            }
             Event::Response(response) => {
                 // A completion for the directory bar can arrive after the bar has stopped being
                 // typed in, so responses are routed by what they are rather than by what is
@@ -288,6 +300,14 @@ pub enum Event {
     SetDir {
         /// The directory to show the files in.
         dir: PathBuf,
+    },
+    /// Whether what is typed is going to it.
+    ///
+    /// A browser in a pane which what is typed is not going to does not show which row is
+    /// selected the way the one it is going to does, so that only one of them stands out.
+    SetFocus {
+        /// Whether it is.
+        focused: bool,
     },
     /// A response.
     Response(Response),

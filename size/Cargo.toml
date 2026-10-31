@@ -5,4 +5,13 @@ edition = "2021"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
+[features]
+# Explicitly, the default features are none.
+default = []
+
+# Lets a size be sent somewhere else and read back.
+serde = ["dep:serde"]
+
 [dependencies]
+# Used for sending a size somewhere else. (Only included if the serde feature is enabled.)
+serde = { workspace = true, optional = true }

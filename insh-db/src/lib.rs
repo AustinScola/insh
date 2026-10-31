@@ -9,6 +9,7 @@ binaries are embedded in the executable, so PostgreSQL does not have to be insta
 #![allow(clippy::needless_return)]
 
 pub mod chats;
+pub mod command_history;
 mod database;
 mod db_conn_pool_events;
 pub mod dir_history;

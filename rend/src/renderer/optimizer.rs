@@ -4,9 +4,9 @@ draws.
 */
 use super::{Frame, Instruction, Text};
 use crate::location::Location;
-use crate::style::Style;
+use crate::style::{Attributes, Style};
 
-use ansi::{Color, ControlFunction, EraseInLine, GraphicRendition};
+use ansi::{ControlFunction, EraseInLine, GraphicRendition};
 use size::Size;
 
 use typed_builder::TypedBuilder;
@@ -123,7 +123,9 @@ impl Optimizer {
     ///
     /// Erasing only leaves the same thing behind as writing blanks does when the color the blanks
     /// would be written on is the one the terminal uses when none has been picked, because
-    /// terminals do not agree about which color they erase in.
+    /// terminals do not agree about which color they erase in. Text which is written with the two
+    /// colors swapped is written on a color which was picked whether one was picked for it or not,
+    /// so that is left alone as well.
     fn erase_row_tails(&self, instructions: Vec<Instruction>) -> Vec<Instruction> {
         let mut erased: Vec<Instruction> = Vec::with_capacity(instructions.len());
 
@@ -133,6 +135,7 @@ impl Optimizer {
             let ends_the_row: Option<(&Text, Location)> = match (&instruction, cursor, style) {
                 (Instruction::Text(text), Some(at), Some(style))
                     if style.background().is_none()
+                        && !style.attributes().contains(Attributes::REVERSE)
                         && at.column + text.columns() == self.size.columns =>
                 {
                     Some((text, at))
@@ -253,32 +256,23 @@ impl Optimizer {
         return text.string().len() - text.string().trim_end_matches(' ').len();
     }
 
-    /// Return the colors which the renditions leave the terminal writing text in and on, which is
-    /// not known when they say something about how it writes which is not a color.
+    /// Return the way the renditions leave the terminal writing text, which is not known when they
+    /// say something about how it writes which is not one of the ways a style is written in.
     fn restyled(style: Option<Style>, renditions: &[GraphicRendition]) -> Option<Style> {
-        let color = |color: &Color| match color {
-            Color::Default => None,
-            color => Some(*color),
-        };
-
         let mut restyled: Option<Style> = style;
         for rendition in renditions {
-            restyled = match rendition {
-                GraphicRendition::Reset => Some(Style::default()),
-                GraphicRendition::Foreground(foreground) => Some(
-                    Style::builder()
-                        .color(color(foreground))
-                        .background(restyled?.background())
-                        .build(),
-                ),
-                GraphicRendition::Background(background) => Some(
-                    Style::builder()
-                        .color(restyled?.color())
-                        .background(color(background))
-                        .build(),
-                ),
-                _ => None,
-            };
+            // NOTE: A reset says how the terminal writes whatever it was writing in before it, so
+            // it is the one rendition which is worth anything when that is not known.
+            if matches!(rendition, GraphicRendition::Reset) {
+                restyled = Some(Style::default());
+                continue;
+            }
+
+            let mut style: Style = restyled?;
+            if !style.apply(rendition) {
+                return None;
+            }
+            restyled = Some(style);
         }
 
         return restyled;
@@ -332,9 +326,11 @@ impl Optimizer {
                     .row(at.row + usize::from(*rows))
                     .column(0)
                     .build(),
-                // Neither the colors nor erasing the rest of a row move the cursor.
+                // Neither the colors, nor erasing the rest of a row, nor showing the cursor or
+                // putting it away move it.
                 ControlFunction::SelectGraphicRendition(_) => at,
                 ControlFunction::EraseInLine(_) => at,
+                ControlFunction::SetMode { .. } => at,
                 _ => return None,
             },
             Instruction::Text(text) => Location::builder()
@@ -358,6 +354,8 @@ impl Optimizer {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    use ansi::Color;
 
     use test_case::test_case;
 

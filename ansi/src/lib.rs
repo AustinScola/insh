@@ -48,11 +48,13 @@ Where a control function is not from ECMA-48 the doc comment for it says so.
 #![deny(clippy::missing_docs_in_private_items)]
 #![allow(clippy::needless_return)]
 
+mod control_character;
 mod control_function;
 mod graphic_rendition;
 mod operating_system_command;
 mod sequence;
 
+pub use control_character::ControlCharacter;
 pub use control_function::{
     ClearTabStops, ControlFunction, CursorTabulationControl, EraseInDisplay, EraseInLine,
     MediaCopy, Mode,

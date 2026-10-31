@@ -9,5 +9,8 @@ Raw terminal control, and the events which the terminal sends.
 mod event;
 mod term;
 
-pub use crate::event::{Key, KeyEvent, KeyMods, ParsedTermEvent, TermEvent, TermEventParseError};
+pub use crate::event::{
+    Key, KeyEvent, KeyMods, MouseButton, MouseEvent, MouseEventKind, ParsedTermEvent, TermEvent,
+    TermEventParseError,
+};
 pub use crate::term::{SavedAttrs, Term};

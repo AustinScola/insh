@@ -76,6 +76,7 @@ checksum = "4b46cbb362ab8752921c97e041f5e366ee6297bd428a31275b9fcf1e380f7299"
 name = "ansi"
 version = "0.1.0"
 dependencies = [
+ "serde",
  "test-case",
 ]
 
@@ -205,6 +206,9 @@ name = "bitflags"
 version = "2.13.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b588b76d00fde79687d7646a9b5bdf3cc0f655e0bbd080335a95d7e96f3587da"
+dependencies = [
+ "serde_core",
+]
 
 [[package]]
 name = "block-buffer"
@@ -1721,9 +1725,11 @@ dependencies = [
 
 [[package]]
 name = "insh"
-version = "0.5.0"
+version = "0.6.0"
 dependencies = [
  "ansi",
+ "bitflags",
+ "chrono",
  "clap",
  "common",
  "copypasta",
@@ -1738,6 +1744,7 @@ dependencies = [
  "inshd-client",
  "itertools 0.15.0",
  "log",
+ "nix",
  "nom 8.0.0",
  "path-finder",
  "phrase-searcher",
@@ -1748,6 +1755,7 @@ dependencies = [
  "serde",
  "serde_yaml_ng",
  "term",
+ "terminal-emulator",
  "test-case",
  "til",
  "typed-builder",
@@ -1763,7 +1771,9 @@ dependencies = [
  "file-type",
  "path-finder",
  "phrase-searcher",
+ "rend",
  "serde",
+ "terminal-emulator",
  "typed-builder",
  "uuid",
 ]
@@ -1787,7 +1797,7 @@ dependencies = [
 
 [[package]]
 name = "inshd"
-version = "0.5.0"
+version = "0.6.0"
 dependencies = [
  "ai-client",
  "ansi",
@@ -1809,9 +1819,11 @@ dependencies = [
  "path-finder",
  "phrase-searcher",
  "postcard",
+ "rend",
  "serde",
  "serde_yaml_ng",
  "signal-hook",
+ "terminal-emulator",
  "test-case",
  "typed-builder",
  "uuid",
@@ -2826,9 +2838,10 @@ name = "rend"
 version = "0.1.0"
 dependencies = [
  "ansi",
+ "bitflags",
  "criterion",
- "itertools 0.15.0",
  "nix",
+ "serde",
  "size",
  "test-case",
  "typed-builder",
@@ -3290,6 +3303,9 @@ checksum = "e3a9fe34e3e7a50316060351f37187a3f546bce95496156754b601a5fa71b76e"
 [[package]]
 name = "size"
 version = "0.1.0"
+dependencies = [
+ "serde",
+]
 
 [[package]]
 name = "slab"
@@ -3606,6 +3622,19 @@ dependencies = [
  "nix",
  "size",
  "termios",
+ "test-case",
+ "typed-builder",
+]
+
+[[package]]
+name = "terminal-emulator"
+version = "0.1.0"
+dependencies = [
+ "ansi",
+ "bitflags",
+ "rend",
+ "serde",
+ "size",
  "test-case",
  "typed-builder",
 ]

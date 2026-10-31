@@ -3,7 +3,18 @@ name = "ansi"
 version = "0.1.0"
 edition = "2021"
 
+[features]
+# Explicitly, the default features are none.
+default = []
+
+# Lets the colors and styles be sent somewhere else and read back, which is what carrying a screen
+# from the daemon to a client needs.
+serde = ["dep:serde"]
+
 [dependencies]
+# Used for sending the colors and styles somewhere else. (Only included if the serde feature is
+# enabled.)
+serde = { workspace = true, optional = true }
 
 [dev-dependencies]
 test-case = { workspace = true }

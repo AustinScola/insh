@@ -1,3 +1,6 @@
+# 0.6.0
+- Add multiplexing.
+
 # 0.5.1
 - Add a new incremental rendering engine (enabled by default). And a `render.engine` configuration
 option to control which rendering engine is used.

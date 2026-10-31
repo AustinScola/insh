@@ -20,6 +20,12 @@ const DEFAULT_BROWSER_HISTORY_LENGTH: usize = 1000;
 /// The maximum length of the Finder history.
 const DEFAULT_FINDER_HISTORY_LENGTH: usize = 1000;
 
+/// The maximum length of the multiplexer command history.
+const DEFAULT_MULTIPLEXING_COMMANDS_HISTORY_LENGTH: usize = 1000;
+
+/// How many rows of a pane are kept after they have scrolled off the top of it.
+const DEFAULT_MULTIPLEXING_PANE_BUFFER_SIZE: usize = 20_000;
+
 /// The model which replies in a chat.
 const DEFAULT_AI_MODEL: &str = "claude-opus-5";
 
@@ -68,12 +74,20 @@ pub struct Config {
     /// Configuration of the server.
     #[serde(default)]
     server: ServerConfig,
+    /// Configuration of the multiplexing.
+    #[serde(default)]
+    multiplexing: MultiplexingConfig,
     /// Configuration of the AI inference engine.
     #[serde(default)]
     ai: AiConfig,
 }
 
 impl Config {
+    /// Return the configuration of the multiplexing.
+    pub fn multiplexing(&self) -> &MultiplexingConfig {
+        &self.multiplexing
+    }
+
     /// Return the default path of the file that configuration is loaded from.
     pub fn default_path() -> PathBuf {
         let mut path: PathBuf = INSH_DIR.clone();
@@ -176,6 +190,100 @@ impl Config {
             .pool
             .size
             .unwrap_or(self.server.request_handlers.num as u32)
+    }
+}
+
+/// Configuration for the multiplexer.
+#[derive(Deserialize, Debug, Default, Clone, Eq, PartialEq)]
+pub struct MultiplexingConfig {
+    /// Configuration of a pane.
+    #[serde(default)]
+    pane: MultiplexingPaneConfig,
+    /// Configuration of the commands of the multiplexer.
+    #[serde(default)]
+    commands: MultiplexingCommandsConfig,
+}
+
+impl MultiplexingConfig {
+    /// Return the configuration of a pane.
+    pub fn pane(&self) -> &MultiplexingPaneConfig {
+        &self.pane
+    }
+
+    /// Return the configuration of the commands of the multiplexer.
+    pub fn commands(&self) -> &MultiplexingCommandsConfig {
+        &self.commands
+    }
+}
+
+/// Configuration of a pane.
+#[derive(Deserialize, Debug, Clone, Eq, PartialEq)]
+pub struct MultiplexingPaneConfig {
+    /// How many rows of a pane are kept after they have scrolled off the top of it.
+    #[serde(default = "MultiplexingPaneConfig::default_buffer_size")]
+    buffer_size: usize,
+}
+
+impl Default for MultiplexingPaneConfig {
+    fn default() -> Self {
+        Self {
+            buffer_size: Self::default_buffer_size(),
+        }
+    }
+}
+
+impl MultiplexingPaneConfig {
+    /// Return how many rows are kept unless another number is configured.
+    fn default_buffer_size() -> usize {
+        DEFAULT_MULTIPLEXING_PANE_BUFFER_SIZE
+    }
+
+    /// Return how many rows of a pane are kept after they have scrolled off the top of it.
+    pub fn buffer_size(&self) -> usize {
+        self.buffer_size
+    }
+}
+
+/// Configuration of the commands of the multiplexer.
+#[derive(Deserialize, Debug, Default, Clone, Eq, PartialEq)]
+pub struct MultiplexingCommandsConfig {
+    /// Configuration of the history of the commands of the multiplexer.
+    #[serde(default)]
+    history: MultiplexingCommandsHistoryConfig,
+}
+
+impl MultiplexingCommandsConfig {
+    /// Return the configuration of the history of the commands of the multiplexer.
+    pub fn history(&self) -> &MultiplexingCommandsHistoryConfig {
+        &self.history
+    }
+}
+
+/// Configuration for the multiplexer command history.
+#[derive(Deserialize, Debug, Clone, Eq, PartialEq)]
+pub struct MultiplexingCommandsHistoryConfig {
+    /// The maximum length of the multiplexer command history.
+    #[serde(default = "MultiplexingCommandsHistoryConfig::default_length")]
+    length: usize,
+}
+
+impl Default for MultiplexingCommandsHistoryConfig {
+    fn default() -> Self {
+        Self {
+            length: Self::default_length(),
+        }
+    }
+}
+
+impl MultiplexingCommandsHistoryConfig {
+    /// Return the maximum length of the multiplexer command history unless another is configured.
+    fn default_length() -> usize {
+        DEFAULT_MULTIPLEXING_COMMANDS_HISTORY_LENGTH
+    }
+
+    /// Return the maximum length of the multiplexer command history.
+    pub fn length(&self) -> usize {
+        self.length
     }
 }
 

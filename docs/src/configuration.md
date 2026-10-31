@@ -2,11 +2,13 @@
 
 ## Insh Configuration
 
-Insh can be configured by the file `~/.insh/insh-config.yaml`.
+Insh can be configured by the file `~/.insh/config.yaml`.
 
 **general.tab_width** (`usize`): The width of the `<Tab>` character (default=`4`).
 
 **general.bell** (`bool`): Whether or not the bell sound should be made (default=`true`).
+
+**multiplexing.enabled** (`bool`): Whether or not multiplexing should be enabled (default=`true`).
 
 **browser.sort** (`map`|`null`): How files are sorted alphabetically. If `null`, then files are not sorted (default=`{}`).
 
@@ -25,6 +27,10 @@ Inshd can be configured by the file `~/.insh/inshd-config.yaml`.
 **server.request_handlers.num** (`usize`): The number of request handlers (default=`8`).
 
 **database.pool.size** (`usize`): The size of the database pool (default=`8`).
+
+**multiplexing.commands.history.length** (`usize`): The number of multiplexing command to store (default=`1000`).
+
+**multiplexing.pane.buffer_size** (`usize`): The buffer size of a pane (default=`20000`).
 
 **browser.history.length** (`usize`): The number of visited directories to store (default=`1000`).
 

@@ -25,6 +25,7 @@ const MEDIUM_BACKGROUND: AnsiColor = AnsiColor::Rgb {
 };
 
 /// A color.
+#[derive(Clone, Copy)]
 pub enum Color {
     /// Something which stands out.
     Highlight,
@@ -44,6 +45,12 @@ pub enum Color {
     InvertedBackground,
     /// The background of the footer.
     FooterBackground,
+    /// The background of the footer along the bottom of a session.
+    SessionFooterBackground,
+    /// The line drawn between two panes.
+    Border,
+    /// The line drawn along the edge of the pane what is typed goes to.
+    FocusedBorder,
     /// The background of what you said in a chat, which is the gray a selection is left when it
     /// is not focused.
     SaidBackground,
@@ -79,6 +86,9 @@ impl From<Color> for AnsiColor {
             Color::InvertedLightGrayedText => DARK_GRAY,
             Color::InvertedBackground => AnsiColor::BrightWhite,
             Color::FooterBackground => MEDIUM_BACKGROUND,
+            Color::SessionFooterBackground => AnsiColor::Green,
+            Color::Border => AnsiColor::White,
+            Color::FocusedBorder => AnsiColor::Green,
             Color::SaidBackground => MEDIUM_BACKGROUND,
             Color::CodeBackground => AnsiColor::Black,
             // These are the colors vim writes code in with a dark background, taken from vim

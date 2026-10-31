@@ -5,11 +5,7 @@ text.
 use std::cmp::Ordering;
 use std::ops::Range;
 
-use super::{Cell, Row, Size, Spot, Yarn};
-
-use ansi::Color;
-
-use itertools::izip;
+use super::{Cell, Location, Row, Size, Spot, Style, Yarn};
 
 // MAYBE TODO: Use ranges for storage to save memory when elements are sparse?
 /// A 2D rectangle of styled text.
@@ -19,28 +15,33 @@ pub struct Fabric {
     size: Size,
     /// The cells of the text, one for each column of each row.
     characters: Vec<Vec<Cell>>,
-    /// The text colors.
-    colors: Vec<Vec<Option<Color>>>,
-    /// The background colors of the text.
-    backgrounds: Vec<Vec<Option<Color>>>,
-    /// Which columns of which rows are written in bold.
-    bolds: Vec<Vec<bool>>,
+    /// The way each column of each row is written.
+    styles: Vec<Vec<Style>>,
+    /// Where the cursor is shown, which is nowhere at all when it is not shown.
+    cursor: Option<Location>,
 }
 
 impl Fabric {
     /// Return a new fabric with the given `size`.
     pub fn new(size: Size) -> Self {
         let characters = vec![vec![Cell::BLANK; size.columns]; size.rows];
-        let colors = vec![vec![]; size.rows];
-        let backgrounds = vec![vec![]; size.rows];
-        let bolds = vec![vec![]; size.rows];
+        let styles = vec![vec![]; size.rows];
         Fabric {
             size,
             characters,
-            colors,
-            backgrounds,
-            bolds,
+            styles,
+            cursor: None,
         }
+    }
+
+    /// Return where the cursor is shown, which is nowhere at all when it is not shown.
+    pub fn cursor(&self) -> Option<Location> {
+        return self.cursor;
+    }
+
+    /// Show the cursor in the given spot, or nowhere at all when there is none.
+    pub fn set_cursor(&mut self, cursor: Option<Location>) {
+        self.cursor = cursor;
     }
 
     /// Return a fabric with the string centered both vertically and horizontally.
@@ -82,9 +83,7 @@ impl Fabric {
 
         return Row::builder()
             .cells(cells)
-            .colors(Self::row_of(&self.colors, row))
-            .backgrounds(Self::row_of(&self.backgrounds, row))
-            .bolds(Self::bolds_of(&self.bolds, row))
+            .styles(Self::row_of(&self.styles, row))
             .build();
     }
 
@@ -93,18 +92,10 @@ impl Fabric {
         return self.row(row).spot(column);
     }
 
-    /// Return the given row of the colors, which is no colors at all when it is not there.
-    fn row_of(colors: &[Vec<Option<Color>>], row: usize) -> &[Option<Color>] {
-        return match colors.get(row) {
-            Some(colors) => colors,
-            None => &[],
-        };
-    }
-
-    /// Return the given row of the bolds, which is none of them when it is not there.
-    fn bolds_of(bolds: &[Vec<bool>], row: usize) -> &[bool] {
-        return match bolds.get(row) {
-            Some(bolds) => bolds,
+    /// Return the given row of the styles, which is none at all when it is not there.
+    fn row_of(styles: &[Vec<Style>], row: usize) -> &[Style] {
+        return match styles.get(row) {
+            Some(styles) => styles,
             None => &[],
         };
     }
@@ -115,9 +106,7 @@ impl Fabric {
         let blank: Vec<Cell> = vec![Cell::BLANK; self.size.columns];
 
         Self::scroll_rows(&mut self.characters, &band, rows, blank);
-        Self::scroll_rows(&mut self.colors, &band, rows, Vec::new());
-        Self::scroll_rows(&mut self.backgrounds, &band, rows, Vec::new());
-        Self::scroll_rows(&mut self.bolds, &band, rows, Vec::new());
+        Self::scroll_rows(&mut self.styles, &band, rows, Vec::new());
     }
 
     /// Move the rows of the band the given number of rows up, or down when that is negative, and
@@ -145,24 +134,70 @@ impl Fabric {
         }
     }
 
+    /// Write every column of the range of the row the given way, leaving what is written in them
+    /// as it is.
+    ///
+    /// Nothing is written for a row or for columns which are not there.
+    pub fn style(&mut self, style: Style, row: usize, columns: Range<usize>) {
+        let columns: Range<usize> =
+            columns.start.min(self.size.columns)..columns.end.min(self.size.columns);
+        if columns.is_empty() {
+            return;
+        }
+
+        let styles: &mut Vec<Style> = match self.styles.get_mut(row) {
+            Some(styles) => styles,
+            None => return,
+        };
+
+        // NOTE: The styles are only kept for as many columns as have been written in some way, so
+        // they are filled out as far as the range before any of them is changed.
+        if styles.len() < columns.end {
+            styles.resize(columns.end, Style::default());
+        }
+
+        for written in &mut styles[columns] {
+            *written = style;
+        }
+    }
+
+    /// Return what is written in the range of the row.
+    ///
+    /// A column which carries on the cluster in the column before it adds nothing, since the whole
+    /// cluster is already there. Nothing is returned for a row which is not there.
+    pub fn text(&self, row: usize, columns: Range<usize>) -> String {
+        let characters: &Vec<Cell> = match self.characters.get(row) {
+            Some(characters) => characters,
+            None => return String::new(),
+        };
+
+        let columns: Range<usize> =
+            columns.start.min(characters.len())..columns.end.min(characters.len());
+        if columns.is_empty() {
+            return String::new();
+        }
+
+        let mut text = String::new();
+        for cell in &characters[columns] {
+            match cell {
+                Cell::Char(character) => text.push(*character),
+                Cell::Cluster(cluster) => text.push_str(cluster),
+                Cell::Continuation => {}
+            }
+        }
+
+        return text;
+    }
+
     /// Return the cells composing the fabric, one for each column of each row.
     pub fn cells(&self) -> &Vec<Vec<Cell>> {
         &self.characters
     }
 
-    /// Return the text colors.
-    pub fn colors(&self) -> &Vec<Vec<Option<Color>>> {
-        &self.colors
-    }
-
-    /// Return the background colors of the text.
-    pub fn backgrounds(&self) -> &Vec<Vec<Option<Color>>> {
-        &self.backgrounds
-    }
-
-    /// Return which columns of which rows are written in bold.
-    pub fn bolds(&self) -> &Vec<Vec<bool>> {
-        &self.bolds
+    /// Return the way each column of each row is written, which may be given for fewer columns
+    /// than there are cells.
+    pub fn styles(&self) -> &Vec<Vec<Style>> {
+        &self.styles
     }
 
     /// Vertically pad the fabric to `new_rows` by adding rows above and below.
@@ -173,7 +208,6 @@ impl Fabric {
         match new_rows.cmp(&self.size.rows) {
             Ordering::Greater => {
                 let difference = new_rows - self.size.rows;
-                self.size = Size::new(new_rows, self.size.columns);
 
                 let top_pad_rows = difference / 2;
                 let bottom_pad_rows = difference - top_pad_rows;
@@ -184,22 +218,10 @@ impl Fabric {
                     vec![vec![Cell::BLANK; self.size.columns]; bottom_pad_rows],
                 ]
                 .concat();
-                self.colors = [
-                    vec![vec![None; self.size.columns]; top_pad_rows],
-                    self.colors.to_owned(),
-                    vec![vec![None; self.size.columns]; bottom_pad_rows],
-                ]
-                .concat();
-                self.backgrounds = [
-                    vec![vec![None; self.size.columns]; top_pad_rows],
-                    self.backgrounds.to_owned(),
-                    vec![vec![None; self.size.columns]; bottom_pad_rows],
-                ]
-                .concat();
-                self.bolds = [
-                    vec![vec![false; self.size.columns]; top_pad_rows],
-                    self.bolds.to_owned(),
-                    vec![vec![false; self.size.columns]; bottom_pad_rows],
+                self.styles = [
+                    vec![Vec::new(); top_pad_rows],
+                    self.styles.to_owned(),
+                    vec![Vec::new(); bottom_pad_rows],
                 ]
                 .concat();
             }
@@ -222,9 +244,7 @@ impl Fabric {
                 self.size = Size::new(new_rows, columns);
                 self.characters
                     .extend(vec![vec![Cell::BLANK; columns]; difference]);
-                self.colors.extend(vec![vec![]; difference]);
-                self.backgrounds.extend(vec![vec![]; difference]);
-                self.bolds.extend(vec![vec![]; difference]);
+                self.styles.extend(vec![vec![]; difference]);
             }
             Ordering::Less => {
                 panic!("Cannot pad a yarn to smaller than the current rows.")
@@ -236,16 +256,21 @@ impl Fabric {
     /// Combine this fabric with another adding the contents of the other fabric to the bottom of
     /// this one.
     pub fn quilt_bottom(mut self, other: Fabric) -> Fabric {
-        for (row, row_colors, row_backgrounds, row_bolds) in izip!(
-            other.characters,
-            other.colors,
-            other.backgrounds,
-            other.bolds
-        ) {
-            self.characters.push(row.to_vec());
-            self.colors.push(row_colors.to_vec());
-            self.backgrounds.push(row_backgrounds.to_vec());
-            self.bolds.push(row_bolds.to_vec());
+        // NOTE: Only one cursor is ever shown, so the one which is already there is kept and the
+        // other one is only taken when there is none. Nothing which is put together has a cursor
+        // in more than one of its parts, since only the pane which is focused shows one.
+        self.cursor = self.cursor.or_else(|| {
+            other.cursor.map(|at| {
+                Location::builder()
+                    .row(at.row + self.size.rows)
+                    .column(at.column)
+                    .build()
+            })
+        });
+
+        for (row, row_styles) in other.characters.into_iter().zip(other.styles) {
+            self.characters.push(row);
+            self.styles.push(row_styles);
         }
 
         self.size.rows += other.size.rows;
@@ -258,70 +283,162 @@ impl Fabric {
         self
     }
 
-    /// Combine this fabric with another putting the contents of the other fabric to the right of
-    /// this one.
+    /// Combine this fabric with another by putting the other one along the right of this one.
     ///
-    /// This is what puts two panes side by side.
+    /// The taller of the two says how many rows there are, and whichever of them falls short of
+    /// that is blank for the rest of them.
     pub fn quilt_right(mut self, other: Fabric) -> Fabric {
         let rows: usize = self.size.rows.max(other.size.rows);
         let columns: usize = self.size.columns;
 
+        // NOTE: Only one cursor is ever shown, the same way as when one fabric goes below another.
+        self.cursor = self.cursor.or_else(|| {
+            other.cursor.map(|at| {
+                Location::builder()
+                    .row(at.row)
+                    .column(at.column + columns)
+                    .build()
+            })
+        });
+
+        // NOTE: A row is allowed to stop short of the width of the fabric, so the rows on the left
+        // are filled out before the ones on the right go onto the end of them. Without that, the
+        // columns on the right would land wherever the row on the left happened to stop.
         self.characters.resize(rows, Vec::new());
-        self.colors.resize(rows, Vec::new());
-        self.backgrounds.resize(rows, Vec::new());
-        self.bolds.resize(rows, Vec::new());
+        self.styles.resize(rows, Vec::new());
+        for cells in &mut self.characters {
+            cells.resize(columns, Cell::BLANK);
+        }
 
-        for row in 0..rows {
-            // A row is only as long as the text in it, and the columns past the end are blanks. It
-            // has to be filled out to the full width first, or the other fabric would start part
-            // way into this one on every row which does not reach across.
-            self.characters[row].resize(columns, Cell::BLANK);
-            if row < other.size.rows {
-                let mut characters: Vec<Cell> = other.characters[row].clone();
-                characters.resize(other.size.columns, Cell::BLANK);
-                self.characters[row].append(&mut characters);
-            }
+        for (row, (cells, styles)) in other.characters.into_iter().zip(other.styles).enumerate() {
+            self.characters[row].extend(cells);
 
-            // An empty row of colors means that nothing in the row is colored, so it is left empty
-            // rather than filled with nothing, which is what a fabric built from text looks like.
-            let other_colors: &[Option<Color>] = match row < other.size.rows {
-                true => &other.colors[row],
-                false => &[],
-            };
-            if !self.colors[row].is_empty() || !other_colors.is_empty() {
-                self.colors[row].resize(columns, None);
-                let mut colors: Vec<Option<Color>> = other_colors.to_vec();
-                colors.resize(other.size.columns, None);
-                self.colors[row].append(&mut colors);
-            }
-
-            let other_backgrounds: &[Option<Color>] = match row < other.size.rows {
-                true => &other.backgrounds[row],
-                false => &[],
-            };
-            if !self.backgrounds[row].is_empty() || !other_backgrounds.is_empty() {
-                self.backgrounds[row].resize(columns, None);
-                let mut backgrounds: Vec<Option<Color>> = other_backgrounds.to_vec();
-                backgrounds.resize(other.size.columns, None);
-                self.backgrounds[row].append(&mut backgrounds);
-            }
-
-            let other_bolds: &[bool] = match row < other.size.rows {
-                true => &other.bolds[row],
-                false => &[],
-            };
-            if !self.bolds[row].is_empty() || !other_bolds.is_empty() {
-                self.bolds[row].resize(columns, false);
-                let mut bolds: Vec<bool> = other_bolds.to_vec();
-                bolds.resize(other.size.columns, false);
-                self.bolds[row].append(&mut bolds);
+            if !styles.is_empty() {
+                self.styles[row].resize(columns, Style::default());
+                self.styles[row].extend(styles);
             }
         }
 
-        self.size.rows = rows;
-        self.size.columns = columns + other.size.columns;
+        self.size = Size::new(rows, columns + other.size.columns);
 
         self
+    }
+
+    /// Put the other fabric onto this one with its top left corner in the given spot.
+    ///
+    /// Whatever of it would fall outside this fabric is left off, and this fabric stays the size
+    /// it already was.
+    pub fn blit(&mut self, other: &Fabric, at: Location) {
+        let columns: usize = self.size.columns;
+        if at.row >= self.size.rows || at.column >= columns {
+            return;
+        }
+
+        let width: usize = other.size.columns.min(columns - at.column);
+        let after: usize = columns - at.column - width;
+
+        // The cursor of the fabric which is put on shows through, so long as it lands somewhere
+        // which is not left off.
+        if let Some(cursor) = other.cursor {
+            if cursor.row < other.size.rows.min(self.size.rows - at.row) && cursor.column < width {
+                self.cursor = Some(
+                    Location::builder()
+                        .row(at.row + cursor.row)
+                        .column(at.column + cursor.column)
+                        .build(),
+                );
+            }
+        }
+
+        for row in 0..other.size.rows {
+            let onto: usize = at.row + row;
+            if onto >= self.size.rows {
+                break;
+            }
+
+            let mut cells: Vec<Cell> = self.characters[onto].clone();
+            cells.resize(columns, Cell::BLANK);
+            let mut styles: Vec<Style> = self.styles[onto].clone();
+            styles.resize(columns, Style::default());
+
+            // NOTE: A wide cluster which either edge of the other fabric cuts through is blanked
+            // rather than left with only half of itself written over, which would push the rest of
+            // the row along. Shortening the cells from either end is what already knows to do that.
+            let mut before: Vec<Cell> = cells.clone();
+            Cell::truncate(&mut before, at.column);
+
+            let mut middle: Vec<Cell> = (0..other.size.columns)
+                .map(|column| other.spot(row, column).cell().clone())
+                .collect();
+            Cell::truncate(&mut middle, width);
+
+            let mut behind: Vec<Cell> = cells;
+            Cell::keep_last(&mut behind, after);
+
+            let mut written: Vec<Cell> = before;
+            written.extend(middle);
+            written.extend(behind);
+            self.characters[onto] = written;
+
+            let mut restyled: Vec<Style> = styles[..at.column].to_vec();
+            restyled.extend((0..width).map(|column| other.spot(row, column).style()));
+            restyled.extend_from_slice(&styles[columns - after..]);
+            self.styles[onto] = restyled;
+        }
+    }
+
+    /// Return the part of the fabric of the given size with its top left corner in the given spot.
+    ///
+    /// A spot outside the fabric is blank, so the part which is taken is always the size which was
+    /// asked for however little of the fabric it covers.
+    pub fn crop(&self, at: Location, size: Size) -> Fabric {
+        let mut characters: Vec<Vec<Cell>> = Vec::with_capacity(size.rows);
+        let mut styles: Vec<Vec<Style>> = Vec::with_capacity(size.rows);
+
+        for row in 0..size.rows {
+            let from: usize = at.row + row;
+
+            let mut cells: Vec<Cell> = Vec::with_capacity(size.columns);
+            let mut row_styles: Vec<Style> = Vec::with_capacity(size.columns);
+            for column in 0..size.columns {
+                let spot: Spot = self.spot(from, at.column + column);
+                cells.push(spot.cell().clone());
+                row_styles.push(spot.style());
+            }
+
+            // NOTE: A wide cluster which either edge cuts through is blanked, the same way as when
+            // one fabric is put onto another.
+            if cells.first().is_some_and(Cell::is_continuation) {
+                cells[0] = Cell::BLANK;
+            }
+            if cells.last().is_some_and(|cell| cell.width() > 1) {
+                *cells.last_mut().unwrap() = Cell::BLANK;
+            }
+
+            characters.push(cells);
+            styles.push(row_styles);
+        }
+
+        // The cursor is only shown when it is in the part which is taken.
+        let cursor: Option<Location> = self
+            .cursor
+            .filter(|cursor| {
+                (cursor.row >= at.row && cursor.row < at.row + size.rows)
+                    && (cursor.column >= at.column && cursor.column < at.column + size.columns)
+            })
+            .map(|cursor| {
+                Location::builder()
+                    .row(cursor.row - at.row)
+                    .column(cursor.column - at.column)
+                    .build()
+            });
+
+        return Fabric {
+            size,
+            characters,
+            styles,
+            cursor,
+        };
     }
 }
 
@@ -353,17 +470,13 @@ impl From<Vec<Yarn>> for Fabric {
 
         // TODO: Only use one iteration here and don't clone?
         let characters: Vec<Vec<Cell>> = rows.iter().map(|row| row.cells().clone()).collect();
-        let colors: Vec<Vec<Option<Color>>> = rows.iter().map(|row| row.colors().clone()).collect();
-        let backgrounds: Vec<Vec<Option<Color>>> =
-            rows.iter().map(|row| row.backgrounds().clone()).collect();
-        let bolds: Vec<Vec<bool>> = rows.iter().map(|row| row.bolds().clone()).collect();
+        let styles: Vec<Vec<Style>> = rows.iter().map(|row| row.styles().clone()).collect();
 
         Fabric {
             size,
             characters,
-            colors,
-            backgrounds,
-            bolds,
+            styles,
+            cursor: None,
         }
     }
 }
@@ -377,16 +490,13 @@ impl From<Yarn> for Fabric {
         }
 
         let characters = vec![row.cells().to_vec()];
-        let colors = vec![row.colors().to_vec()];
-        let backgrounds = vec![row.backgrounds().to_vec()];
-        let bolds = vec![row.bolds().to_vec()];
+        let styles = vec![row.styles().to_vec()];
 
         Fabric {
             size,
             characters,
-            colors,
-            backgrounds,
-            bolds,
+            styles,
+            cursor: None,
         }
     }
 }
@@ -395,7 +505,51 @@ impl From<Yarn> for Fabric {
 mod tests {
     use super::*;
 
+    use ansi::Color;
+
     use test_case::test_case;
+
+    #[test_case(0, 0..3, "abc"; "the whole of a row")]
+    #[test_case(0, 1..3, "bc"; "the rest of a row")]
+    #[test_case(1, 0..2, "de"; "the start of another row")]
+    #[test_case(0, 2..2, ""; "no columns at all")]
+    #[test_case(0, 1..9, "bc"; "further than there are columns")]
+    #[test_case(9, 0..3, ""; "a row which is not there")]
+    #[test_case(0, 3..1, ""; "columns the wrong way round")]
+    fn test_text(row: usize, columns: Range<usize>, expected: &str) {
+        let fabric = Fabric::from(vec!["abc", "def"]);
+
+        assert_eq!(fabric.text(row, columns), expected);
+    }
+
+    #[test_case(0, 0..2, vec![Some(Color::Red), Some(Color::Red), None]; "the start of a row")]
+    #[test_case(0, 1..3, vec![None, Some(Color::Red), Some(Color::Red)]; "the rest of a row")]
+    #[test_case(0, 1..9, vec![None, Some(Color::Red), Some(Color::Red)]; "further than there are columns")]
+    #[test_case(0, 2..2, vec![None, None, None]; "no columns at all")]
+    fn test_style(row: usize, columns: Range<usize>, expected: Vec<Option<Color>>) {
+        let mut background = Style::default();
+        background.set_background(Some(Color::Red));
+        let mut fabric = Fabric::from(vec!["abc", "def"]);
+
+        fabric.style(background, row, columns);
+
+        let backgrounds: Vec<Option<Color>> = (0..3)
+            .map(|column| fabric.spot(row, column).style().background())
+            .collect();
+        assert_eq!(backgrounds, expected);
+    }
+
+    #[test]
+    fn test_styling_a_row_which_is_not_there_does_nothing() {
+        let mut background = Style::default();
+        background.set_background(Some(Color::Red));
+        let mut fabric = Fabric::from(vec!["abc", "def"]);
+        let before: Fabric = fabric.clone();
+
+        fabric.style(background, 9, 0..3);
+
+        assert_eq!(fabric, before);
+    }
 
     #[test_case(0..4, 1, Fabric::from(vec!["cd", "ef", "gh", "  "]); "every row up one")]
     #[test_case(0..4, -1, Fabric::from(vec!["  ", "ab", "cd", "ef"]); "every row down one")]
@@ -446,66 +600,111 @@ mod tests {
         assert_eq!(result, expected);
     }
 
-    #[test_case(
-        Fabric::from(vec!["ab", "cd"]),
-        Fabric::from(vec!["ef", "gh"]),
-        Fabric::from(vec!["abef", "cdgh"]);
-        "two of the same size"
-    )]
-    // The rows past the end of the other fabric are left as they are. A row which does not reach
-    // across is blank from there on, so there is nothing to add to it.
-    #[test_case(
-        Fabric::from(vec!["ab", "cd"]),
-        Fabric::from(vec!["ef"]),
-        Fabric::from(vec!["abef", "cd"]);
-        "the right one is shorter"
-    )]
-    #[test_case(
-        Fabric::from(vec!["ab"]),
-        Fabric::from(vec!["ef", "gh"]),
-        Fabric::from(vec!["abef", "  gh"]);
-        "the left one is shorter"
-    )]
-    #[test_case(
-        Fabric::from(vec!["ab", "c"]),
-        Fabric::from(vec!["ef", "gh"]),
-        Fabric::from(vec!["abef", "c gh"]);
-        "a row of the left one does not reach across"
-    )]
-    #[test_case(
-        Fabric::new(Size::new(2, 2)),
-        Fabric::from(vec!["ef", "gh"]),
-        Fabric::from(vec!["  ef", "  gh"]);
-        "the left one is blank"
-    )]
-    fn test_quilt_right(fabric: Fabric, other: Fabric, expected: Fabric) {
-        let result = fabric.quilt_right(other);
-
-        assert_eq!(result, expected);
+    /// Return what each row of the fabric is written with, which is what it looks like on a screen.
+    fn shown(fabric: &Fabric) -> Vec<String> {
+        return (0..fabric.size().rows)
+            .map(|row| {
+                (0..fabric.size().columns)
+                    .map(|column| fabric.spot(row, column).cell().to_string())
+                    .collect()
+            })
+            .collect();
     }
 
-    // Padding used to add the rows without saying that it had, which left whoever drew the fabric
-    // painting only the rows it started with and leaving whatever was under the rest on screen.
-    #[test_case(2, 5; "padding out")]
-    #[test_case(2, 3; "padding a little")]
-    #[test_case(2, 2; "padding to the size it already is")]
-    fn test_pad_says_how_big_it_is(rows: usize, new_rows: usize) {
-        let mut fabric = Fabric::new(Size::new(rows, 4));
+    #[test_case(Fabric::from(vec!["ab", "cd"]), Fabric::from(vec!["ef", "gh"]), vec!["abef", "cdgh"]; "two fabrics of the same size")]
+    #[test_case(Fabric::from(vec!["ab", "cd"]), Fabric::from(vec!["e"]), vec!["abe", "cd "]; "the one on the right being shorter")]
+    #[test_case(Fabric::from(vec!["a"]), Fabric::from(vec!["bc", "de"]), vec!["abc", " de"]; "the one on the left being shorter")]
+    #[test_case(Fabric::from(vec!["ab", "c"]), Fabric::from(vec!["de", "fg"]), vec!["abde", "c fg"]; "a row which stops short of the width filled out first")]
+    fn test_quilt_right(fabric: Fabric, other: Fabric, expected: Vec<&str>) {
+        let result: Fabric = fabric.quilt_right(other);
 
-        fabric.pad(new_rows);
-
-        assert_eq!(fabric.size().rows, new_rows);
-        assert_eq!(fabric.cells().len(), new_rows);
+        assert_eq!(shown(&result), expected);
+        assert_eq!(result.size().columns, expected[0].chars().count());
     }
 
-    #[test_case(2, 5; "padding out")]
-    #[test_case(2, 2; "padding to the size it already is")]
-    fn test_pad_bottom_says_how_big_it_is(rows: usize, new_rows: usize) {
-        let mut fabric = Fabric::new(Size::new(rows, 4));
+    /// Return the spot at the given row and column.
+    fn at(row: usize, column: usize) -> Location {
+        Location::builder().row(row).column(column).build()
+    }
 
-        fabric.pad_bottom(new_rows);
+    #[test_case(Fabric::from(vec!["XY"]), at(0, 0), vec!["XYcd", "efgh"]; "in the corner")]
+    #[test_case(Fabric::from(vec!["XY"]), at(1, 2), vec!["abcd", "efXY"]; "partway in")]
+    #[test_case(Fabric::from(vec!["XY", "ZW"]), at(0, 3), vec!["abcX", "efgZ"]; "what hangs off the right left off")]
+    #[test_case(Fabric::from(vec!["XY", "ZW"]), at(1, 0), vec!["abcd", "XYgh"]; "what hangs off the bottom left off")]
+    #[test_case(Fabric::from(vec!["XY"]), at(0, 9), vec!["abcd", "efgh"]; "past the right hand edge altogether")]
+    fn test_blit(other: Fabric, at: Location, expected: Vec<&str>) {
+        let mut fabric = Fabric::from(vec!["abcd", "efgh"]);
 
-        assert_eq!(fabric.size().rows, new_rows);
-        assert_eq!(fabric.cells().len(), new_rows);
+        fabric.blit(&other, at);
+
+        assert_eq!(shown(&fabric), expected);
+        assert_eq!(fabric.size(), Size::new(2, 4));
+    }
+
+    #[test]
+    fn test_blitting_over_half_of_a_wide_cluster_blanks_the_rest_of_it() {
+        // The crab is written in the second and third columns, so putting something over the third
+        // has to take the whole of it away rather than leave its first half behind.
+        let mut fabric = Fabric::from(vec!["a🦀b"]);
+
+        fabric.blit(&Fabric::from(vec!["XY"]), at(0, 2));
+
+        assert_eq!(shown(&fabric), vec!["a XY"]);
+    }
+
+    #[test]
+    fn test_a_wide_cluster_which_hangs_off_the_edge_is_blanked() {
+        let mut fabric = Fabric::from(vec!["abcd"]);
+
+        fabric.blit(&Fabric::from(vec!["🦀"]), at(0, 3));
+
+        assert_eq!(shown(&fabric), vec!["abc "]);
+    }
+
+    #[test]
+    fn test_blitting_keeps_how_the_columns_around_it_are_written() {
+        let mut yarn = Yarn::from("abcd");
+        yarn.color(Color::Red);
+        let mut fabric = Fabric::from(yarn);
+
+        let mut written = Yarn::from("X");
+        written.color(Color::Blue);
+        fabric.blit(&Fabric::from(written), at(0, 1));
+
+        let colors: Vec<Option<Color>> = (0..4)
+            .map(|column| fabric.spot(0, column).style().color())
+            .collect();
+        assert_eq!(
+            colors,
+            vec![
+                Some(Color::Red),
+                Some(Color::Blue),
+                Some(Color::Red),
+                Some(Color::Red)
+            ]
+        );
+    }
+
+    #[test_case(at(0, 0), Size::new(1, 2), vec!["ab"]; "the corner")]
+    #[test_case(at(1, 2), Size::new(1, 2), vec!["gh"]; "partway in")]
+    #[test_case(at(0, 3), Size::new(2, 2), vec!["d ", "h "]; "past the right hand edge is blank")]
+    #[test_case(at(2, 0), Size::new(1, 2), vec!["  "]; "past the bottom is blank")]
+    fn test_crop(at: Location, size: Size, expected: Vec<&str>) {
+        let fabric = Fabric::from(vec!["abcd", "efgh"]);
+
+        let cropped: Fabric = fabric.crop(at, size);
+
+        assert_eq!(shown(&cropped), expected);
+        assert_eq!(cropped.size(), size);
+    }
+
+    #[test_case(at(0, 2), vec![" b"]; "a wide cluster cut through at the start")]
+    #[test_case(at(0, 0), vec!["a "]; "a wide cluster cut through at the end")]
+    fn test_cropping_through_a_wide_cluster_blanks_it(at: Location, expected: Vec<&str>) {
+        let fabric = Fabric::from(vec!["a🦀b"]);
+
+        let cropped: Fabric = fabric.crop(at, Size::new(1, 2));
+
+        assert_eq!(shown(&cropped), expected);
     }
 }

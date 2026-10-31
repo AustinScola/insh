@@ -4,6 +4,7 @@ This module contains the [`Size`] struct which is used for representing a 2D siz
 
 /// A 2D size.
 #[derive(PartialEq, Eq, Debug, Clone, Copy, Default)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct Size {
     /// The number of rows.
     pub rows: usize,

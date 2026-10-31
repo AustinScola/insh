@@ -8,7 +8,7 @@ use crate::fabric::Fabric;
 use crate::location::Location;
 use crate::style::Style;
 
-use ansi::{ControlFunction, GraphicRendition};
+use ansi::{ControlFunction, GraphicRendition, Mode};
 
 use typed_builder::TypedBuilder;
 
@@ -33,6 +33,9 @@ pub struct Renderer<Writer: Write = Stdout> {
     /// Where the cursor is, when that is known.
     #[builder(setter(skip), default)]
     cursor: Option<Location>,
+    /// Whether the terminal is showing the cursor, when that is known.
+    #[builder(setter(skip), default)]
+    shown: Option<bool>,
 }
 
 impl<Writer: Write> Renderer<Writer> {
@@ -50,6 +53,11 @@ impl<Writer: Write> Renderer<Writer> {
             .style(self.style)
             .build();
         let woven: Frame = loom.weave();
+        // NOTE: What the loom leaves the terminal writing in is taken before anything else, so
+        // that it is done borrowing the screen by the time the cursor is put on the frame.
+        let style: Option<Style> = loom.style();
+
+        let instructions: Vec<Instruction> = self.with_cursor(&fabric, woven.into());
 
         // NOTE: The optimizer is told what the terminal is writing in before the frame, which is
         // what the loom was told, rather than what the frame leaves it writing in.
@@ -58,15 +66,61 @@ impl<Writer: Write> Renderer<Writer> {
             .style(self.style)
             .cursor(self.cursor)
             .build();
-        let frame: Frame = optimizer.optimize(woven);
+        let frame: Frame = optimizer.optimize(Frame::from(instructions));
 
-        self.style = loom.style();
+        self.style = style;
         self.cursor = optimizer.cursor();
 
         self.send(&frame);
         self.screen = Some(fabric);
 
         return frame;
+    }
+
+    /// Return the instructions along with the ones which put the cursor where the fabric shows it.
+    ///
+    /// The cursor is put away while the frame is drawn so that it is not seen going about the
+    /// screen on the way, and only when there is something being drawn for it to be seen during.
+    /// Whether it is shown is only said where that changes.
+    fn with_cursor(
+        &mut self,
+        fabric: &Fabric,
+        mut instructions: Vec<Instruction>,
+    ) -> Vec<Instruction> {
+        let shown: bool = fabric.cursor().is_some();
+
+        let hide: bool = !instructions.is_empty() && self.shown != Some(false);
+        if hide {
+            instructions.insert(0, Self::cursor_shown(false));
+        }
+
+        // The rows and columns of a fabric are counted from zero and a terminal counts them from
+        // one.
+        if let Some(at) = fabric.cursor() {
+            instructions.push(Instruction::from(ControlFunction::CursorPosition {
+                row: (at.row + 1).try_into().unwrap(),
+                column: (at.column + 1).try_into().unwrap(),
+            }));
+        }
+
+        let after: Option<bool> = match hide {
+            true => Some(false),
+            false => self.shown,
+        };
+        if after != Some(shown) {
+            instructions.push(Self::cursor_shown(shown));
+        }
+        self.shown = Some(shown);
+
+        return instructions;
+    }
+
+    /// Return the instruction which shows the cursor or puts it away.
+    fn cursor_shown(shown: bool) -> Instruction {
+        return Instruction::from(ControlFunction::SetMode {
+            modes: vec![Mode::CursorVisible],
+            set: shown,
+        });
     }
 
     /// Put the terminal back to writing in the colors it uses when none have been picked, and
@@ -84,6 +138,7 @@ impl<Writer: Write> Renderer<Writer> {
         self.style = Some(Style::default());
         self.screen = None;
         self.cursor = None;
+        self.shown = None;
     }
 
     /// Forget what the terminal is showing and where the cursor is, keeping what it is writing in.
@@ -109,9 +164,10 @@ mod tests {
 
     use crate::renderer::terminal::{Shown, Terminal};
     use crate::renderer::text::Text;
+    use crate::style::Attributes;
     use crate::yarn::Yarn;
 
-    use ansi::Color;
+    use ansi::{Color, Underline};
     use size::Size;
 
     use test_case::test_case;
@@ -131,6 +187,19 @@ mod tests {
             yarn.background(background);
         }
         yarn
+    }
+
+    /// Return the yarn of the text written the given way from the position on.
+    fn styled(string: &str, style: Style, position: usize) -> Yarn {
+        let mut yarn = Yarn::from(string);
+        let len: usize = yarn.len();
+        yarn.style(style, position..len);
+        yarn
+    }
+
+    /// Return the style with the given attributes on.
+    fn attributed(attributes: Attributes) -> Style {
+        Style::builder().attributes(attributes).build()
     }
 
     /// Return the fabrics which are drawn one after another, which between them cover a column
@@ -162,6 +231,36 @@ mod tests {
             // The rows above moved up one, which is what scrolling a list looks like.
             Fabric::from(vec![plain("ghijkl"), plain("mnopqr"), plain("stuvwx")]),
             // And back down again.
+            Fabric::from(vec![plain("abcdef"), plain("ghijkl"), plain("mnopqr")]),
+            // Attributes coming on partway along a row, and an underline along with a color.
+            Fabric::from(vec![
+                styled("abcdef", attributed(Attributes::BOLD), 2),
+                styled(
+                    "ghijkl",
+                    attributed(Attributes::REVERSE | Attributes::STRIKE),
+                    0,
+                ),
+                styled(
+                    "mnopqr",
+                    Style::builder()
+                        .underline(Underline::Curly)
+                        .color(Some(Color::Red))
+                        .build(),
+                    3,
+                ),
+            ]),
+            // Bold going off while faint stays on, which is the one pair the same rendition turns
+            // off, and an underline going off on its own.
+            Fabric::from(vec![
+                styled(
+                    "abcdef",
+                    attributed(Attributes::BOLD | Attributes::FAINT),
+                    2,
+                ),
+                styled("ghijkl", attributed(Attributes::FAINT), 2),
+                styled("mnopqr", Style::default(), 3),
+            ]),
+            // And everything back off again.
             Fabric::from(vec![plain("abcdef"), plain("ghijkl"), plain("mnopqr")]),
         ]
     }
@@ -239,6 +338,34 @@ mod tests {
     }
 
     #[test]
+    fn test_a_row_which_goes_blank_is_blanked_on_the_screen() {
+        // A screen which is mostly blank is what a list drawn over everything else looks like, and
+        // the one row of it which had something on it has to be cleared when it no longer does.
+        let centered = |text: &str| {
+            let mut yarns: Vec<Yarn> = vec![Yarn::blank(COLUMNS); ROWS];
+            yarns[ROWS / 2] = Yarn::center(text, COLUMNS);
+            Fabric::from(yarns)
+        };
+        let listed = || {
+            let mut yarns: Vec<Yarn> = vec![Yarn::blank(COLUMNS); ROWS];
+            yarns[0] = {
+                let mut yarn = Yarn::from("a session");
+                yarn.resize(COLUMNS);
+                yarn
+            };
+            Fabric::from(yarns)
+        };
+
+        let mut renderer: Renderer<Vec<u8>> = Renderer::builder().writer(Vec::new()).build();
+        let mut terminal = Terminal::from(Size::new(ROWS, COLUMNS));
+
+        terminal.draw(&renderer.render(centered("No sessions.")));
+        terminal.draw(&renderer.render(listed()));
+
+        assert_eq!(terminal.screen(), &Shown::all(&listed()));
+    }
+
+    #[test]
     fn test_reset() {
         let mut renderer: Renderer<Vec<u8>> = Renderer::builder().writer(Vec::new()).build();
         let fabric = Fabric::from(Yarn::from("abc"));
@@ -248,14 +375,69 @@ mod tests {
         let frame: Frame = renderer.render(fabric);
 
         // The sequence which puts the colors back is sent, and then all of the fabric is drawn
-        // again even though none of it changed.
-        assert_eq!(renderer.writer().ends_with(b"\x1b[m\x1b[Habc"), true);
+        // again even though none of it changed. The cursor is put away again along with it,
+        // because a reset is for when something else has had the terminal and whether it left the
+        // cursor showing is not something which can be worked out.
+        assert_eq!(
+            renderer.writer().ends_with(b"\x1b[m\x1b[?25l\x1b[Habc"),
+            true
+        );
         assert_eq!(
             frame,
             Frame::from(vec![
+                Instruction::from(ControlFunction::SetMode {
+                    modes: vec![Mode::CursorVisible],
+                    set: false,
+                }),
                 Instruction::from(ControlFunction::CursorPosition { row: 1, column: 1 }),
                 Instruction::from(Text::from("abc")),
             ])
         );
+    }
+
+    /// Return the fabric of the text with the cursor shown in the given column.
+    fn with_cursor(string: &str, column: Option<usize>) -> Fabric {
+        let mut fabric = Fabric::from(Yarn::from(string));
+        fabric.set_cursor(column.map(|column| Location::builder().row(0).column(column).build()));
+        fabric
+    }
+
+    #[test]
+    fn test_the_cursor_ends_up_where_the_fabric_shows_it() {
+        let mut renderer: Renderer<Vec<u8>> = Renderer::builder().writer(Vec::new()).build();
+        let mut terminal = Terminal::from(Size::new(1, 3));
+
+        // It starts out being put away, since nothing is showing one.
+        terminal.draw(&renderer.render(with_cursor("abc", None)));
+        assert_eq!(terminal.cursor(), None);
+
+        // Then it is shown where the fabric says.
+        terminal.draw(&renderer.render(with_cursor("abd", Some(1))));
+        assert_eq!(
+            terminal.cursor(),
+            Some(Location::builder().row(0).column(1).build())
+        );
+
+        // And moves along with it.
+        terminal.draw(&renderer.render(with_cursor("abe", Some(2))));
+        assert_eq!(
+            terminal.cursor(),
+            Some(Location::builder().row(0).column(2).build())
+        );
+
+        // And is put away again when nothing is showing one.
+        terminal.draw(&renderer.render(with_cursor("abf", None)));
+        assert_eq!(terminal.cursor(), None);
+    }
+
+    #[test]
+    fn test_nothing_is_said_about_the_cursor_when_nothing_about_it_changed() {
+        let mut renderer: Renderer<Vec<u8>> = Renderer::builder().writer(Vec::new()).build();
+        let fabric = with_cursor("abc", Some(1));
+        renderer.render(fabric.clone());
+
+        let frame: Frame = renderer.render(fabric);
+
+        assert_eq!(frame, Frame::default());
     }
 }

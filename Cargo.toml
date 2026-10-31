@@ -15,6 +15,7 @@ members = [
     "til",
     "term",
     "rend",
+    "terminal-emulator",
     "path-finder",
     "phrase-searcher",
     "size",
@@ -45,7 +46,7 @@ lazy_static = "1.5.0"
 #
 # NOTE: Every module is opt-in as of 0.27, so the features have to be listed explicitly. `event` is
 # `sys::select`, `term` is `pty::forkpty`, and `fs` covers `chdir`/`chown`/`umask`.
-nix = { version = "0.31.3", features = ["event", "fs", "poll", "process", "signal", "term", "time", "user"] }
+nix = { version = "0.31.3", features = ["event", "fs", "hostname", "poll", "process", "signal", "term", "time", "user"] }
 
 # Used to create a parser for text with ANSI escape codes.
 nom = "8.0.0"
