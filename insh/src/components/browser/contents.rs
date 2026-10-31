@@ -403,13 +403,15 @@ impl Component<Props, Event, Effect> for Contents {
 
                     // The columns are sized by *all* of the entries (not just the visible ones) so
                     // that they do not shift around when scrolling. The metadata is only shown if
-                    // the whole listing fits without anything being cut off.
+                    // the whole listing fits without anything being cut off, and only once it has
+                    // arrived, since the entries would otherwise look as if it could not be read.
+                    let metadata: bool = self.state.metadata && !self.state.awaiting_metadata;
                     let mut hard_links_width: usize = 1;
                     let mut user_width: usize = 1;
                     let mut group_width: usize = 1;
                     let mut size_width: usize = 1;
                     let mut name_width: usize = 0;
-                    if self.state.metadata {
+                    if metadata {
                         for entry in file_infos {
                             name_width =
                                 cmp::max(name_width, Cell::columns(&name_and_link_target(entry)));
@@ -433,7 +435,7 @@ impl Component<Props, Event, Effect> for Contents {
                                 cmp::max(size_width, metadata.size().to_string().chars().count());
                         }
                     }
-                    let show_metadata: bool = self.state.metadata
+                    let show_metadata: bool = metadata
                         && entry::width(
                             hard_links_width,
                             user_width,
@@ -674,6 +676,8 @@ struct State {
 
     /// Whether the entries are shown with their metadata.
     metadata: bool,
+    /// Whether the metadata was asked for and has not arrived yet.
+    awaiting_metadata: bool,
 
     /// Which of the shown files is selected.
     selected: Option<usize>,
@@ -702,6 +706,7 @@ impl From<Props> for State {
             message: None,
             file_infos: None,
             metadata,
+            awaiting_metadata: false,
             selected: None,
             offset: 0,
         }
@@ -1194,6 +1199,8 @@ impl State {
 
         self.remember_position();
 
+        self.awaiting_metadata = true;
+
         let request = self.get_files_request();
         self.pending_request = Some(*request.uuid());
         Some(Effect::Request(request))
@@ -1259,6 +1266,7 @@ impl State {
         };
 
         self.file_infos = Some(params.result().clone());
+        self.awaiting_metadata = false;
 
         // Adjust the selected entry and offset.
         let selected;

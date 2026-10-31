@@ -503,6 +503,7 @@ mod state {
         /// the browser again once the program in it has finished.
         pub fn relayout(&mut self, layout: PaneLayout) {
             let changed: bool = layout.kind() != self.layout.kind();
+            let resized: bool = layout.size() != self.layout.size();
             self.layout = layout;
 
             if changed {
@@ -514,6 +515,12 @@ mod state {
 
             if let Contents::Terminal(terminal) = &mut self.contents {
                 terminal.relayout(self.layout.clone());
+            }
+
+            // NOTE: Changing size is something the components only take note of, so there is
+            // nothing which comes of it to be done.
+            if resized {
+                self.term_event(TermEvent::Resize(self.layout.size()));
             }
         }
 
@@ -642,3 +649,125 @@ mod state {
     }
 }
 use state::State;
+
+#[cfg(test)]
+mod tests {
+    use std::path::PathBuf;
+
+    use super::{Effect, Event, Pane, Props};
+    use crate::config::Config;
+
+    use file_info::{FileInfo, FileMetadata};
+    use file_type::FileType;
+    use insh_api::{GetFilesResponseParams, PaneLayout, Request, Response, ResponseParams};
+    use rend::{Fabric, Location, Size};
+    use term::{Key, KeyEvent, KeyMods, TermEvent};
+    use til::Component;
+
+    use uuid::Uuid;
+
+    /// Return the layout of a pane of the given size.
+    fn layout(rows: usize, columns: usize) -> PaneLayout {
+        PaneLayout::builder()
+            .pane(Uuid::from_u128(1))
+            .at(Location::default())
+            .size(Size::new(rows, columns))
+            .build()
+    }
+
+    /// Return the given number of files, which have metadata when it is given.
+    fn files(count: usize, metadata: Option<FileMetadata>) -> Vec<FileInfo> {
+        (0..count)
+            .map(|file| {
+                FileInfo::builder()
+                    .path(PathBuf::from(format!("/tmp/file{:02}", file)))
+                    .r#type(Ok(FileType::File))
+                    .metadata(metadata.clone())
+                    .build()
+            })
+            .collect()
+    }
+
+    /// Return some metadata for a file.
+    fn metadata() -> FileMetadata {
+        FileMetadata::builder()
+            .mode(0o100664)
+            .hard_links(1)
+            .uid(1000)
+            .user(Some(String::from("austin")))
+            .gid(1000)
+            .group(Some(String::from("austin")))
+            .size(123)
+            .modified(0)
+            .build()
+    }
+
+    /// Answer the request with the given files.
+    fn answer(pane: &mut Pane, request: &Request, files: Vec<FileInfo>) {
+        pane.handle(Event::Response(
+            Response::builder()
+                .uuid(*request.uuid())
+                .params(ResponseParams::GetFiles(
+                    GetFilesResponseParams::builder().result(Ok(files)).build(),
+                ))
+                .build(),
+        ));
+    }
+
+    /// Return a pane of the given size with a browser showing the given files.
+    fn browsing(rows: usize, columns: usize, files: Vec<FileInfo>) -> Pane {
+        let mut pane: Pane = Pane::new(
+            Props::builder()
+                .layout(layout(rows, columns))
+                .dir(PathBuf::from("/tmp"))
+                .config(Config::default())
+                .build(),
+        );
+        let asked: Vec<Request> = pane.take_asked();
+        answer(&mut pane, asked.last().unwrap(), files);
+        pane
+    }
+
+    /// Press the key in the pane.
+    fn press(pane: &mut Pane, character: char) -> Option<Effect> {
+        pane.handle(Event::TermEvent(TermEvent::KeyEvent(KeyEvent {
+            key: Key::Char(character),
+            mods: KeyMods::NONE,
+        })))
+    }
+
+    /// Return everything which is drawn in the pane.
+    fn drawn(pane: &Pane) -> String {
+        let fabric: Fabric = pane.render(Size::new(0, 0));
+        (0..fabric.size().rows)
+            .map(|row| fabric.text(row, 0..fabric.size().columns))
+            .collect::<Vec<String>>()
+            .join("\n")
+    }
+
+    #[test]
+    fn test_the_selected_row_stays_visible_after_the_pane_gets_smaller() {
+        let mut pane: Pane = browsing(20, 40, files(20, None));
+
+        pane.relayout(layout(6, 40));
+        for _ in 0..9 {
+            press(&mut pane, 'j');
+        }
+
+        assert!(drawn(&pane).contains("file09"));
+    }
+
+    #[test]
+    fn test_the_metadata_is_not_shown_as_unknown_while_it_is_on_its_way() {
+        let mut pane: Pane = browsing(10, 80, files(3, None));
+
+        let request: Request = match press(&mut pane, 'm') {
+            Some(Effect::Request(request)) => request,
+            _ => panic!("Expected the metadata to be asked for."),
+        };
+        assert!(!drawn(&pane).contains('?'));
+
+        answer(&mut pane, &request, files(3, Some(metadata())));
+        assert!(drawn(&pane).contains("-rw-rw-r--"));
+    }
+}

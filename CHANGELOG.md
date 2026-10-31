@@ -1,3 +1,8 @@
+# 0.6.2
+- Fix tracking of the pane sizes.
+- Change metadata to only be shown in the file browser once it is known.
+- Fix updating of the cursor position in the terminal.
+
 # 0.6.1
 - Fix running PostgreSQL and fix the pinning of the version of PostgreSQL that is installed.
 

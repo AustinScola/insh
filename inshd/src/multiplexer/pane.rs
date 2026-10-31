@@ -269,8 +269,9 @@ impl Pane {
 
         let damaged = program.screen.take_damage();
         let bells: usize = program.screen.take_bells();
+        let status_changed: bool = program.screen.take_status_changed();
 
-        if damaged.is_empty() && bells == 0 {
+        if damaged.is_empty() && bells == 0 && !status_changed {
             return None;
         }
 
@@ -295,6 +296,7 @@ impl Pane {
         // Asking for what changed as well takes it as having been sent, so that it is not sent
         // again straight after this.
         program.screen.take_damage();
+        program.screen.take_status_changed();
         let bells: usize = program.screen.take_bells();
 
         let rows: Vec<PaneRow> = (0..program.screen.size().rows)
@@ -356,5 +358,41 @@ impl Pane {
         // NOTE: Waiting without hanging about is enough, because the reader is what notices the
         // program has gone and the pane is waited for properly then.
         let _ = waitpid(program.child, Some(WaitPidFlag::WNOHANG));
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    use rend::Location;
+
+    #[test]
+    fn test_moving_the_cursor_without_writing_on_a_row_is_sent() {
+        let mut pane: Pane = Pane::empty(Size::new(2, 8));
+        let _pseudoterminals = pane
+            .run(
+                Props::builder()
+                    .program(OsString::from("cat"))
+                    .buffer_size(0)
+                    .build(),
+            )
+            .unwrap();
+        pane.wrote(b"abc");
+        pane.screen();
+
+        // This is what bash writes when the left arrow key is pressed.
+        pane.wrote(b"\x08");
+
+        let screen: PaneScreen = pane.screen().unwrap();
+        assert_eq!(screen.rows().len(), 0);
+        assert_eq!(
+            screen.cursor(),
+            Some(Location::builder().row(0).column(2).build())
+        );
+        // It was only moved the once, so there is nothing more to say about it.
+        assert!(pane.screen().is_none());
+
+        pane.close();
     }
 }

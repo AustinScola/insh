@@ -1732,7 +1732,7 @@ dependencies = [
 
 [[package]]
 name = "insh"
-version = "0.6.1"
+version = "0.6.2"
 dependencies = [
  "ansi",
  "bitflags",
@@ -1804,7 +1804,7 @@ dependencies = [
 
 [[package]]
 name = "inshd"
-version = "0.6.1"
+version = "0.6.2"
 dependencies = [
  "ai-client",
  "ansi",

@@ -42,6 +42,19 @@ mod screen {
     };
     use rend::{Cell, Fabric, Location, Size, Style};
 
+    use typed_builder::TypedBuilder;
+
+    /// What there is to say about a screen apart from what is written on its rows.
+    #[derive(TypedBuilder, Debug, Clone, PartialEq, Eq)]
+    struct Status {
+        /// Where the cursor is.
+        cursor: Location,
+        /// The ways the screen has been asked to behave.
+        modes: Modes,
+        /// What the program has asked the title to be.
+        title: Option<String>,
+    }
+
     /// What the bytes a program writes mean to show.
     #[derive(Debug, Clone)]
     pub struct Screen {
@@ -76,17 +89,25 @@ mod screen {
         bells: usize,
         /// How many rows back through what has scrolled off the top is being looked.
         looking_back: usize,
+        /// What was last taken as having been sent, apart from the rows.
+        sent: Status,
     }
 
     impl From<Props> for Screen {
         fn from(props: Props) -> Self {
             let size: Size = Self::at_least_one(props.size);
+            let cursor: Cursor = Cursor::default();
 
             return Self {
                 size,
                 grid: Grid::blank(size),
                 other: None,
-                cursor: Cursor::default(),
+                sent: Status::builder()
+                    .cursor(cursor.at)
+                    .modes(Modes::default())
+                    .title(None)
+                    .build(),
+                cursor,
                 saved: None,
                 region: 0..size.rows,
                 tabs: Self::default_tabs(size.columns),
@@ -170,6 +191,23 @@ mod screen {
         /// program writes one character on it.
         pub fn take_damage(&mut self) -> BTreeSet<usize> {
             return self.grid.take_damage();
+        }
+
+        /// Return whether anything apart from the rows has changed since this was last asked, and
+        /// take it as having been sent.
+        ///
+        /// A program can move the cursor or change the way the screen behaves without writing on
+        /// any row at all, which is something that the damage has nothing to say about.
+        pub fn take_status_changed(&mut self) -> bool {
+            let status: Status = Status::builder()
+                .cursor(self.cursor.at)
+                .modes(self.modes)
+                .title(self.title.clone())
+                .build();
+
+            let changed: bool = status != self.sent;
+            self.sent = status;
+            return changed;
         }
 
         /// Return the given row of what is being looked at.
@@ -1206,6 +1244,32 @@ mod screen {
             write(&mut screen, b"\r\ne");
 
             assert_eq!(screen.take_damage(), BTreeSet::from([0, 1, 2, 3]));
+        }
+
+        #[test_case(b"\x08"; "moving the cursor")]
+        #[test_case(b"\x1b[?1h"; "changing the way it behaves")]
+        #[test_case(b"\x1b]2;title\x07"; "changing the title")]
+        fn test_a_change_which_writes_on_no_row_is_waiting_to_be_sent(bytes: &[u8]) {
+            let mut screen = screen();
+            write(&mut screen, b"abc");
+            screen.take_damage();
+            screen.take_status_changed();
+
+            write(&mut screen, bytes);
+
+            assert_eq!(screen.take_damage(), BTreeSet::new());
+            assert_eq!(screen.take_status_changed(), true);
+            // Asking for it takes it as having been sent.
+            assert_eq!(screen.take_status_changed(), false);
+        }
+
+        #[test]
+        fn test_nothing_is_waiting_to_be_sent_when_nothing_changed() {
+            let mut screen = screen();
+
+            write(&mut screen, b"");
+
+            assert_eq!(screen.take_status_changed(), false);
         }
 
         #[test]
