@@ -110,16 +110,17 @@ bitflags = "2.13.1"
 # Used for raw terminal control.
 termios = "0.3.3"
 
-# Used to run an embedded PostgreSQL server. The `bundled` feature embeds the PostgreSQL binaries
-# in the executable so that PostgreSQL does not have to be installed separately.
-postgresql_embedded = { version = "0.21.0", default-features = false, features = ["blocking", "bundled", "theseus", "tls-rustls-ring"] }
+# Used to run an embedded PostgreSQL server. Its `bundled` feature is left off because that picks
+# the version of PostgreSQL from an environment variable, which `cargo install --git` has no way of
+# setting. `insh-db` embeds the PostgreSQL binaries itself instead.
+postgresql_embedded = { version = "0.22.0", default-features = false, features = ["blocking", "theseus", "tls-rustls-ring"] }
 
 # Used to run `pg_ctl` directly in order to stop a PostgreSQL server which was left running.
-postgresql_commands = "0.21.0"
+postgresql_commands = "0.22.0"
 
-# Used at build time to get the PostgreSQL headers and PGXS makefiles which pgvector is built
-# against. This is the same archive that `postgresql_embedded` runs the server from.
-postgresql_archive = { version = "0.21.0", default-features = false, features = ["blocking", "theseus", "tls-rustls-ring"] }
+# Used at build time to get the PostgreSQL archive which is embedded in the executable and which
+# pgvector is built against, and at run time to extract it.
+postgresql_archive = { version = "0.22.0", default-features = false, features = ["blocking", "theseus", "tls-rustls-ring"] }
 
 # Used as an ORM for the database.
 diesel = { version = "2.3.12", features = ["postgres", "r2d2"] }

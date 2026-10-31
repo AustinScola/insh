@@ -1,3 +1,6 @@
+# 0.6.1
+- Fix running PostgreSQL and fix the pinning of the version of PostgreSQL that is installed.
+
 # 0.6.0
 - Add multiplexing.
 

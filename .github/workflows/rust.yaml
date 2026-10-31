@@ -75,7 +75,7 @@ jobs:
           cache-name: postgresql-archive
         with:
           path: ~/.theseus/
-          key: ${{ env.cache-name }}-${{ runner.os }}-${{ hashFiles('.cargo/config.toml') }}
+          key: ${{ env.cache-name }}-${{ runner.os }}-${{ hashFiles('insh-db/build.rs') }}
           restore-keys: |
             ${{ env.cache-name }}-${{ runner.os }}-
 
@@ -133,7 +133,7 @@ jobs:
           cache-name: postgresql-archive
         with:
           path: ~/.theseus/
-          key: ${{ env.cache-name }}-${{ runner.os }}-${{ hashFiles('.cargo/config.toml') }}
+          key: ${{ env.cache-name }}-${{ runner.os }}-${{ hashFiles('insh-db/build.rs') }}
           restore-keys: |
             ${{ env.cache-name }}-${{ runner.os }}-
 
@@ -192,7 +192,7 @@ jobs:
           cache-name: postgresql-archive
         with:
           path: ~/.theseus/
-          key: ${{ env.cache-name }}-${{ runner.os }}-${{ hashFiles('.cargo/config.toml') }}
+          key: ${{ env.cache-name }}-${{ runner.os }}-${{ hashFiles('insh-db/build.rs') }}
           restore-keys: |
             ${{ env.cache-name }}-${{ runner.os }}-
 
@@ -335,7 +335,7 @@ jobs:
           cache-name: postgresql-archive
         with:
           path: ~/.theseus/
-          key: ${{ env.cache-name }}-${{ runner.os }}-${{ hashFiles('.cargo/config.toml') }}
+          key: ${{ env.cache-name }}-${{ runner.os }}-${{ hashFiles('insh-db/build.rs') }}
           restore-keys: |
             ${{ env.cache-name }}-${{ runner.os }}-
 

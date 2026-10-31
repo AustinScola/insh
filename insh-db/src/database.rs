@@ -23,10 +23,12 @@ use diesel::pg::PgConnection;
 use diesel::r2d2::{ConnectionManager, Pool};
 use diesel_migrations::{embed_migrations, EmbeddedMigrations, MigrationHarness};
 use nix::unistd::{getuid, Uid, User};
+use postgresql_archive::blocking::extract;
+use postgresql_archive::configuration::theseus::URL;
 use postgresql_commands::pg_ctl::{Mode, PgCtlBuilder, ShutdownMode};
 use postgresql_commands::{CommandBuilder, CommandExecutor};
 use postgresql_embedded::blocking::PostgreSQL;
-use postgresql_embedded::{Settings, Version};
+use postgresql_embedded::Settings;
 
 /// The migrations which are embedded in the executable.
 const MIGRATIONS: EmbeddedMigrations = embed_migrations!();
@@ -61,6 +63,14 @@ const IDENT_FILE_NAME: &str = "pg_ident.conf";
 
 /// The name of the mapping of the operating system user to the database user.
 const IDENT_MAP_NAME: &str = "insh";
+
+/// The version of PostgreSQL which is embedded in the executable.
+///
+/// This is decided by the build script, which is what embeds it.
+const POSTGRESQL_VERSION: &str = env!("POSTGRESQL_VERSION");
+
+/// The archive of the PostgreSQL server, which is embedded by the build script.
+const POSTGRESQL_ARCHIVE: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/postgresql.tar.gz"));
 
 /// The version of pgvector which is installed.
 ///
@@ -113,9 +123,6 @@ pub struct Database {
 
     /// A pool of connections to the database.
     conn_pool: DbConnPool,
-
-    /// The version of the PostgreSQL server which is running.
-    version: String,
 }
 
 impl Database {
@@ -125,6 +132,7 @@ impl Database {
         make_private_dir(&INSHD_POSTGRES_DIR).map_err(StartError::CreateDirFailed)?;
 
         let settings: Settings = Self::settings();
+        Self::install_server(&settings.installation_dir)?;
 
         // PostgreSQL writes the password file itself if it does not exist, but with permissions
         // that let the group and others read it, so write it first.
@@ -144,8 +152,7 @@ impl Database {
         Self::write_auth_config(postgres.settings())?;
         log::info!("Set up the database.");
 
-        let version: String = Self::version_of(&postgres.settings().installation_dir)?;
-        log::info!("The database server is version {}.", version);
+        log::info!("The database server is version {}.", POSTGRESQL_VERSION);
 
         // The daemon may have been killed without getting the chance to stop the server.
         Self::stop_orphaned_server(postgres.settings());
@@ -192,7 +199,6 @@ impl Database {
         return Ok(Self {
             postgres,
             conn_pool,
-            version,
         });
     }
 
@@ -203,7 +209,7 @@ impl Database {
 
     /// Return the version of the PostgreSQL server which is running.
     pub fn version(&self) -> &str {
-        return &self.version;
+        return POSTGRESQL_VERSION;
     }
 
     /// Stop the database.
@@ -238,10 +244,12 @@ impl Database {
         configuration.insert("listen_addresses".to_string(), "''".to_string());
 
         return Settings {
-            // The server binaries are installed in a directory named after their version in here,
-            // and the unix socket is created in here too.
-            installation_dir: INSHD_POSTGRES_DIR.clone(),
+            // The embedded server is extracted here before anything else looks for it, so there
+            // is never a reason to go looking for another one or to download it.
+            installation_dir: INSHD_POSTGRES_DIR.join(POSTGRESQL_VERSION),
+            trust_installation_dir: true,
             data_dir: INSHD_POSTGRES_DATA_DIR.clone(),
+            // The unix socket is created next to the server binaries.
             socket_dir: Some(INSHD_POSTGRES_DIR.clone()),
             password_file: INSHD_POSTGRES_DIR.join(PWFILE_NAME),
             port: POSTGRES_PORT,
@@ -253,24 +261,18 @@ impl Database {
         };
     }
 
-    /// Return the version of the PostgreSQL server which is installed in a directory.
-    ///
-    /// The server binaries are installed in a directory which is named after their version, so
-    /// there is nothing else to read the version from.
-    fn version_of(installation_dir: &Path) -> Result<String, StartError> {
-        let name: Option<String> = installation_dir
-            .file_name()
-            .map(|name| name.to_string_lossy().to_string());
+    /// Extract the embedded server into a directory, if that has not been done already.
+    fn install_server(installation_dir: &Path) -> Result<(), StartError> {
+        if installation_dir.exists() {
+            return Ok(());
+        }
 
-        let version: Option<Version> = match &name {
-            Some(name) => Version::parse(name).ok(),
-            None => None,
-        };
+        log::info!("Installing the database server...");
+        extract(URL, &POSTGRESQL_ARCHIVE.to_vec(), installation_dir)
+            .map_err(StartError::InstallServerFailed)?;
+        log::info!("Installed the database server.");
 
-        return match version {
-            Some(version) => Ok(version.to_string()),
-            None => Err(StartError::UnknownVersion(installation_dir.to_path_buf())),
-        };
+        return Ok(());
     }
 
     /// Configure PostgreSQL to authenticate connections by operating system user.
@@ -420,6 +422,7 @@ mod start_error {
 
     use diesel::r2d2::PoolError;
     use nix::errno::Errno;
+    use postgresql_archive::Error as ArchiveError;
     use postgresql_embedded::Error as PostgresError;
 
     /// An error starting the database.
@@ -439,10 +442,10 @@ mod start_error {
         LookUpUserFailed(Errno),
         /// There is no user with the user ID that the daemon is running as.
         NoSuchUser(u32),
+        /// An error extracting the embedded database server.
+        InstallServerFailed(ArchiveError),
         /// An error installing the database server.
         SetupFailed(PostgresError),
-        /// The directory the server is installed in is not named after a version.
-        UnknownVersion(PathBuf),
         /// An error starting the database server, along with the start up logs if they could be
         /// read.
         StartFailed(PostgresError, Option<String>),
@@ -499,15 +502,15 @@ mod start_error {
                 Self::NoSuchUser(uid) => {
                     write!(formatter, "There is no user with the user ID {}", uid)
                 }
-                Self::SetupFailed(error) => {
-                    write!(formatter, "Failed to install the database: {}", error)
-                }
-                Self::UnknownVersion(path) => {
+                Self::InstallServerFailed(error) => {
                     write!(
                         formatter,
-                        "The database is installed in {:?}, which is not named after a version",
-                        path
+                        "Failed to install the database server: {}",
+                        error
                     )
+                }
+                Self::SetupFailed(error) => {
+                    write!(formatter, "Failed to install the database: {}", error)
                 }
                 Self::StartFailed(error, start_log) => {
                     write!(formatter, "Failed to start the database server: {}", error)?;
@@ -573,25 +576,6 @@ mod tests {
         assert!(matches!(
             Database::check_socket_dir(Path::new(path)),
             Err(StartError::SocketDirBadChar(_, _))
-        ));
-    }
-
-    #[test_case("/home/user/.insh/daemon/postgres/18.6.0", "18.6.0"; "a version")]
-    #[test_case("/home/user/.insh/daemon/postgres/18.6.0/", "18.6.0"; "a trailing slash")]
-    fn test_version_of(installation_dir: &str, version: &str) {
-        match Database::version_of(Path::new(installation_dir)) {
-            Ok(actual) => assert_eq!(actual, version),
-            Err(_) => panic!("Failed to determine the version."),
-        }
-    }
-
-    #[test_case("/home/user/.insh/daemon/postgres"; "not a version")]
-    #[test_case("/home/user/.insh/daemon/postgres/18.6"; "a partial version")]
-    #[test_case("/"; "the root directory")]
-    fn test_version_of_rejects(installation_dir: &str) {
-        assert!(matches!(
-            Database::version_of(Path::new(installation_dir)),
-            Err(StartError::UnknownVersion(_))
         ));
     }
 

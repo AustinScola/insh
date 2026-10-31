@@ -198,9 +198,9 @@ embedded database). `insh` never touches any of it directly, instead going throu
 
 Application data lives in an embedded PostgreSQL database in the `insh-db` crate, which `Server::run`
 starts and stops. The PostgreSQL binaries are embedded in the `inshd` executable at build time by
-`postgresql_embedded`'s `bundled` feature, so PostgreSQL does not have to be installed separately;
-they are extracted to a directory named after their version under `daemon/postgres/` on first run,
-which is also where the unix socket goes. `listen_addresses` is set to empty so the server never
+`insh-db/build.rs`, so PostgreSQL does not have to be installed separately; they are extracted to a
+directory named after their version under `daemon/postgres/` on first run, which is also where the
+unix socket goes. `listen_addresses` is set to empty so the server never
 binds a TCP port.
 
 **Connections are authenticated by operating system user, not by a password.** `insh-db` writes
@@ -230,11 +230,13 @@ daemon's umask and are protected by the 0700 `logs/` directory instead.
 Queries go through Diesel. `insh-db/src/schema.rs` is written by hand (not generated with
 `diesel print-schema`) and migrations under `insh-db/migrations/` are embedded with
 `embed_migrations!`, so **building never requires a running database** — keep it that way.
-`insh-db/build.rs` exists only to re-run the build when a migration changes.
+`insh-db/build.rs` re-runs the build when a migration changes, and embeds PostgreSQL and pgvector.
 
 Because `postgresql_embedded` needs a newer toolchain than insh otherwise would, `rust-toolchain.toml`
-pins one, and `.cargo/config.toml` pins `POSTGRESQL_VERSION` to an exact version so the build script
-reuses its `~/.theseus` download cache instead of re-resolving over the network every build.
+pins one. The version of PostgreSQL is the `POSTGRESQL_VERSION` constant in `insh-db/build.rs`, and
+the archive is cached in `~/.theseus`. **Do not pin it with Cargo configuration or an environment
+variable, and do not turn on `postgresql_embedded`'s `bundled` feature:** `cargo install --git` does
+not read the repository's `.cargo/config.toml`, so an install would get whatever version is latest.
 
 The history tables — `search_history`, `find_history` and `dir_history` — are all the same shape:
 one row per distinct phrase, pattern or path, with its timestamp bumped by an upsert when it comes
