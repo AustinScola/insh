@@ -1,9 +1,10 @@
 //! The build script for the database.
 //!
-//! This builds pgvector so that it can be embedded in the executable and installed into the
-//! PostgreSQL server at run time. It is built here rather than downloaded because the only
-//! prebuilt packages available are for PostgreSQL 16 from a repository which has not been updated
-//! since 2024, and because building it is no more than the project already does for libpq.
+//! This gets the PostgreSQL archive and builds pgvector against it, so that both can be embedded
+//! in the executable and installed at run time. pgvector is built here rather than downloaded
+//! because the only prebuilt packages available are for PostgreSQL 16 from a repository which has
+//! not been updated since 2024, and because building it is no more than the project already does
+//! for libpq.
 #![allow(clippy::needless_return)]
 
 use std::env;
@@ -13,16 +14,17 @@ use std::process::{Command, Output};
 
 use postgresql_archive::blocking::{extract, get_archive};
 use postgresql_archive::configuration::theseus::URL;
-use postgresql_archive::{Version, VersionReq};
+use postgresql_archive::VersionReq;
 
 /// The directory of the pgvector source, which is a submodule.
 const PGVECTOR_DIR: &str = "pgvector";
 
-/// The environment variable which says which version of PostgreSQL to build against.
+/// The version of PostgreSQL to embed.
 ///
-/// This is pinned in `.cargo/config.toml` so that the same archive is reused rather than resolved
-/// over the network on every build.
-const POSTGRESQL_VERSION_VAR: &str = "POSTGRESQL_VERSION";
+/// This is here rather than in Cargo configuration or the environment because a build script is
+/// the one thing which every way of building runs. `cargo install --git` does not read the
+/// configuration in the repository.
+const POSTGRESQL_VERSION: &str = "18.6.1";
 
 fn main() {
     // The `embed_migrations!` macro reads the migrations at compile time, but proc macros cannot
@@ -30,39 +32,67 @@ fn main() {
     println!("cargo:rerun-if-changed=migrations");
     println!("cargo:rerun-if-changed={}", PGVECTOR_DIR);
     println!("cargo:rerun-if-changed=build.rs");
-    println!("cargo:rerun-if-env-changed={}", POSTGRESQL_VERSION_VAR);
+    println!("cargo:rustc-env=POSTGRESQL_VERSION={}", POSTGRESQL_VERSION);
 
     let out_dir: PathBuf = PathBuf::from(env::var("OUT_DIR").expect("OUT_DIR is not set"));
 
-    let postgresql_dir: PathBuf = install_postgresql(&out_dir);
+    let archive: Vec<u8> = postgresql_archive(&out_dir);
+    fs::write(out_dir.join("postgresql.tar.gz"), &archive)
+        .unwrap_or_else(|error| panic!("Failed to write the PostgreSQL archive: {}", error));
+
+    let postgresql_dir: PathBuf = install_postgresql(&out_dir, &archive);
     build_pgvector(&out_dir, &postgresql_dir);
+}
+
+/// Return the PostgreSQL archive, downloading it if it has not been cached yet.
+fn postgresql_archive(out_dir: &Path) -> Vec<u8> {
+    let target: String = env::var("TARGET").expect("TARGET is not set");
+    let cached: PathBuf = env::home_dir()
+        .unwrap_or_else(|| out_dir.to_path_buf())
+        .join(".theseus")
+        .join("postgresql")
+        .join(format!(
+            "postgresql-{}-{}.tar.gz",
+            POSTGRESQL_VERSION, target
+        ));
+
+    if let Ok(archive) = fs::read(&cached) {
+        return archive;
+    }
+
+    let requirement: String = format!("={}", POSTGRESQL_VERSION);
+    let version_req: VersionReq = VersionReq::parse(&requirement).unwrap_or_else(|error| {
+        panic!(
+            "Failed to understand the PostgreSQL version {}: {}",
+            POSTGRESQL_VERSION, error
+        )
+    });
+
+    let (_version, archive) = get_archive(URL, &version_req)
+        .unwrap_or_else(|error| panic!("Failed to download PostgreSQL: {}", error));
+
+    // This is only a cache, so a build which cannot write it is still fine.
+    if let Some(parent) = cached.parent() {
+        let _ = fs::create_dir_all(parent);
+    }
+    let _ = fs::write(&cached, &archive);
+
+    return archive;
 }
 
 /// Return the directory holding a PostgreSQL server to build against, installing it if needed.
 ///
 /// Only the headers and the PGXS makefiles are wanted, but the archive is the only place they come
-/// from. It is the same archive which the server itself is run from, so it is usually already
-/// cached by the time this runs.
-fn install_postgresql(out_dir: &Path) -> PathBuf {
-    let postgresql_dir: PathBuf = out_dir.join("postgresql");
+/// from. The directory is named after the version so that one left over from a build of another
+/// version is not used.
+fn install_postgresql(out_dir: &Path, archive: &Vec<u8>) -> PathBuf {
+    let postgresql_dir: PathBuf = out_dir.join(format!("postgresql-{}", POSTGRESQL_VERSION));
 
     if postgresql_dir.join("bin").join("pg_config").is_file() {
         return postgresql_dir;
     }
 
-    let requirement: String = env::var(POSTGRESQL_VERSION_VAR).unwrap_or_else(|_| "*".to_string());
-    let version_req: VersionReq = VersionReq::parse(&requirement).unwrap_or_else(|error| {
-        panic!(
-            "Failed to understand {}={}: {}",
-            POSTGRESQL_VERSION_VAR, requirement, error
-        )
-    });
-
-    // Cargo replays build script warnings on every build, so this is not one.
-    let (_version, bytes): (Version, Vec<u8>) = get_archive(URL, &version_req)
-        .unwrap_or_else(|error| panic!("Failed to download PostgreSQL: {}", error));
-
-    extract(URL, &bytes, &postgresql_dir)
+    extract(URL, archive, &postgresql_dir)
         .unwrap_or_else(|error| panic!("Failed to extract PostgreSQL: {}", error));
 
     return postgresql_dir;
@@ -101,6 +131,10 @@ fn build_pgvector(out_dir: &Path, postgresql_dir: &Path) {
         // pgvector builds with `-march=native` by default, which would bake the features of
         // whichever machine built it into the release and crash on an older one.
         .arg("OPTFLAGS=")
+        // Some archives were built with LLVM, which makes PGXS build bitcode for the JIT as well,
+        // using a clang at whichever path it was on the machine which built the archive. The
+        // bitcode is not embedded, so there is no reason to go looking for it.
+        .arg("with_llvm=no")
         // PGXS appends `$(PROFILE)` and `$(COPT)` to the compiler flags, and Cargo puts `PROFILE`
         // in the environment of every build script. Without these the value of that ends up on
         // the gcc command line as if it were a file to link.

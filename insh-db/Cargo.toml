@@ -18,6 +18,9 @@ nix = { workspace = true }
 # Used to run an embedded PostgreSQL server.
 postgresql_embedded = { workspace = true }
 
+# Used to extract the PostgreSQL archive which is embedded in the executable.
+postgresql_archive = { workspace = true }
+
 # Used to run `pg_ctl` directly in order to stop a PostgreSQL server which was left running.
 postgresql_commands = { workspace = true }
 
@@ -34,7 +37,7 @@ pq-sys = { workspace = true }
 pgvector = { workspace = true }
 
 [build-dependencies]
-# Used to get the PostgreSQL headers and PGXS makefiles which pgvector is built against.
+# Used to get the PostgreSQL archive which is embedded and which pgvector is built against.
 postgresql_archive = { workspace = true }
 
 [dev-dependencies]
