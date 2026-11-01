@@ -26,7 +26,7 @@ mod phrase {
     use crate::color::Color;
     use crate::stateful::Stateful;
 
-    use rend::{Fabric, Size, Yarn};
+    use rend::{Cell, Fabric, Size, Yarn};
     use term::{Key, KeyEvent, KeyMods, TermEvent};
     use til::Component;
 
@@ -52,6 +52,7 @@ mod phrase {
             let action: Option<Action> = match event {
                 Event::Focus => Some(Action::Focus),
                 Event::Unfocus => Some(Action::Unfocus),
+                Event::SetPaneFocus { focused } => Some(Action::SetPaneFocus { focused }),
                 Event::TermEvent(key_event) => match key_event {
                     TermEvent::KeyEvent(KeyEvent {
                         key: Key::Char('q'),
@@ -110,13 +111,19 @@ mod phrase {
             }
 
             yarn.resize(size.columns);
-            let background_color = Color::highlight(self.state.is_focused());
+            let background_color =
+                Color::highlight(self.state.is_focused() && !self.state.is_pane_unfocused());
             yarn.background(background_color.into());
             Fabric::from(yarn)
         }
     }
 
     impl Phrase {
+        /// Return the column which what has been typed in ends at.
+        pub fn end(&self) -> usize {
+            Cell::columns(self.state.value())
+        }
+
         /// Return what has been typed in.
         pub fn value(&self) -> &str {
             self.state.value()
@@ -138,6 +145,11 @@ mod event {
         Focus,
         /// The phrase is no longer being typed in.
         Unfocus,
+        /// Whether what is typed goes to the pane the phrase is in has changed.
+        SetPaneFocus {
+            /// Whether it does.
+            focused: bool,
+        },
         /// A terminal event.
         TermEvent(TermEvent),
         /// A completion arrived.
@@ -171,6 +183,9 @@ mod state {
         /// Whether the phrase is being typed in.
         #[builder(default = true, setter(into))]
         focus: bool,
+        /// Whether what is typed goes to some pane other than the one the phrase is in.
+        #[builder(default)]
+        pane_unfocused: bool,
         /// Whether completions should be requested for the phrase as it is typed.
         #[builder(default)]
         completable: bool,
@@ -188,6 +203,7 @@ mod state {
                 value: String::new(),
                 completion: None,
                 focus: true,
+                pane_unfocused: false,
                 completable: false,
                 part_separator: None,
                 pending_completion_request: None,
@@ -209,6 +225,11 @@ mod state {
         /// Return whether the phrase is being typed in.
         pub fn is_focused(&self) -> bool {
             self.focus
+        }
+
+        /// Return whether what is typed goes to some pane other than the one the phrase is in.
+        pub fn is_pane_unfocused(&self) -> bool {
+            self.pane_unfocused
         }
 
         /// Start typing in the phrase.
@@ -355,6 +376,10 @@ mod state {
             match action {
                 Action::Focus => self.focus(),
                 Action::Unfocus => self.unfocus(),
+                Action::SetPaneFocus { focused } => {
+                    self.pane_unfocused = !focused;
+                    None
+                }
                 Action::Push { character } => self.push(character),
                 Action::Paste { text } => self.paste(text),
                 Action::Pop => self.pop(),
@@ -438,6 +463,11 @@ mod action {
         Focus,
         /// Stop typing in the phrase.
         Unfocus,
+        /// Take note of whether what is typed goes to the pane the phrase is in.
+        SetPaneFocus {
+            /// Whether it does.
+            focused: bool,
+        },
         /// Add a character to the end of the phrase.
         Push {
             /// The character to add.

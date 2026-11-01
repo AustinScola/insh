@@ -94,8 +94,11 @@ impl ResponseHandler {
                     let response: &Response = contexted_response.response();
 
                     let response_uuid: &Uuid = response.uuid();
+                    // NOTE: A request can have any number of responses, and a program running in a
+                    // pane sends one every time it writes anything, so they are not worth logging
+                    // unless asked for.
                     if log {
-                        log::info!("Handling response {}.", response_uuid);
+                        log::debug!("Handling response {}.", response_uuid);
                     }
 
                     // Determine which client the response should be sent to.
@@ -211,7 +214,7 @@ impl ResponseHandler {
                     self.maybe_cleanup_client(&client_uuid);
 
                     if log {
-                        log::info!("Done handling response {}.", response_uuid);
+                        log::debug!("Done handling response {}.", response_uuid);
                     }
                 }
                 recv(self.disconnected_clients_rx) -> disconnected_client => {

@@ -109,7 +109,10 @@ mod footer {
             let mut yarn = Yarn::from(cells);
             yarn.color(Color::InvertedText.into());
             if self.state.info().in_progress() {
-                yarn.color_before(Color::InvertedGrayedText.into(), text_len);
+                // NOTE: This has to stand out from the footer as well as from the black of what has
+                // finished, and the gray which is written on white is almost the color of the
+                // footer itself.
+                yarn.color_before(Color::InvertedLightGrayedText.into(), text_len);
             }
             yarn.background(self.state.background().into());
 
@@ -139,6 +142,34 @@ mod footer {
             fn position(&self) -> String {
                 self.position.clone()
             }
+        }
+
+        /// What a component which is still working shows in its footer for testing.
+        struct InProgressInfo;
+
+        impl Info for InProgressInfo {
+            fn text(&self) -> String {
+                String::from("(0.05s)")
+            }
+
+            fn in_progress(&self) -> bool {
+                true
+            }
+        }
+
+        #[test]
+        fn test_what_is_still_happening_can_be_told_from_the_footer_and_what_has_finished() {
+            let props = Props::builder()
+                .name("inshie")
+                .info(&InProgressInfo)
+                .build();
+
+            let fabric: Fabric = Footer::new(props).render(Size::new(1, 20));
+            let color = fabric.spot(0, 0).style().color();
+
+            assert_eq!(color, Some(Color::InvertedLightGrayedText.into()));
+            assert_ne!(color, Some(Color::FooterBackground.into()));
+            assert_ne!(color, Some(Color::InvertedText.into()));
         }
 
         /// Return what a footer of the given size shows.

@@ -426,8 +426,8 @@ impl Session {
     }
 
     /// Move the line on the far side of the pane the given number of rows or columns.
-    pub fn drag(&mut self, pane: &Uuid, split: Split, by: isize) -> bool {
-        if !self.window_mut().tree_mut().drag(pane, split, by) {
+    pub fn drag(&mut self, panes: &[Uuid], split: Split, by: isize) -> bool {
+        if !self.window_mut().tree_mut().drag(panes, split, by) {
             return false;
         }
 

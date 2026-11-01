@@ -45,7 +45,10 @@ impl Iterator for DeleteChat {
         return Some(
             ResponseParamsAndLast::builder()
                 .response_params(ResponseParams::DeleteChat(
-                    DeleteChatResponseParams::builder().deleted(deleted).build(),
+                    DeleteChatResponseParams::builder()
+                        .chat_id(self.chat_id)
+                        .deleted(deleted)
+                        .build(),
                 ))
                 .last(true)
                 .build(),

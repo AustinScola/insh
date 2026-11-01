@@ -50,7 +50,7 @@ mod searcher {
     use super::super::{ContentsEffect, ContentsEvent};
     use super::{Action, Effect, Focus, Props, State};
     use crate::components::common::{
-        DirEffect, DirEvent, Footer, FooterProps, PhraseEffect, PhraseEvent,
+        DirEffect, DirEvent, Footer, FooterProps, PaneContentsEvent, PhraseEffect, PhraseEvent,
     };
     use crate::Stateful;
 
@@ -58,7 +58,7 @@ mod searcher {
         Request, RequestParams, Response, ResponseParams, SuggestDirRequestParams,
         SuggestSearchPhraseRequestParams, VisitDirRequestParams,
     };
-    use rend::{Fabric, Size};
+    use rend::{Fabric, Location, Size};
     use term::{Key, KeyEvent, KeyMods, TermEvent};
     use til::{Component, Event};
 
@@ -68,7 +68,7 @@ mod searcher {
         state: State,
     }
 
-    impl Component<Props, Event<Response>, Effect> for Searcher {
+    impl Component<Props, PaneContentsEvent, Effect> for Searcher {
         fn new(props: Props) -> Self {
             let state = State::from(props);
             Self { state }
@@ -114,7 +114,49 @@ mod searcher {
             }
         }
 
-        fn handle(&mut self, event: Event<Response>) -> Option<Effect> {
+        fn handle(&mut self, event: PaneContentsEvent) -> Option<Effect> {
+            match event {
+                PaneContentsEvent::SetFocus { focused } => {
+                    self.state
+                        .contents
+                        .handle(ContentsEvent::SetPaneFocus { focused });
+                    self.state
+                        .phrase
+                        .handle(PhraseEvent::SetPaneFocus { focused });
+                    self.state.dir.handle(DirEvent::SetPaneFocus { focused });
+                    None
+                }
+                PaneContentsEvent::Response(response) => {
+                    self.handle_event(Event::Response(response))
+                }
+                PaneContentsEvent::TermEvent(term_event) => {
+                    self.handle_event(Event::TermEvent(term_event))
+                }
+            }
+        }
+    }
+
+    impl Searcher {
+        /// Return where in it looking back through it starts, which is the end of what is being
+        /// typed or the start of the selected row.
+        pub fn copy_start(&self) -> Option<Location> {
+            let phrase: (usize, usize) = (1, self.state.phrase.end());
+            let (row, column): (usize, usize) = match self.state.focus() {
+                Focus::Dir => (0, self.state.dir.end()),
+                Focus::Phrase => phrase,
+                // The directory bar and what is being looked for are drawn above what was found,
+                // which may be nothing yet.
+                Focus::Contents => match self.state.contents.selected_row() {
+                    Some(row) => (row + 2, 0),
+                    None => phrase,
+                },
+            };
+
+            Some(Location::builder().row(row).column(column).build())
+        }
+
+        /// Do what the terminal event or the response says.
+        fn handle_event(&mut self, event: Event<Response>) -> Option<Effect> {
             match event {
                 Event::TermEvent(TermEvent::Resize(size)) => {
                     let contents_size = Size::new(size.rows.saturating_sub(3), size.columns);
@@ -246,9 +288,7 @@ mod searcher {
                 },
             }
         }
-    }
 
-    impl Searcher {
         /// Return the effect of what the directory bar did.
         fn handle_dir_effect(&mut self, dir_effect: Option<DirEffect>) -> Option<Effect> {
             match dir_effect {

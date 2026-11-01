@@ -23,7 +23,7 @@ mod dir {
     use crate::color::Color;
     use crate::stateful::Stateful;
 
-    use rend::{Fabric, Size, Yarn};
+    use rend::{Cell, Fabric, Size, Yarn};
     use til::Component;
 
     /// The directory bar.
@@ -63,6 +63,14 @@ mod dir {
     }
 
     impl Dir {
+        /// Return the column which what is shown ends at.
+        pub fn end(&self) -> usize {
+            match self.state.phrase() {
+                Some(phrase) => phrase.end(),
+                None => Cell::columns(&self.state.dir_string()),
+            }
+        }
+
         /// Return the directory which is shown.
         pub fn dir(&self) -> &Path {
             self.state.dir()
@@ -74,6 +82,7 @@ mod dir {
                 Event::SetDir { dir } => Some(Action::SetDir { dir }),
                 Event::PopDir => Some(Action::PopDir),
                 Event::Focus => Some(Action::Focus),
+                Event::SetPaneFocus { focused } => Some(Action::SetPaneFocus { focused }),
                 Event::TermEvent(event) => Some(Action::HandleTermEvent { event }),
                 Event::Completion { uuid, completion } => {
                     Some(Action::SetCompletion { uuid, completion })
@@ -110,6 +119,11 @@ mod event {
         PopDir,
         /// The directory is being typed in.
         Focus,
+        /// Whether what is typed goes to the pane the directory is in has changed.
+        SetPaneFocus {
+            /// Whether it does.
+            focused: bool,
+        },
         /// A terminal event.
         TermEvent(TermEvent),
         /// A completion arrived.
@@ -329,6 +343,13 @@ mod state {
                 Action::SetDir { dir } => self.set_dir(dir),
                 Action::PopDir => self.pop_dir(),
                 Action::Focus => self.focus(),
+                Action::SetPaneFocus { focused } => {
+                    // Only what is being typed is ever colored as being typed in.
+                    if let Some(phrase) = self.phrase.as_mut() {
+                        phrase.handle(PhraseEvent::SetPaneFocus { focused });
+                    }
+                    None
+                }
                 Action::HandleTermEvent { event } => self.handle_term_event(event),
                 Action::SetCompletion { uuid, completion } => self.set_completion(uuid, completion),
             }
@@ -393,6 +414,11 @@ mod action {
         PopDir,
         /// Start typing in the directory.
         Focus,
+        /// Take note of whether what is typed goes to the pane the directory is in.
+        SetPaneFocus {
+            /// Whether it does.
+            focused: bool,
+        },
         /// Type in the directory.
         HandleTermEvent {
             /// The terminal event.

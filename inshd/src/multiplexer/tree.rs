@@ -1,5 +1,7 @@
 //! How the panes of a window are arranged, and where that puts each of them.
 
+use std::collections::BTreeSet;
+
 use insh_api::{PaneLayout, Split};
 use rend::{Location, Size};
 
@@ -162,8 +164,8 @@ impl Tree {
         }
     }
 
-    /// Move the line which is on the far side of the pane the given number of rows or columns,
-    /// returning whether there was one there to move.
+    /// Move the lines which are on the far side of the panes the given number of rows or columns,
+    /// returning whether there were any there to move.
     ///
     /// What one part gains the next one along loses, so the rest of the window stays where it is.
     /// Neither of them is moved past having nothing left.
@@ -171,9 +173,17 @@ impl Tree {
     /// The last part of an arrangement has nothing after it for a line to be between, so the line
     /// on the near side of it is moved instead. Which way it moves is the same either way, so
     /// moving a line right always moves it right whichever pane it was asked for.
-    pub fn drag(&mut self, pane: &Uuid, split: Split, by: isize) -> bool {
+    ///
+    /// A line which two of the panes are both against is only moved the once.
+    pub fn drag(&mut self, panes: &[Uuid], split: Split, by: isize) -> bool {
+        return !self.drag_lines(panes, split, by).is_empty();
+    }
+
+    /// Move the lines which are on the far side of the panes, returning which of the panes had
+    /// one.
+    fn drag_lines(&mut self, panes: &[Uuid], split: Split, by: isize) -> Vec<Uuid> {
         let (arranged, parts, sizes) = match self {
-            Self::Pane(_) => return false,
+            Self::Pane(_) => return Vec::new(),
             Self::Split {
                 split,
                 parts,
@@ -185,36 +195,51 @@ impl Tree {
         // moves is the one nearest the pane. A pane inside a split which is itself one part of a
         // bigger one is in both of them, and moving the line of the bigger one would move the
         // whole side of the window rather than the line which was taken hold of.
-        if parts.iter_mut().any(|part| part.drag(pane, split, by)) {
-            return true;
-        }
+        let mut moved: Vec<Uuid> = parts
+            .iter_mut()
+            .flat_map(|part| part.drag_lines(panes, split, by))
+            .collect();
 
         if arranged != split {
-            return false;
+            return moved;
         }
 
-        // The pane is in one of these parts, which is the part the line is on the far side of. It
-        // may be the part itself or inside it, since the line along the edge of a pane at the
-        // edge of a split is the line of the split it is part of.
-        let at: usize = match parts.iter().position(|part| part.panes().contains(pane)) {
-            Some(at) => at,
-            None => return false,
-        };
+        // Which two parts each line is between, which is the same line for any number of panes.
+        let mut lines: BTreeSet<(usize, usize)> = BTreeSet::new();
+        for pane in panes
+            .iter()
+            .filter(|pane| !moved.contains(pane))
+            .copied()
+            .collect::<Vec<Uuid>>()
+        {
+            // The pane is in one of these parts, which is the part the line is on the far side of.
+            // It may be the part itself or inside it, since the line along the edge of a pane at
+            // the edge of a split is the line of the split it is part of.
+            let at: usize = match parts.iter().position(|part| part.panes().contains(&pane)) {
+                Some(at) => at,
+                None => continue,
+            };
 
-        let (grows, shrinks) = match at + 1 < sizes.len() {
-            true => (at, at + 1),
-            false if at > 0 => (at - 1, at),
-            false => return false,
-        };
+            let line: (usize, usize) = match at + 1 < sizes.len() {
+                true => (at, at + 1),
+                false if at > 0 => (at - 1, at),
+                false => continue,
+            };
 
-        let by: isize = by
-            .max(1 - isize::try_from(sizes[grows]).unwrap_or(isize::MAX))
-            .min(isize::try_from(sizes[shrinks]).unwrap_or(isize::MAX) - 1);
+            lines.insert(line);
+            moved.push(pane);
+        }
 
-        sizes[grows] = sizes[grows].saturating_add_signed(by);
-        sizes[shrinks] = sizes[shrinks].saturating_sub_signed(by);
+        for (grows, shrinks) in lines {
+            let by: isize = by
+                .max(1 - isize::try_from(sizes[grows]).unwrap_or(isize::MAX))
+                .min(isize::try_from(sizes[shrinks]).unwrap_or(isize::MAX) - 1);
 
-        return true;
+            sizes[grows] = sizes[grows].saturating_add_signed(by);
+            sizes[shrinks] = sizes[shrinks].saturating_sub_signed(by);
+        }
+
+        return moved;
     }
 
     /// Put a new pane beside or below the given one, returning whether it was there to split.
@@ -494,6 +519,57 @@ mod tests {
         assert_eq!(matches!(tree, Tree::Pane(_)), left.len() == 1);
     }
 
+    /// Return four panes in a square, arranged with the given split first.
+    fn square(first: Split, second: Split) -> Tree {
+        let mut tree = Tree::Pane(pane(1));
+        tree.split(&pane(1), first, pane(2));
+        tree.split(&pane(1), second, pane(3));
+        tree.split(&pane(2), second, pane(4));
+        tree
+    }
+
+    /// Return the sizes of the parts of the tree, from the outside in.
+    fn sizes(tree: &Tree) -> Vec<Vec<usize>> {
+        match tree {
+            Tree::Pane(_) => Vec::new(),
+            Tree::Split {
+                parts, sizes: of, ..
+            } => {
+                let mut all: Vec<Vec<usize>> = vec![of.clone()];
+                all.extend(parts.iter().flat_map(sizes));
+                all
+            }
+        }
+    }
+
+    #[test]
+    fn test_dragging_lines_which_meet_end_to_end_moves_all_of_them() {
+        // The panes are split down the middle first, so the two halves of the line across are
+        // lines of their own.
+        let mut tree: Tree = square(Split::Beside, Split::Below);
+        let before: Vec<Vec<usize>> = sizes(&tree);
+
+        assert!(tree.drag(&[pane(1), pane(2)], Split::Below, 2));
+
+        let after: Vec<Vec<usize>> = sizes(&tree);
+        assert_eq!(after[0], before[0], "the line down should not have moved");
+        assert_eq!(after[1], vec![before[1][0] + 2, before[1][1] - 2]);
+        assert_eq!(after[2], vec![before[2][0] + 2, before[2][1] - 2]);
+    }
+
+    #[test]
+    fn test_a_line_which_two_panes_are_against_only_moves_the_once() {
+        // The panes are split across the middle first, so the whole of the line across is one
+        // line which both of the panes above it are against.
+        let mut tree: Tree = square(Split::Below, Split::Beside);
+        let before: Vec<Vec<usize>> = sizes(&tree);
+
+        assert!(tree.drag(&[pane(1), pane(3)], Split::Below, 2));
+
+        let after: Vec<Vec<usize>> = sizes(&tree);
+        assert_eq!(after[0], vec![before[0][0] + 2, before[0][1] - 2]);
+    }
+
     /// Return a window of two panes side by side in a screen of the given size, with the sizes of
     /// the parts already put in the same units as the screen the way a session does.
     fn beside(size: Size) -> Tree {
@@ -510,7 +586,7 @@ mod tests {
 
         // The line moves two columns to the right, so the pane on the left gains them and the one
         // on the right loses them.
-        assert_eq!(tree.drag(&pane(1), Split::Beside, 2), true);
+        assert_eq!(tree.drag(&[pane(1)], Split::Beside, 2), true);
 
         assert_eq!(layout(&tree, size), vec![(0, 0, 4, 12), (0, 13, 4, 8)]);
     }
@@ -519,10 +595,10 @@ mod tests {
     fn test_dragging_the_line_the_other_way_moves_it_back() {
         let size = Size::new(4, 21);
         let mut tree = beside(size);
-        tree.drag(&pane(1), Split::Beside, 2);
+        tree.drag(&[pane(1)], Split::Beside, 2);
         tree.rescale(size);
 
-        tree.drag(&pane(1), Split::Beside, -2);
+        tree.drag(&[pane(1)], Split::Beside, -2);
 
         assert_eq!(layout(&tree, size), vec![(0, 0, 4, 10), (0, 11, 4, 10)]);
     }
@@ -533,7 +609,7 @@ mod tests {
         let mut tree = beside(size);
 
         // Far more than there is to give.
-        tree.drag(&pane(1), Split::Beside, 100_000);
+        tree.drag(&[pane(1)], Split::Beside, 100_000);
 
         for (_, _, rows, columns) in layout(&tree, size) {
             assert!(rows >= 1);
@@ -544,7 +620,7 @@ mod tests {
     #[test]
     fn test_the_panes_keep_how_they_were_left_when_the_window_changes_size() {
         let mut tree = beside(Size::new(4, 21));
-        tree.drag(&pane(1), Split::Beside, 5);
+        tree.drag(&[pane(1)], Split::Beside, 5);
 
         // Two thirds of the window and one third of it, whatever size it is.
         assert_eq!(
@@ -564,7 +640,7 @@ mod tests {
 
         // Nothing is beside the second pane, so the line between it and the first one moves, and
         // it moves the same way it would have for the first pane.
-        assert_eq!(tree.drag(&pane(2), Split::Beside, 2), true);
+        assert_eq!(tree.drag(&[pane(2)], Split::Beside, 2), true);
 
         assert_eq!(layout(&tree, size), vec![(0, 0, 4, 12), (0, 13, 4, 8)]);
     }
@@ -635,7 +711,7 @@ mod tests {
         tree.rescale(size);
 
         let before: Vec<(usize, usize, usize, usize)> = layout(&tree, size);
-        assert_eq!(tree.drag(&pane(3), Split::Beside, 2), true);
+        assert_eq!(tree.drag(&[pane(3)], Split::Beside, 2), true);
         let after: Vec<(usize, usize, usize, usize)> = layout(&tree, size);
 
         // The line down the middle of the lower right pair moved, and the one down the middle of
@@ -655,7 +731,7 @@ mod tests {
         tree.rescale(size);
 
         let before: Vec<(usize, usize, usize, usize)> = layout(&tree, size);
-        assert_eq!(tree.drag(&pane(2), Split::Beside, 2), true);
+        assert_eq!(tree.drag(&[pane(2)], Split::Beside, 2), true);
         let after: Vec<(usize, usize, usize, usize)> = layout(&tree, size);
 
         assert_ne!(after[0], before[0]);
@@ -678,7 +754,7 @@ mod tests {
         let mut tree = beside(Size::new(4, 21));
 
         // The line between the panes runs down the screen rather than across it.
-        assert_eq!(tree.drag(&pane(1), Split::Below, 2), false);
+        assert_eq!(tree.drag(&[pane(1)], Split::Below, 2), false);
     }
 
     #[test]
@@ -729,7 +805,7 @@ mod tests {
     fn test_the_sizes_stay_where_they_are_when_two_panes_are_swapped() {
         let size = Size::new(4, 21);
         let mut tree = beside(size);
-        tree.drag(&pane(1), Split::Beside, 4);
+        tree.drag(&[pane(1)], Split::Beside, 4);
 
         tree.swap(&pane(1), true);
 

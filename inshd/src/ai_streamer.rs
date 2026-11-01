@@ -52,6 +52,7 @@ impl AiStreamer {
         let stream = match client.chat(options) {
             Ok(stream) => stream,
             Err(error) => {
+                log::error!("Failed to ask for a reply: {}", error);
                 self.send(
                     String::new(),
                     None,
@@ -110,6 +111,7 @@ impl AiStreamer {
                 Err(error) => {
                     // Whatever arrived before the error is still worth keeping, so it is sent
                     // along with it rather than thrown away.
+                    log::error!("Failed to stream a reply: {}", error);
                     self.send(
                         delta,
                         tokens,

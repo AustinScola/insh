@@ -128,14 +128,22 @@ mod session {
 
     use uuid::Uuid;
 
-    /// The line between two panes which is being dragged.
-    pub struct Dragging {
-        /// The pane the line is on the far side of.
-        pane: Uuid,
-        /// Which of its sides the line is on.
-        split: Split,
+    /// A line between two panes which is being dragged.
+    pub struct HeldLine {
+        /// The panes the line is on the far side of, which is more than one when it was taken hold
+        /// of where lines meet end to end.
+        panes: Vec<Uuid>,
         /// Which row or column the line was last moved to.
         at: usize,
+    }
+
+    /// The lines between panes which are being dragged, which is both of them when they were taken
+    /// hold of where they meet.
+    pub struct Dragging {
+        /// The line down the screen, which has a pane on its left.
+        beside: Option<HeldLine>,
+        /// The line across the screen, which has a pane above it.
+        below: Option<HeldLine>,
     }
 
     /// Shows the panes and windows of a session.
@@ -331,7 +339,7 @@ mod session {
             // Going about the pane and taking from it, which is the rest of what the keys mean.
             let moving: Moving = match key_event.key {
                 Key::Char('q') => {
-                    self.state.copying = None;
+                    self.state.leave_copying();
                     // Looking back no further is what puts the pane back to what is on it now.
                     return self.state.look_back(isize::MIN);
                 }
@@ -897,7 +905,7 @@ mod session {
         fn resize(pane: Uuid, split: Split, by: isize) -> RequestParams {
             return RequestParams::DragPane(
                 DragPaneRequestParams::builder()
-                    .pane(pane)
+                    .panes(vec![pane])
                     .split(split)
                     .by(by)
                     .build(),
@@ -923,23 +931,23 @@ mod session {
                 Mode::Copy => {
                     // NOTE: A pane which draws one of insh's own components has nothing which has
                     // scrolled off the top of it, so there is nothing in it to look back through,
-                    // but what is drawn in it is there to be read and taken all the same. Where to
-                    // start is where the pane has its cursor.
+                    // but what is drawn in it is there to be read and taken all the same.
                     let pane: Uuid = self.active()?;
                     let at: Location = self
                         .panes
                         .get(&pane)
-                        .and_then(Pane::cursor_at)
+                        .and_then(Pane::copy_start)
                         .unwrap_or(Location { row: 0, column: 0 });
                     self.copying = Some(Copying::of(self.pane_size(&pane)?, at));
+                    self.tell_panes_about_focus();
                 }
             }
 
             None
         }
 
-        /// Take hold of the line which is drawn in the spot, which is nothing at all when no line
-        /// is drawn there.
+        /// Take hold of the lines which are drawn in the spot, which is nothing at all when no line
+        /// is drawn there and both of them when it is where two lines meet.
         ///
         /// A line is on the far side of whichever pane is just before it, which is the pane the
         /// daemon is told to move it on the far side of.
@@ -949,57 +957,92 @@ mod session {
                 return None;
             }
 
-            // A line down the screen has a pane on its left, and one across the screen has one
-            // above it. Which it is says which way it moves when it is dragged.
-            for pane in layout.panes() {
-                let (at, size) = (pane.at(), pane.size());
-
-                let beside: bool = column + 1 == at.column + size.columns + 1
-                    && row >= at.row
-                    && row < at.row + size.rows;
-                if beside {
-                    return Some(Dragging {
-                        pane: *pane.pane(),
-                        split: Split::Beside,
-                        at: column,
-                    });
-                }
-
-                let below: bool = row == at.row + size.rows
-                    && column >= at.column
-                    && column < at.column + size.columns;
-                if below {
-                    return Some(Dragging {
-                        pane: *pane.pane(),
-                        split: Split::Below,
-                        at: row,
-                    });
-                }
+            // NOTE: The row after the last of the panes is the footer rather than a line, even
+            // though it is directly below them.
+            let bottom: usize = layout
+                .panes()
+                .iter()
+                .map(|pane| pane.at().row + pane.size().rows)
+                .max()?;
+            if row >= bottom {
+                return None;
             }
 
-            None
+            // NOTE: The row before a pane and the row after it count as well as the ones it is in,
+            // and the same goes for the columns, because the spot where two lines meet is off the
+            // corner of a pane rather than along the edge of one.
+            let along = |spot: usize, start: usize, length: usize| {
+                spot + 1 >= start && spot <= start + length
+            };
+
+            // A line down the screen has a pane on its left, and one across the screen has one
+            // above it. Which it is says which way it moves when it is dragged.
+            let beside: Vec<Uuid> = layout
+                .panes()
+                .iter()
+                .filter(|pane| {
+                    let (at, size) = (pane.at(), pane.size());
+                    column == at.column + size.columns && along(row, at.row, size.rows)
+                })
+                .map(|pane| *pane.pane())
+                .collect();
+            let below: Vec<Uuid> = layout
+                .panes()
+                .iter()
+                .filter(|pane| {
+                    let (at, size) = (pane.at(), pane.size());
+                    row == at.row + size.rows && along(column, at.column, size.columns)
+                })
+                .map(|pane| *pane.pane())
+                .collect();
+
+            let beside: Option<HeldLine> = (!beside.is_empty()).then_some(HeldLine {
+                panes: beside,
+                at: column,
+            });
+            let below: Option<HeldLine> = (!below.is_empty()).then_some(HeldLine {
+                panes: below,
+                at: row,
+            });
+
+            match (&beside, &below) {
+                (None, None) => None,
+                _ => Some(Dragging { beside, below }),
+            }
         }
 
-        /// Move the line which is being dragged to where the mouse is now.
+        /// Move the lines which are being dragged to where the mouse is now.
         pub fn dragged(&mut self, row: usize, column: usize) -> Option<Effect> {
             let dragging: &mut Dragging = self.dragging.as_mut()?;
 
-            let now: usize = match dragging.split {
-                Split::Beside => column,
-                Split::Below => row,
+            let beside: Option<Effect> =
+                Self::move_line(dragging.beside.as_mut(), Split::Beside, column);
+            let below: Option<Effect> = Self::move_line(dragging.below.as_mut(), Split::Below, row);
+
+            return match (beside, below) {
+                (None, below) => below,
+                (beside, None) => beside,
+                (beside, below) => Self::after(beside, below),
             };
-            let by: isize = isize::try_from(now).ok()? - isize::try_from(dragging.at).ok()?;
+        }
+
+        /// Return what moving the line to the given row or column asks for, which is nothing when
+        /// it is there already.
+        fn move_line(line: Option<&mut HeldLine>, split: Split, now: usize) -> Option<Effect> {
+            let line: &mut HeldLine = line?;
+
+            let by: isize = isize::try_from(now).ok()? - isize::try_from(line.at).ok()?;
             if by == 0 {
                 return None;
             }
-            dragging.at = now;
+            line.at = now;
 
             Some(Effect::Request(
                 Request::builder()
                     .params(RequestParams::DragPane(
                         DragPaneRequestParams::builder()
-                            .pane(dragging.pane)
-                            .split(dragging.split)
+                            .panes(line.panes.clone())
+                            .split(split)
                             .by(by)
                             .build(),
                     ))
@@ -1186,7 +1229,7 @@ mod session {
                 clipboard.copy(text);
             }
 
-            self.copying = None;
+            self.leave_copying();
             return self.look_back(isize::MIN);
         }
 
@@ -1211,12 +1254,37 @@ mod session {
         /// the pane has to be put back first or else it is left showing what has scrolled off
         /// while the command has already moved on to another pane.
         pub fn stop_copying(&mut self, action: Action) -> Option<Effect> {
-            self.copying = None;
+            self.leave_copying();
 
             let stop: Option<Effect> = self.look_back(isize::MIN);
             let done: Option<Effect> = self.perform(action);
 
             return Self::after(stop, done);
+        }
+
+        /// Stop looking back through the pane.
+        pub fn leave_copying(&mut self) {
+            self.copying = None;
+            self.tell_panes_about_focus();
+        }
+
+        /// Tell every pane whether what is typed is going to it, so that only the ones it is going
+        /// to show which of their rows is selected.
+        ///
+        /// Every pane of a window which is being typed in together is one of them, and none of them
+        /// are while a pane is being looked back through, since the keys go to that instead.
+        fn tell_panes_about_focus(&mut self) {
+            let layout = match &self.layout {
+                Some(layout) => layout,
+                None => return,
+            };
+
+            let copying: bool = self.copying.is_some();
+            for (id, pane) in &mut self.panes {
+                pane.handle(PaneEvent::SetFocus {
+                    focused: !copying && (layout.synchronized() || id == layout.pane()),
+                });
+            }
         }
 
         /// Return one effect which asks for the first thing and then the second.
@@ -1350,6 +1418,43 @@ mod session {
         /// Take note of where everything is now, and return what the panes need asked of the
         /// daemon in order to have anything to show.
         pub fn relayout(&mut self, layout: insh_api::Layout) -> Vec<Request> {
+            // NOTE: What was being looked back through is gone when what is typed goes somewhere
+            // else now or the pane holds something else, so where in it was being read from no
+            // longer means anything.
+            let was_active: Option<PaneLayout> = self.layout.as_ref().and_then(|old| {
+                old.panes()
+                    .iter()
+                    .find(|shown| shown.pane() == old.pane())
+                    .cloned()
+            });
+            let still_there: bool = was_active.as_ref().is_some_and(|was_active| {
+                layout.pane() == was_active.pane()
+                    && layout.panes().iter().any(|shown| {
+                        shown.pane() == was_active.pane() && shown.kind() == was_active.kind()
+                    })
+            });
+            let mut put_back: Option<Request> = None;
+            if self.copying.is_some() && !still_there {
+                self.copying = None;
+                put_back = was_active
+                    .filter(|was_active| {
+                        layout
+                            .panes()
+                            .iter()
+                            .any(|shown| shown.pane() == was_active.pane())
+                    })
+                    .map(|was_active| {
+                        Request::builder()
+                            .params(RequestParams::ScrollPane(
+                                ScrollPaneRequestParams::builder()
+                                    .pane(*was_active.pane())
+                                    .rows(isize::MIN)
+                                    .build(),
+                            ))
+                            .build()
+                    });
+            }
+
             // The panes of a window which is no longer being looked at are not drawn any more.
             self.panes
                 .retain(|pane, _| layout.panes().iter().any(|shown| shown.pane() == pane));
@@ -1374,18 +1479,8 @@ mod session {
             // put away, since only the pane what is typed goes to is the one being read from.
             let active_size: Option<Size> = Self::size_of(&layout, layout.pane());
 
-            // Every pane is told whether what is typed is going to it, so that only the ones it
-            // is going to show which of their rows is selected. Every pane of a window which is
-            // being typed in together is one of them.
-            let focused: Uuid = *layout.pane();
-            let together: bool = layout.synchronized();
-            for (id, pane) in &mut self.panes {
-                pane.handle(PaneEvent::SetFocus {
-                    focused: together || *id == focused,
-                });
-            }
-
             self.layout = Some(layout);
+            self.tell_panes_about_focus();
 
             // NOTE: A line between two panes being moved, or the terminal changing size, changes
             // how big the pane being looked back through is, and this is where being told so
@@ -1395,7 +1490,10 @@ mod session {
                 copying.resize(size);
             }
 
-            return self.panes.values_mut().flat_map(Pane::take_asked).collect();
+            let mut asked: Vec<Request> =
+                self.panes.values_mut().flat_map(Pane::take_asked).collect();
+            asked.extend(put_back);
+            return asked;
         }
 
         /// Give what the daemon said to every pane, since any of them may have asked for it.
@@ -1546,3 +1644,432 @@ mod session {
     }
 }
 pub use session::Session;
+
+#[cfg(test)]
+mod tests {
+    use std::path::PathBuf;
+
+    use super::{Effect, Event, Props, Session};
+    use crate::color::Color;
+    use crate::config::Config;
+
+    use file_info::FileInfo;
+    use file_type::FileType;
+    use insh_api::{
+        GetFilesResponseParams, Layout, LayoutResponseParams, PaneKind, PaneLayout, PaneScreen,
+        Request, RequestParams, Response, ResponseParams, Split, Window,
+    };
+    use rend::{Fabric, Location, Size};
+    use term::{Key, KeyEvent, KeyMods, MouseButton, MouseEvent, MouseEventKind, TermEvent};
+    use terminal_emulator::Modes;
+    use til::Component;
+
+    use uuid::Uuid;
+
+    /// The request the session is reported on.
+    const REQUEST: Uuid = Uuid::from_u128(100);
+
+    /// Return the pane with the given number.
+    fn pane(number: u128) -> Uuid {
+        Uuid::from_u128(number)
+    }
+
+    /// Return a pane of the given number at the given spot and size.
+    fn shown(number: u128, at: (usize, usize), size: (usize, usize), kind: PaneKind) -> PaneLayout {
+        PaneLayout::builder()
+            .pane(pane(number))
+            .at(Location::builder().row(at.0).column(at.1).build())
+            .size(Size::new(size.0, size.1))
+            .kind(kind)
+            .build()
+    }
+
+    /// Return the response which says where the panes are.
+    fn layout_response(panes: Vec<PaneLayout>, focused: u128, screens: Vec<PaneScreen>) -> Event {
+        let window: Uuid = Uuid::from_u128(200);
+        let layout: Layout = Layout::builder()
+            .session(Uuid::from_u128(201))
+            .name("0")
+            .windows(vec![Window::builder().window(window).name("0").build()])
+            .window(window)
+            .panes(panes)
+            .pane(pane(focused))
+            .build();
+
+        Event::Response(
+            Response::builder()
+                .uuid(REQUEST)
+                .params(ResponseParams::Layout(
+                    LayoutResponseParams::builder()
+                        .layout(layout)
+                        .screens(screens)
+                        .build(),
+                ))
+                .build(),
+        )
+    }
+
+    /// Return a session which has been told about the panes, along with what it asked for.
+    fn session(
+        panes: Vec<PaneLayout>,
+        focused: u128,
+        screens: Vec<PaneScreen>,
+    ) -> (Session, Effect) {
+        let mut session: Session = Session::new(
+            Props::builder()
+                .request(REQUEST)
+                .size(Size::new(24, 80))
+                .dir(PathBuf::from("/tmp"))
+                .config(Config::default())
+                .build(),
+        );
+        let effect: Option<Effect> = session.handle(layout_response(panes, focused, screens));
+
+        (session, effect.unwrap_or(Effect::Requests(Vec::new())))
+    }
+
+    /// Press the key in the session.
+    fn press(session: &mut Session, key: Key, mods: KeyMods) -> Option<Effect> {
+        session.handle(Event::TermEvent(TermEvent::KeyEvent(KeyEvent {
+            key,
+            mods,
+        })))
+    }
+
+    /// Start looking back through the pane.
+    fn enter_copy_mode(session: &mut Session) {
+        press(session, Key::Char('b'), KeyMods::CONTROL);
+        press(session, Key::Char('['), KeyMods::NONE);
+    }
+
+    /// Do something with the mouse in the given spot.
+    fn mouse(
+        session: &mut Session,
+        kind: MouseEventKind,
+        row: usize,
+        column: usize,
+    ) -> Option<Effect> {
+        session.handle(Event::TermEvent(TermEvent::Mouse(MouseEvent {
+            kind,
+            row,
+            column,
+            mods: KeyMods::NONE,
+        })))
+    }
+
+    /// Return which lines are asked to move, and by how much.
+    fn drags(effect: Option<Effect>) -> Vec<(Vec<Uuid>, bool, isize)> {
+        let requests: Vec<Request> = match effect {
+            Some(Effect::Request(request)) => vec![request],
+            Some(Effect::Requests(requests)) => requests,
+            _ => Vec::new(),
+        };
+
+        requests
+            .iter()
+            .map(|request| match request.params() {
+                RequestParams::DragPane(params) => (
+                    params.panes().to_vec(),
+                    matches!(params.split(), Split::Beside),
+                    params.by(),
+                ),
+                _ => panic!("Expected a line to be asked to move."),
+            })
+            .collect()
+    }
+
+    /// Return four panes in a square, whose lines cross at row 10 and column 40.
+    fn square() -> Vec<PaneLayout> {
+        vec![
+            shown(1, (0, 0), (10, 40), PaneKind::Component),
+            shown(2, (0, 41), (10, 39), PaneKind::Component),
+            shown(3, (11, 0), (12, 40), PaneKind::Component),
+            shown(4, (11, 41), (12, 39), PaneKind::Component),
+        ]
+    }
+
+    /// Return the session showing a browser in a pane to the right of another, with files in it.
+    fn browsing() -> Session {
+        let panes: Vec<PaneLayout> = vec![
+            shown(1, (0, 0), (23, 40), PaneKind::Component),
+            shown(2, (0, 41), (23, 39), PaneKind::Component),
+        ];
+        let (mut session, effect): (Session, Effect) = session(panes, 2, Vec::new());
+        let requests: Vec<Request> = match effect {
+            Effect::Requests(requests) => requests,
+            _ => panic!("Expected the panes to ask for their files."),
+        };
+
+        let files: Vec<FileInfo> = vec![FileInfo::builder()
+            .path(PathBuf::from("/tmp/file"))
+            .r#type(Ok(FileType::File))
+            .build()];
+        for request in requests
+            .iter()
+            .filter(|request| matches!(request.params(), RequestParams::GetFiles(_)))
+        {
+            session.handle(Event::Response(
+                Response::builder()
+                    .uuid(*request.uuid())
+                    .params(ResponseParams::GetFiles(
+                        GetFilesResponseParams::builder()
+                            .result(Ok(files.clone()))
+                            .build(),
+                    ))
+                    .build(),
+            ));
+        }
+
+        session
+    }
+
+    /// Return the background of the spot which is drawn.
+    fn background(fabric: &Fabric, row: usize, column: usize) -> Option<ansi::Color> {
+        fabric.spot(row, column).style().background()
+    }
+
+    #[test_case::test_case(1, 0; "a pane in the top left, where the cursor is the same either way")]
+    #[test_case::test_case(2, 41; "a pane on the right, which is the end of the line if the corner is counted twice")]
+    fn test_copy_mode_starts_at_the_cursor_of_a_program(focused: u128, column: usize) {
+        let cursor: Location = Location::builder().row(2).column(3).build();
+        let panes: Vec<PaneLayout> = vec![
+            shown(1, (0, 0), (23, 40), PaneKind::Program),
+            shown(2, (0, 41), (23, 39), PaneKind::Program),
+        ];
+        let screen: PaneScreen = PaneScreen::builder()
+            .pane(pane(focused))
+            .rows(Vec::new())
+            .cursor(Some(cursor))
+            .modes(Modes::default())
+            .build();
+        let (mut session, _): (Session, Effect) = session(panes, focused, vec![screen]);
+
+        enter_copy_mode(&mut session);
+        let fabric: Fabric = session.render(Size::new(24, 80));
+
+        assert_eq!(
+            background(&fabric, 2, column + 3),
+            Some(Color::Highlight.into())
+        );
+    }
+
+    #[test]
+    fn test_copy_mode_starts_at_the_start_of_the_selected_row_of_the_browser() {
+        let mut session: Session = browsing();
+
+        enter_copy_mode(&mut session);
+        let fabric: Fabric = session.render(Size::new(24, 80));
+
+        // The directory bar is the row above the files.
+        assert_eq!(background(&fabric, 1, 41), Some(Color::Highlight.into()));
+        assert_eq!(
+            background(&fabric, 1, 42),
+            Some(Color::UnfocusedHighlight.into())
+        );
+    }
+
+    #[test]
+    fn test_only_the_pane_what_is_typed_goes_to_is_yellow_when_panes_are_first_shown() {
+        // Being told about every pane at once is what attaching to a session looks like.
+        let session: Session = browsing();
+
+        let fabric: Fabric = session.render(Size::new(24, 80));
+
+        assert_eq!(
+            background(&fabric, 1, 0),
+            Some(Color::UnfocusedHighlight.into())
+        );
+        assert_eq!(background(&fabric, 1, 41), Some(Color::Highlight.into()));
+    }
+
+    #[test]
+    fn test_the_selected_row_of_the_browser_is_yellow_again_after_copy_mode() {
+        let mut session: Session = browsing();
+
+        enter_copy_mode(&mut session);
+        press(&mut session, Key::Char('q'), KeyMods::NONE);
+        let fabric: Fabric = session.render(Size::new(24, 80));
+
+        assert_eq!(background(&fabric, 1, 42), Some(Color::Highlight.into()));
+    }
+
+    #[test]
+    fn test_copy_mode_is_left_when_what_is_typed_goes_to_another_pane() {
+        let mut session: Session = browsing();
+        enter_copy_mode(&mut session);
+
+        let panes: Vec<PaneLayout> = vec![
+            shown(1, (0, 0), (23, 40), PaneKind::Component),
+            shown(2, (0, 41), (23, 39), PaneKind::Component),
+        ];
+        let effect: Option<Effect> = session.handle(layout_response(panes, 1, Vec::new()));
+        let fabric: Fabric = session.render(Size::new(24, 80));
+
+        // The pane which was being looked back through is put back to what is on it now.
+        let requests: Vec<Request> = match effect {
+            Some(Effect::Requests(requests)) => requests,
+            _ => panic!("Expected the pane to be put back."),
+        };
+        assert!(requests.iter().any(|request| matches!(
+            request.params(),
+            RequestParams::ScrollPane(params) if *params.pane() == pane(2)
+        )));
+        assert_eq!(background(&fabric, 1, 1), Some(Color::Highlight.into()));
+        assert_eq!(
+            background(&fabric, 1, 41),
+            Some(Color::UnfocusedHighlight.into())
+        );
+    }
+
+    #[test]
+    fn test_copy_mode_is_left_when_the_pane_holds_something_else() {
+        let panes = |kind: PaneKind| {
+            vec![
+                shown(1, (0, 0), (23, 40), PaneKind::Component),
+                shown(2, (0, 41), (23, 39), kind),
+            ]
+        };
+        let (mut session, _): (Session, Effect) = session(panes(PaneKind::Program), 2, Vec::new());
+        enter_copy_mode(&mut session);
+
+        session.handle(layout_response(panes(PaneKind::Component), 2, Vec::new()));
+
+        // Keys go to what is in the pane again rather than to moving about in it.
+        assert!(press(&mut session, Key::Char('b'), KeyMods::CONTROL).is_none());
+        let fabric: Fabric = session.render(Size::new(24, 80));
+        assert_ne!(background(&fabric, 0, 41), Some(Color::Highlight.into()));
+    }
+
+    #[test]
+    fn test_copy_mode_stays_when_a_line_is_moved() {
+        let mut session: Session = browsing();
+        enter_copy_mode(&mut session);
+
+        let panes: Vec<PaneLayout> = vec![
+            shown(1, (0, 0), (23, 30), PaneKind::Component),
+            shown(2, (0, 31), (23, 49), PaneKind::Component),
+        ];
+        session.handle(layout_response(panes, 2, Vec::new()));
+        let fabric: Fabric = session.render(Size::new(24, 80));
+
+        assert_eq!(
+            background(&fabric, 1, 32),
+            Some(Color::UnfocusedHighlight.into())
+        );
+    }
+
+    #[test]
+    fn test_the_footer_is_not_a_line_to_take_hold_of() {
+        let (mut session, _): (Session, Effect) = session(square(), 1, Vec::new());
+
+        mouse(
+            &mut session,
+            MouseEventKind::Press(MouseButton::Left),
+            23,
+            5,
+        );
+        let moved = drags(mouse(
+            &mut session,
+            MouseEventKind::Drag(MouseButton::Left),
+            20,
+            5,
+        ));
+
+        assert!(moved.is_empty());
+    }
+
+    #[test]
+    fn test_where_lines_cross_moves_both_of_them() {
+        let (mut session, _): (Session, Effect) = session(square(), 1, Vec::new());
+
+        mouse(
+            &mut session,
+            MouseEventKind::Press(MouseButton::Left),
+            10,
+            40,
+        );
+        let moved = drags(mouse(
+            &mut session,
+            MouseEventKind::Drag(MouseButton::Left),
+            12,
+            37,
+        ));
+
+        assert_eq!(
+            moved,
+            vec![
+                (vec![pane(1), pane(3)], true, -3),
+                (vec![pane(1), pane(2)], false, 2),
+            ]
+        );
+    }
+
+    #[test]
+    fn test_where_lines_cross_moves_only_the_line_which_the_mouse_went_across() {
+        let (mut session, _): (Session, Effect) = session(square(), 1, Vec::new());
+
+        mouse(
+            &mut session,
+            MouseEventKind::Press(MouseButton::Left),
+            10,
+            40,
+        );
+        let moved = drags(mouse(
+            &mut session,
+            MouseEventKind::Drag(MouseButton::Left),
+            10,
+            41,
+        ));
+
+        assert_eq!(moved, vec![(vec![pane(1), pane(3)], true, 1)]);
+    }
+
+    #[test]
+    fn test_a_line_running_into_another_moves_both_of_them() {
+        // One pane on the left and two stacked on the right.
+        let panes: Vec<PaneLayout> = vec![
+            shown(1, (0, 0), (23, 40), PaneKind::Component),
+            shown(2, (0, 41), (10, 39), PaneKind::Component),
+            shown(3, (11, 41), (12, 39), PaneKind::Component),
+        ];
+        let (mut session, _): (Session, Effect) = session(panes, 1, Vec::new());
+
+        mouse(
+            &mut session,
+            MouseEventKind::Press(MouseButton::Left),
+            10,
+            40,
+        );
+        let moved = drags(mouse(
+            &mut session,
+            MouseEventKind::Drag(MouseButton::Left),
+            11,
+            41,
+        ));
+
+        assert_eq!(
+            moved,
+            vec![(vec![pane(1)], true, 1), (vec![pane(2)], false, 1)]
+        );
+    }
+
+    #[test]
+    fn test_a_straight_run_of_a_line_moves_only_that_line() {
+        let (mut session, _): (Session, Effect) = session(square(), 1, Vec::new());
+
+        mouse(
+            &mut session,
+            MouseEventKind::Press(MouseButton::Left),
+            5,
+            40,
+        );
+        let moved = drags(mouse(
+            &mut session,
+            MouseEventKind::Drag(MouseButton::Left),
+            7,
+            42,
+        ));
+
+        assert_eq!(moved, vec![(vec![pane(1)], true, 2)]);
+    }
+}

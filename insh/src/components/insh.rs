@@ -165,18 +165,30 @@ impl Component<Props, Event<Response>, SystemEffect<Request>> for Insh {
             }
         }
 
+        // The chat which was left to look through the past ones may be the one which was deleted.
+        if let Event::Response(response) = &event {
+            if matches!(response.params(), ResponseParams::DeleteChat(_)) {
+                if let Some(chat) = self.state.chat.as_mut() {
+                    chat.handle(Event::Response(response.clone()).into());
+                }
+            }
+        }
+
         // A reply goes on arriving while the past chats are being looked through, and it belongs
         // to the chat rather than to whatever is being looked at. Without this the mode which is
         // showing would drop it, leaving the reply short of whatever came while it was away and,
         // if the last piece came then, never told that it was over at all.
+        //
+        // NOTE: A session is not one of those modes. A chat in a session is in one of its panes,
+        // so the session is what the reply goes to.
         let replying: bool = match &event {
             Event::Response(response) => matches!(response.params(), ResponseParams::Chat(_)),
             Event::TermEvent(_) => false,
         };
-        if replying && !matches!(self.state.mode, Mode::Chat) {
+        if replying && !matches!(self.state.mode, Mode::Chat | Mode::Session) {
             let chat = self.state.chat.as_mut()?;
 
-            return match chat.handle(event) {
+            return match chat.handle(event.into()) {
                 Some(ChatEffect::Request(request)) => Some(SystemEffect::Request(request)),
                 Some(ChatEffect::Bell) => self.state.bell(),
                 // Where the chat goes next is for whoever is looking at it to say, and they are
@@ -279,7 +291,7 @@ impl Component<Props, Event<Response>, SystemEffect<Request>> for Insh {
             }
             Mode::Finder => {
                 let finder = self.state.finder.as_mut().unwrap();
-                let finder_effect: Option<FinderEffect> = finder.handle(event);
+                let finder_effect: Option<FinderEffect> = finder.handle(event.into());
                 match finder_effect {
                     Some(FinderEffect::Request(request)) => {
                         return Some(SystemEffect::Request(request));
@@ -302,7 +314,7 @@ impl Component<Props, Event<Response>, SystemEffect<Request>> for Insh {
             }
             Mode::Searcher => {
                 let searcher = self.state.searcher.as_mut().unwrap();
-                let searcher_effect: Option<SearcherEffect> = searcher.handle(event);
+                let searcher_effect: Option<SearcherEffect> = searcher.handle(event.into());
                 match searcher_effect {
                     Some(SearcherEffect::Goto { dir, file }) => {
                         action = Some(Action::Browse { dir, file });
@@ -325,7 +337,7 @@ impl Component<Props, Event<Response>, SystemEffect<Request>> for Insh {
             }
             Mode::Chat => {
                 let chat = self.state.chat.as_mut().unwrap();
-                match chat.handle(event) {
+                match chat.handle(event.into()) {
                     Some(ChatEffect::Request(request)) => {
                         return Some(SystemEffect::Request(request));
                     }
@@ -343,7 +355,7 @@ impl Component<Props, Event<Response>, SystemEffect<Request>> for Insh {
             }
             Mode::History => {
                 let history = self.state.history.as_mut().unwrap();
-                match history.handle(event) {
+                match history.handle(event.into()) {
                     Some(HistoryEffect::Request(request)) => {
                         return Some(SystemEffect::Request(request));
                     }
@@ -367,7 +379,7 @@ impl Component<Props, Event<Response>, SystemEffect<Request>> for Insh {
             }
             Mode::HistorySearcher => {
                 let searcher = self.state.history_searcher.as_mut().unwrap();
-                match searcher.handle(event) {
+                match searcher.handle(event.into()) {
                     Some(HistorySearcherEffect::Request(request)) => {
                         return Some(SystemEffect::Request(request));
                     }
@@ -676,8 +688,10 @@ impl State {
     /// Look through the past chats.
     fn history(&mut self) -> Option<SystemEffect<Request>> {
         self.mode = Mode::History;
-        self.history = Some(History::new(Term::size().unwrap()));
-        Some(SystemEffect::Request(History::initial_request()))
+        let mut history: History = History::new(Term::size().unwrap());
+        let request: Request = history.list();
+        self.history = Some(history);
+        Some(SystemEffect::Request(request))
     }
 
     /// Search the past chats.
@@ -707,7 +721,7 @@ impl State {
         };
 
         if let Some(chat) = self.chat.as_mut() {
-            chat.handle(Event::TermEvent(TermEvent::Resize(size)));
+            chat.handle(Event::TermEvent(TermEvent::Resize(size)).into());
         }
     }
 
@@ -843,4 +857,156 @@ enum Action {
     },
     /// Start a new chat from the past chats.
     NewChat,
+}
+
+#[cfg(test)]
+mod tests {
+    use std::path::PathBuf;
+
+    use super::{Insh, Mode, State};
+    use crate::components::session::{Props as SessionProps, Session};
+    use crate::config::Config;
+
+    use insh_api::{
+        AiStatusResponseParams, ChatResponseParams, GetFilesResponseParams, Layout,
+        LayoutResponseParams, PaneKind, PaneLayout, Request, Response, ResponseParams, Window,
+    };
+    use rend::{Fabric, Location, Size};
+    use term::{Key, KeyEvent, KeyMods, TermEvent};
+    use til::{Component, Event, SystemEffect};
+
+    use uuid::Uuid;
+
+    /// The request the session is reported on.
+    const REQUEST: Uuid = Uuid::from_u128(100);
+
+    /// How big the terminal is.
+    const SIZE: Size = Size {
+        rows: 24,
+        columns: 80,
+    };
+
+    /// Return what the key asks for.
+    fn press(insh: &mut Insh, key: Key) -> Option<SystemEffect<Request>> {
+        insh.handle(Event::TermEvent(TermEvent::KeyEvent(KeyEvent {
+            key,
+            mods: KeyMods::NONE,
+        })))
+    }
+
+    /// Return insh showing a session with one pane in it.
+    fn in_a_session() -> (Insh, Vec<Request>) {
+        let session: Session = Session::new(
+            SessionProps::builder()
+                .request(REQUEST)
+                .size(SIZE)
+                .dir(PathBuf::from("/tmp"))
+                .config(Config::default())
+                .build(),
+        );
+        let mut insh = Insh {
+            state: State {
+                mode: Mode::Session,
+                browser: None,
+                file_creator: None,
+                finder: None,
+                searcher: None,
+                session: Some(session),
+                chat: None,
+                history: None,
+                history_searcher: None,
+                config: Config::default(),
+            },
+        };
+
+        let pane: Uuid = Uuid::from_u128(1);
+        let window: Uuid = Uuid::from_u128(200);
+        let layout: Layout = Layout::builder()
+            .session(Uuid::from_u128(201))
+            .name("0")
+            .windows(vec![Window::builder().window(window).name("0").build()])
+            .window(window)
+            .panes(vec![PaneLayout::builder()
+                .pane(pane)
+                .at(Location::default())
+                .size(Size::new(23, 80))
+                .kind(PaneKind::Component)
+                .build()])
+            .pane(pane)
+            .build();
+        let effect = insh.handle(Event::Response(
+            Response::builder()
+                .uuid(REQUEST)
+                .params(ResponseParams::Layout(
+                    LayoutResponseParams::builder().layout(layout).build(),
+                ))
+                .build(),
+        ));
+        let requests: Vec<Request> = match effect {
+            Some(SystemEffect::Requests(requests)) => requests,
+            _ => panic!("Expected the pane to ask for its files."),
+        };
+
+        (insh, requests)
+    }
+
+    #[test]
+    fn test_a_reply_reaches_a_chat_in_a_pane_of_a_session() {
+        let (mut insh, requests): (Insh, Vec<Request>) = in_a_session();
+        for request in requests
+            .iter()
+            .filter(|request| matches!(request.params(), insh_api::RequestParams::GetFiles(_)))
+        {
+            insh.handle(Event::Response(
+                Response::builder()
+                    .uuid(*request.uuid())
+                    .params(ResponseParams::GetFiles(
+                        GetFilesResponseParams::builder()
+                            .result(Ok(Vec::new()))
+                            .build(),
+                    ))
+                    .build(),
+            ));
+        }
+
+        let asked: Vec<Request> = match press(&mut insh, Key::Char('a')) {
+            Some(SystemEffect::Requests(asked)) => asked,
+            _ => panic!("Expected the chat to ask whether there is anything to chat with."),
+        };
+        insh.handle(Event::Response(
+            Response::builder()
+                .uuid(*asked[0].uuid())
+                .params(ResponseParams::AiStatus(
+                    AiStatusResponseParams::builder().configured(true).build(),
+                ))
+                .build(),
+        ));
+
+        press(&mut insh, Key::Char('h'));
+        let request: Request = match press(&mut insh, Key::CarriageReturn) {
+            Some(SystemEffect::Requests(mut requests)) => requests.remove(0),
+            Some(SystemEffect::Request(request)) => request,
+            _ => panic!("Expected a reply to be asked for."),
+        };
+        insh.handle(Event::Response(
+            Response::builder()
+                .uuid(*request.uuid())
+                .params(ResponseParams::Chat(
+                    ChatResponseParams::builder()
+                        .chat_id(Some(1))
+                        .delta("the reply")
+                        .build(),
+                ))
+                .last(true)
+                .build(),
+        ));
+
+        let fabric: Fabric = insh.render(SIZE);
+        let drawn: String = (0..fabric.size().rows)
+            .map(|row| fabric.text(row, 0..fabric.size().columns))
+            .collect::<Vec<String>>()
+            .join("\n");
+
+        assert!(drawn.contains("the reply"));
+    }
 }

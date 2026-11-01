@@ -1,3 +1,14 @@
+# 0.6.3
+- Fix inshd log spam.
+- Fix the copy mode start position for the browser, finder, searcher, editor, and terminal.
+- Change the intersection point of panes to be highlighted.
+- Change the intersection point of panes to be draggable.
+- Fix unfocusing from the search and finder.
+- Fix Inshie.
+- Fix the Inshie history.
+- Fix which panes show as focused after attaching to a session.
+- Change the color of the Inshie duration while a response is streaming to be more visible.
+
 # 0.6.2
 - Fix tracking of the pane sizes.
 - Change metadata to only be shown in the file browser once it is known.

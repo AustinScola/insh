@@ -43,7 +43,7 @@ mod file_creator {
     use insh_api::{
         Request, RequestParams, ResponseParams, SuggestDirRequestParams, VisitDirRequestParams,
     };
-    use rend::{Fabric, Size};
+    use rend::{Fabric, Location, Size};
     use term::{Key, KeyEvent, KeyMods, TermEvent};
     use til::Component;
 
@@ -93,6 +93,14 @@ mod file_creator {
             let mut action: Option<Action> = None;
 
             match event {
+                Event::SetFocus { focused } => {
+                    self.state
+                        .phrase
+                        .handle(PhraseEvent::SetPaneFocus { focused });
+                    self.state
+                        .dir_component
+                        .handle(DirEvent::SetPaneFocus { focused });
+                }
                 Event::TermEvent(term_event) => match self.state.focus() {
                     Focus::Dir => {
                         let dir_effect = self
@@ -177,6 +185,17 @@ mod file_creator {
     }
 
     impl FileCreator {
+        /// Return where in it looking back through it starts, which is the end of what is being
+        /// typed.
+        pub fn copy_start(&self) -> Option<Location> {
+            let (row, column): (usize, usize) = match self.state.focus() {
+                Focus::Dir => (0, self.state.dir_component.end()),
+                Focus::Phrase => (1, self.state.phrase.end()),
+            };
+
+            Some(Location::builder().row(row).column(column).build())
+        }
+
         /// Return the effect of what the directory bar did.
         fn handle_dir_effect(&mut self, dir_effect: Option<DirEffect>) -> Option<Effect> {
             match dir_effect {
@@ -217,6 +236,11 @@ mod event {
 
     /// A file creator event.
     pub enum Event {
+        /// Whether what is typed goes to the pane it is in has changed.
+        SetFocus {
+            /// Whether it does.
+            focused: bool,
+        },
         /// A response.
         Response(Response),
         /// A terminal event.

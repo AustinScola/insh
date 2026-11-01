@@ -46,16 +46,16 @@ mod chat {
         Input, InputEffect, InputEvent, InputProps, Transcript, TranscriptEffect, TranscriptEvent,
     };
     use super::{Action, Effect, Props, State};
-    use crate::components::common::{Footer, FooterProps};
+    use crate::components::common::{Footer, FooterProps, PaneContentsEvent as Event};
     use crate::stateful::Stateful;
 
     use insh_api::{
         AiStatusRequestParams, ChatRequestParams, ChatRole, GetChatRequestParams, Request,
         RequestParams, Response, ResponseParams,
     };
-    use rend::{Fabric, Size};
+    use rend::{Fabric, Location, Size};
     use term::{Key, KeyEvent, KeyMods, TermEvent};
-    use til::{Component, Event};
+    use til::Component;
 
     /// The most of the room which what is being typed is allowed to take.
     ///
@@ -76,7 +76,7 @@ mod chat {
         input: Input,
     }
 
-    impl Component<Props, Event<Response>, Effect> for Chat {
+    impl Component<Props, Event, Effect> for Chat {
         fn new(props: Props) -> Self {
             let size: Size = props.size;
             // A chat which was started with a prompt has it typed in already, so that the
@@ -101,8 +101,12 @@ mod chat {
             String::from("inshie")
         }
 
-        fn handle(&mut self, event: Event<Response>) -> Option<Effect> {
+        fn handle(&mut self, event: Event) -> Option<Effect> {
             match event {
+                Event::SetFocus { focused } => {
+                    self.input.handle(InputEvent::SetPaneFocus { focused });
+                    None
+                }
                 Event::Response(response) => self.handle_response(response),
                 Event::TermEvent(TermEvent::Resize(size)) => {
                     let input_rows: usize = self.input.rows(size.columns);
@@ -140,6 +144,26 @@ mod chat {
     }
 
     impl Chat {
+        /// Return where in it looking back through it starts, which is where what is being typed
+        /// ends.
+        pub fn copy_start(&self) -> Option<Location> {
+            let size: Size = self.state.size();
+            if self.state.configured() == Some(false) || size.rows <= 1 {
+                return None;
+            }
+
+            let transcript_size: Size = Self::transcript_size(size, self.input.rows(size.columns));
+            let input_rows: usize = size.rows - 1 - transcript_size.rows;
+            let end: Location = self.input.end(Size::new(input_rows, size.columns));
+
+            Some(
+                Location::builder()
+                    .row(transcript_size.rows + end.row)
+                    .column(end.column)
+                    .build(),
+            )
+        }
+
         /// Return how much room what has been said gets, out of the whole of the chat.
         ///
         /// This is everything the footer and the box which what to say is typed into do not take.
@@ -169,13 +193,17 @@ mod chat {
 
         /// Show a chat from the history, and return the request for what was said in it.
         pub fn open(&mut self, chat_id: i64) -> Request {
-            self.state.perform(Action::Opened { chat_id });
-
-            Request::builder()
+            let request = Request::builder()
                 .params(RequestParams::GetChat(
                     GetChatRequestParams::builder().chat_id(chat_id).build(),
                 ))
-                .build()
+                .build();
+            self.state.perform(Action::Opened {
+                chat_id,
+                uuid: *request.uuid(),
+            });
+
+            request
         }
 
         /// Start a new chat.
@@ -278,7 +306,26 @@ mod chat {
                 ResponseParams::AiStatus(params) => self.state.perform(Action::Configured {
                     configured: params.configured(),
                 }),
+                // The next thing said starts a new chat rather than going to one which is not
+                // there any more. What is being typed is left alone, since it is not part of
+                // what was deleted.
+                ResponseParams::DeleteChat(params) => {
+                    if params.deleted() && self.state.chat_id() == Some(params.chat_id()) {
+                        self.transcript.handle(TranscriptEvent::Show {
+                            messages: vec![],
+                            error: None,
+                        });
+                        self.state.perform(Action::New);
+                    }
+                    None
+                }
                 ResponseParams::GetChat(params) => {
+                    // NOTE: Every pane is told about every response, and a past chat is only
+                    // wanted by whichever chat asked for it.
+                    if self.state.opening() != Some(uuid) {
+                        return None;
+                    }
+
                     let messages: Vec<(bool, String)> = params
                         .messages()
                         .iter()
@@ -404,6 +451,8 @@ mod action {
         Opened {
             /// Which chat was opened.
             chat_id: i64,
+            /// The request for what was said in it.
+            uuid: Uuid,
         },
         /// A new chat was started.
         New,
@@ -435,6 +484,8 @@ mod state {
         configured: Option<bool>,
         /// Which chat is being had, once there is one.
         chat_id: Option<i64>,
+        /// The request for what was said in the past chat which was last opened.
+        opening: Option<Uuid>,
         /// The request whose reply is being waited for.
         pending_request: Option<Uuid>,
         /// Whether anything has been replied yet, so that nothing is said before the first one.
@@ -458,6 +509,7 @@ mod state {
                 size: props.size,
                 configured: None,
                 chat_id: None,
+                opening: None,
                 pending_request: None,
                 replied: false,
                 tokens: None,
@@ -493,6 +545,11 @@ mod state {
         /// Return which chat is being had, once there is one.
         pub fn chat_id(&self) -> Option<i64> {
             self.chat_id
+        }
+
+        /// Return the request for what was said in the past chat which was last opened.
+        pub fn opening(&self) -> Option<Uuid> {
+            self.opening
         }
 
         /// Forget how the last reply came along, since it was to another chat.
@@ -607,14 +664,16 @@ mod state {
                     }
                     None
                 }
-                Action::Opened { chat_id } => {
+                Action::Opened { chat_id, uuid } => {
                     self.chat_id = Some(chat_id);
+                    self.opening = Some(uuid);
                     self.pending_request = None;
                     self.forget_reply();
                     None
                 }
                 Action::New => {
                     self.chat_id = None;
+                    self.opening = None;
                     self.pending_request = None;
                     self.forget_reply();
                     None
@@ -629,10 +688,12 @@ use state::State;
 mod tests {
     use super::{Chat, Effect, Props};
 
+    use crate::components::common::PaneContentsEvent as Event;
+
     use insh_api::{ChatResponseParams, Request, RequestParams, Response, ResponseParams};
     use rend::{Fabric, Size};
     use term::{Key, KeyEvent, KeyMods, TermEvent};
-    use til::{Component, Event};
+    use til::Component;
 
     use std::path::PathBuf;
 
@@ -660,7 +721,7 @@ mod tests {
     }
 
     /// Return the event for pressing a key.
-    fn press(key: Key, mods: KeyMods) -> Event<Response> {
+    fn press(key: Key, mods: KeyMods) -> Event {
         Event::TermEvent(TermEvent::KeyEvent(KeyEvent { key, mods }))
     }
 

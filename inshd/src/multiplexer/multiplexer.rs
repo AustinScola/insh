@@ -178,10 +178,10 @@ impl Multiplexer {
             }
             RequestParams::KillPane(params) => self.kill(&client, *params.pane()),
             RequestParams::DragPane(params) => {
-                let (pane, split, by) = (*params.pane(), params.split(), params.by());
+                let (panes, split, by) = (params.panes(), params.split(), params.by());
                 let screens: Vec<PaneScreen> = match self.session_of_mut(&client) {
                     Some(session) => {
-                        if !session.drag(&pane, split, by) {
+                        if !session.drag(panes, split, by) {
                             return;
                         }
                         Self::whole_screens(session)

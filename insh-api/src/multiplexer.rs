@@ -580,21 +580,22 @@ pub struct SyncPanesRequestParams {}
 /// stays where it is.
 #[derive(Debug, TypedBuilder, Serialize, Deserialize)]
 pub struct DragPaneRequestParams {
-    /// The pane whose far side the line is on.
-    pane: Uuid,
-    /// Which of its sides, where beside is the one on the right and below is the one underneath.
+    /// The panes whose far side the line is on, which is more than one when several lines meet
+    /// end to end at the spot which was taken hold of.
+    panes: Vec<Uuid>,
+    /// Which of their sides, where beside is the one on the right and below is the one underneath.
     split: Split,
     /// How many rows or columns to move it, which is up or left when it is negative.
     by: isize,
 }
 
 impl DragPaneRequestParams {
-    /// Return the pane whose far side the line is on.
-    pub fn pane(&self) -> &Uuid {
-        return &self.pane;
+    /// Return the panes whose far side the line is on.
+    pub fn panes(&self) -> &[Uuid] {
+        return &self.panes;
     }
 
-    /// Return which of its sides the line is on.
+    /// Return which of their sides the line is on.
     pub fn split(&self) -> Split {
         return self.split;
     }

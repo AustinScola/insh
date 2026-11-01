@@ -20,7 +20,7 @@ mod input {
     use crate::color::Color;
     use crate::stateful::Stateful;
 
-    use rend::{Cell, Fabric, Size, Yarn};
+    use rend::{Cell, Fabric, Location, Size, Yarn};
     use term::{Key, KeyEvent, KeyMods, TermEvent};
     use til::Component;
 
@@ -40,6 +40,7 @@ mod input {
         fn handle(&mut self, event: Event) -> Option<Effect> {
             let action: Option<Action> = match event {
                 Event::Clear => Some(Action::Clear),
+                Event::SetPaneFocus { focused } => Some(Action::SetPaneFocus { focused }),
                 Event::TermEvent(TermEvent::Paste(text)) => Some(Action::Paste { text }),
                 Event::TermEvent(TermEvent::KeyEvent(KeyEvent { key, mods })) => {
                     match (key, mods) {
@@ -82,8 +83,9 @@ mod input {
                 false => &lines,
             };
 
-            // The cursor is always here, so this is always the color for whatever has focus.
-            let background: ansi::Color = Color::Highlight.into();
+            // The cursor is always here, so this is the color for whatever has focus unless what
+            // is typed is going to another pane.
+            let background: ansi::Color = Color::highlight(!self.state.pane_unfocused()).into();
 
             let mut yarns: Vec<Yarn> = Vec::with_capacity(size.rows);
             for line in shown {
@@ -107,6 +109,19 @@ mod input {
     }
 
     impl Input {
+        /// Return where the end of what is being typed is drawn in a box of the given size.
+        ///
+        /// What is typed sits at the bottom of the box, however many rows of it there are.
+        pub fn end(&self, size: Size) -> Location {
+            let lines: Vec<String> = Self::wrap(self.state.value(), size.columns);
+            let column: usize = lines.last().map_or(0, |line| Cell::columns(line));
+
+            Location::builder()
+                .row(size.rows.saturating_sub(1))
+                .column(column)
+                .build()
+        }
+
         /// Return how many rows what is being typed needs at the given width.
         ///
         /// This is one to start with and grows as what is typed wraps, so the box is only as big
@@ -156,6 +171,11 @@ mod event {
         TermEvent(TermEvent),
         /// Throw away what is being typed.
         Clear,
+        /// Whether what is typed goes to the pane the input is in has changed.
+        SetPaneFocus {
+            /// Whether it does.
+            focused: bool,
+        },
     }
 }
 pub use event::Event;
@@ -199,6 +219,11 @@ mod action {
         Send,
         /// Throw away what is being typed.
         Clear,
+        /// Take note of whether what is typed goes to the pane the input is in.
+        SetPaneFocus {
+            /// Whether it does.
+            focused: bool,
+        },
     }
 }
 use action::Action;
@@ -212,17 +237,25 @@ mod state {
     pub struct State {
         /// What is being typed.
         value: String,
+        /// Whether what is typed goes to some pane other than the one the input is in.
+        pane_unfocused: bool,
     }
 
     impl From<Props> for State {
         fn from(props: Props) -> Self {
             Self {
                 value: props.value.unwrap_or_default(),
+                pane_unfocused: false,
             }
         }
     }
 
     impl State {
+        /// Return whether what is typed goes to some pane other than the one the input is in.
+        pub fn pane_unfocused(&self) -> bool {
+            self.pane_unfocused
+        }
+
         /// Return what is being typed.
         pub fn value(&self) -> &str {
             &self.value
@@ -233,6 +266,10 @@ mod state {
         fn perform(&mut self, action: Action) -> Option<Effect> {
             match action {
                 Action::Leave => Some(Effect::Unfocus),
+                Action::SetPaneFocus { focused } => {
+                    self.pane_unfocused = !focused;
+                    None
+                }
                 Action::Push { character } => {
                     self.value.push(character);
                     None

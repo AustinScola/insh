@@ -75,6 +75,12 @@ mod terminal {
             self.state.modes()
         }
 
+        /// Return where in the pane looking back through it starts, which is where the program
+        /// last showed its cursor.
+        pub fn copy_start(&self) -> Option<Location> {
+            self.state.last_cursor()
+        }
+
         /// Return where the cursor is in the pane, which is nowhere at all when the program is
         /// not showing one.
         pub fn cursor(&self) -> Option<Location> {
@@ -100,6 +106,11 @@ mod state {
         lines: Vec<Line>,
         /// Where the cursor is, which is nowhere at all when it is not shown.
         cursor: Option<Location>,
+        /// Where the cursor last was when it was shown.
+        ///
+        /// NOTE: A program hides its cursor while it is drawing, so whether it is shown at any one
+        /// moment says nothing about where the program is writing.
+        last_cursor: Option<Location>,
         /// The ways the program has asked its terminal to behave.
         modes: Modes,
     }
@@ -110,6 +121,7 @@ mod state {
                 layout: props.layout,
                 lines: Vec::new(),
                 cursor: None,
+                last_cursor: None,
                 modes: Modes::default(),
             }
         }
@@ -129,6 +141,11 @@ mod state {
         /// Return where the cursor is, which is nowhere at all when it is not shown.
         pub fn cursor(&self) -> Option<Location> {
             self.cursor
+        }
+
+        /// Return where the cursor last was when it was shown.
+        pub fn last_cursor(&self) -> Option<Location> {
+            self.last_cursor
         }
 
         /// Return the ways the program has asked its terminal to behave.
@@ -165,6 +182,7 @@ mod state {
             }
 
             self.cursor = screen.cursor();
+            self.last_cursor = self.cursor.or(self.last_cursor);
             self.modes = screen.modes();
         }
     }
