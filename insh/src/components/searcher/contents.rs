@@ -64,6 +64,12 @@ mod contents {
     use til::{CommandParser, Component, KeyPattern, Parsed};
 
     impl Contents {
+        /// Return which of the shown rows is selected.
+        pub fn selected_row(&self) -> Option<usize> {
+            self.state.hit_number()?;
+            Some(self.state.selected_row_number())
+        }
+
         /// Return a line of a file, colored the way an editor would color it.
         ///
         /// A file in a language which is not known is left in whatever the terminal writes in,
@@ -197,6 +203,7 @@ mod contents {
                 Event::Search { phrase } => Action::Search { phrase },
                 Event::SetDir { dir } => Action::SetDir { dir },
                 Event::Unfocus => Action::Unfocus,
+                Event::SetPaneFocus { focused } => Action::SetPaneFocus { focused },
                 Event::Response(response) => Action::HandleResponse(response),
                 Event::TermEvent(TermEvent::Resize(size)) => Action::Resize { size },
                 // There is nothing to paste into a list of hits, and nothing here is done with
@@ -396,6 +403,11 @@ mod event {
         },
         /// The events no longer go to the contents.
         Unfocus,
+        /// Whether what is typed goes to the pane the contents are in has changed.
+        SetPaneFocus {
+            /// Whether it does.
+            focused: bool,
+        },
         /// A response.
         Response(Response),
     }
@@ -434,6 +446,8 @@ mod state {
         phrase: Option<String>,
         /// Whether the events go to the contents.
         focused: bool,
+        /// Whether what is typed goes to some pane other than the one the contents are in.
+        pane_unfocused: bool,
         /// Whether anything has been searched for yet.
         searched: bool,
         /// The files with hits.
@@ -467,6 +481,7 @@ mod state {
                 dir: props.dir.clone(),
                 phrase: props.phrase.clone(),
                 focused: props.pending_request.is_some(),
+                pane_unfocused: false,
                 searched: props.pending_request.is_some(),
                 hits: Vec::new(),
                 file_offset: 0,
@@ -546,7 +561,7 @@ mod state {
 
         /// Return whether the events go to the contents.
         pub fn focused(&self) -> bool {
-            self.focused
+            self.focused && !self.pane_unfocused
         }
 
         /// Return whether anything has been searched for yet.
@@ -612,7 +627,7 @@ mod state {
         }
 
         /// Return the row number that is selected.
-        fn selected_row_number(&self) -> usize {
+        pub fn selected_row_number(&self) -> usize {
             match self.file_selected {
                 0 => match self.line_selected {
                     None => 0,
@@ -1166,13 +1181,20 @@ mod state {
         fn perform(&mut self, action: Action) -> Option<Effect> {
             // Running a command clears what the last one had to say. Responses are not commands,
             // so they leave it alone.
-            if !matches!(action, Action::HandleResponse(_)) {
+            if !matches!(
+                action,
+                Action::HandleResponse(_) | Action::SetPaneFocus { .. }
+            ) {
                 self.message = None;
             }
 
             match action {
                 Action::Resize { size } => self.resize(size),
                 Action::Unfocus => self.unfocus(),
+                Action::SetPaneFocus { focused } => {
+                    self.pane_unfocused = !focused;
+                    None
+                }
                 Action::Search { phrase } => self.search(&phrase),
                 Action::SetDir { dir } => self.set_dir(dir),
                 Action::Down => self.down(),
@@ -1199,6 +1221,20 @@ mod state {
         use super::*;
 
         use test_case::test_case;
+
+        #[test_case(true, true, true; "the hits are focused and so is the pane")]
+        #[test_case(true, false, false; "the hits are focused but the pane is not")]
+        #[test_case(false, true, false; "the pane is focused but the hits are not")]
+        fn test_focused(contents: bool, pane: bool, expected: bool) {
+            let mut state = State {
+                focused: contents,
+                ..Default::default()
+            };
+
+            state.perform(Action::SetPaneFocus { focused: pane });
+
+            assert_eq!(state.focused(), expected);
+        }
 
         #[test_case(&mut State::default(), 0, State::default(); "scrolling a default state by zero does nothing")]
         #[test_case(
@@ -1267,6 +1303,11 @@ mod action {
         },
         /// Stop sending the events to the contents.
         Unfocus,
+        /// Take note of whether what is typed goes to the pane the contents are in.
+        SetPaneFocus {
+            /// Whether it does.
+            focused: bool,
+        },
         /// Search for a phrase.
         Search {
             /// The phrase to search for.

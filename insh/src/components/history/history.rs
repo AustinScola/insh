@@ -65,6 +65,11 @@ mod chats {
             self.scroll_to_selected();
         }
 
+        /// Return which of the shown rows is selected, if one is.
+        pub fn selected_row(&self) -> Option<usize> {
+            Some(self.selected?.saturating_sub(self.offset))
+        }
+
         /// Return which chat is selected, if one is.
         pub fn selected(&self) -> Option<&Entry> {
             self.entries.get(self.selected?)
@@ -205,7 +210,7 @@ mod chats {
 
                 if self.selected == Some(index) {
                     yarn.color(Color::InvertedText.into());
-                    yarn.background(Color::highlight(focused).into());
+                    yarn.background(Color::row_highlight(focused).into());
                 }
 
                 yarns.push(yarn);
@@ -236,15 +241,17 @@ pub use chats::{Chats, Movement};
 /// Contains the [`History`] component.
 mod history {
     use super::{Chats, Effect, Entry, Movement};
-    use crate::components::common::{Footer, FooterProps};
+    use crate::components::common::{Footer, FooterProps, PaneContentsEvent as Event};
 
     use insh_api::{
         DeleteChatRequestParams, ListChatsRequestParams, Request, RequestParams, Response,
         ResponseParams,
     };
-    use rend::{Fabric, Size};
+    use rend::{Fabric, Location, Size};
     use term::{Key, KeyEvent, KeyMods, TermEvent};
-    use til::{Component, Event};
+    use til::Component;
+
+    use uuid::Uuid;
 
     /// The most chats to ask for at a time.
     const CHAT_LIMIT: usize = 100;
@@ -259,9 +266,17 @@ mod history {
         chats: Chats,
         /// Whether a `d` has been pressed and is waiting for the second one which deletes a chat.
         deleting: bool,
+        /// The request for the chats which was made last.
+        ///
+        /// NOTE: Every pane is told about every response, and these are the only chats wanted here.
+        listing: Option<Uuid>,
+        /// The request to delete a chat which was made last.
+        deletion: Option<Uuid>,
+        /// Whether what is typed goes to some pane other than the one this is in.
+        pane_unfocused: bool,
     }
 
-    impl Component<Size, Event<Response>, Effect> for History {
+    impl Component<Size, Event, Effect> for History {
         fn new(size: Size) -> Self {
             let mut history = Self::default();
             // How much of the list is on the screen is what keeps the selected chat in view, and
@@ -274,8 +289,12 @@ mod history {
             String::from("inshie history")
         }
 
-        fn handle(&mut self, event: Event<Response>) -> Option<Effect> {
+        fn handle(&mut self, event: Event) -> Option<Effect> {
             match event {
+                Event::SetFocus { focused } => {
+                    self.pane_unfocused = !focused;
+                    None
+                }
                 Event::Response(response) => self.handle_response(response),
                 Event::TermEvent(TermEvent::Resize(size)) => {
                     self.chats.resize(size.rows.saturating_sub(FOOTER_ROWS));
@@ -301,21 +320,32 @@ mod history {
                 return footer;
             }
 
-            let list: Fabric = self
-                .chats
-                .render(Size::new(size.rows - FOOTER_ROWS, size.columns), true);
+            let list: Fabric = self.chats.render(
+                Size::new(size.rows - FOOTER_ROWS, size.columns),
+                !self.pane_unfocused,
+            );
             list.quilt_bottom(footer)
         }
     }
 
     impl History {
-        /// Return the request to make when the history is opened.
-        pub fn initial_request() -> Request {
-            Request::builder()
+        /// Return where in it looking back through it starts, which is the start of the selected
+        /// chat.
+        pub fn copy_start(&self) -> Option<Location> {
+            let row: usize = self.chats.selected_row()?;
+            Some(Location::builder().row(row).column(0).build())
+        }
+
+        /// Return the request for the chats, which is made when the history is opened.
+        pub fn list(&mut self) -> Request {
+            let request: Request = Request::builder()
                 .params(RequestParams::ListChats(
                     ListChatsRequestParams::builder().limit(CHAT_LIMIT).build(),
                 ))
-                .build()
+                .build();
+            self.listing = Some(*request.uuid());
+
+            request
         }
 
         /// Handle something which was typed.
@@ -333,13 +363,14 @@ mod history {
                     None => return Some(Effect::Bell),
                 };
 
-                return Some(Effect::Request(
-                    Request::builder()
-                        .params(RequestParams::DeleteChat(
-                            DeleteChatRequestParams::builder().chat_id(entry.id).build(),
-                        ))
-                        .build(),
-                ));
+                let request: Request = Request::builder()
+                    .params(RequestParams::DeleteChat(
+                        DeleteChatRequestParams::builder().chat_id(entry.id).build(),
+                    ))
+                    .build();
+                self.deletion = Some(*request.uuid());
+
+                return Some(Effect::Request(request));
             }
 
             match self.chats.handle(&key_event) {
@@ -362,12 +393,15 @@ mod history {
 
         /// Handle a response from the daemon.
         fn handle_response(&mut self, response: Response) -> Option<Effect> {
+            let uuid: Option<Uuid> = Some(*response.uuid());
             let params = match response.params() {
+                ResponseParams::ListChats(_) if uuid != self.listing => return None,
+                ResponseParams::DeleteChat(_) if uuid != self.deletion => return None,
                 ResponseParams::ListChats(params) => params,
                 // A chat which was deleted is still in the list until it is asked for again.
                 ResponseParams::DeleteChat(params) => {
                     return match params.deleted() {
-                        true => Some(Effect::Request(Self::initial_request())),
+                        true => Some(Effect::Request(self.list())),
                         false => Some(Effect::Bell),
                     };
                 }
@@ -425,10 +459,15 @@ mod tests {
     use super::History;
     use super::{Chats, Effect, Entry, Movement};
 
-    use insh_api::{Chat, ListChatsResponseParams, RequestParams, Response, ResponseParams};
+    use crate::components::common::PaneContentsEvent as Event;
+
+    use insh_api::{
+        Chat, DeleteChatResponseParams, ListChatsResponseParams, RequestParams, Response,
+        ResponseParams,
+    };
     use rend::{Fabric, Size};
     use term::{Key, KeyEvent, KeyMods, TermEvent};
-    use til::{Component, Event};
+    use til::Component;
 
     use std::path::PathBuf;
     use uuid::Uuid;
@@ -473,21 +512,76 @@ mod tests {
     /// Return a history showing one chat.
     fn history() -> History {
         let mut history = History::new(Size::new(10, 20));
-        history.handle(Event::Response(
+        let uuid: Uuid = *history.list().uuid();
+        history.handle(chats_response(uuid, "one"));
+        history
+    }
+
+    /// Return the response to a request for the chats, with one chat of the given title.
+    fn chats_response(uuid: Uuid, title: &str) -> Event {
+        Event::Response(
             Response::builder()
-                .uuid(Uuid::new_v4())
+                .uuid(uuid)
                 .params(ResponseParams::ListChats(
                     ListChatsResponseParams::builder()
                         .chats(vec![Chat::builder()
                             .id(7)
-                            .title("one")
+                            .title(title)
                             .dir(PathBuf::from("/tmp"))
                             .build()])
                         .build(),
                 ))
                 .build(),
+        )
+    }
+
+    /// Return the response to a request to delete a chat.
+    fn deleted_response(uuid: Uuid) -> Event {
+        Event::Response(
+            Response::builder()
+                .uuid(uuid)
+                .params(ResponseParams::DeleteChat(
+                    DeleteChatResponseParams::builder()
+                        .chat_id(7)
+                        .deleted(true)
+                        .build(),
+                ))
+                .build(),
+        )
+    }
+
+    #[test]
+    fn test_chats_which_another_pane_asked_for_are_not_shown() {
+        let mut history = history();
+
+        history.handle(chats_response(Uuid::new_v4(), "not for here"));
+
+        let fabric: Fabric = history.render(Size::new(10, 20));
+        assert!(fabric.text(0, 0..20).starts_with("one"));
+    }
+
+    #[test]
+    fn test_a_delete_which_another_pane_asked_for_asks_for_nothing() {
+        let mut history = history();
+
+        assert!(history.handle(deleted_response(Uuid::new_v4())).is_none());
+    }
+
+    #[test]
+    fn test_the_chats_are_asked_for_again_after_a_delete_from_here() {
+        let mut history = history();
+
+        press(&mut history, Key::Char('d'));
+        let uuid: Uuid = match press(&mut history, Key::Char('d')) {
+            Some(Effect::Request(request)) => *request.uuid(),
+            _ => panic!("Expected the chat to be deleted."),
+        };
+
+        assert!(matches!(
+            history.handle(deleted_response(uuid)),
+            Some(Effect::Request(request))
+                if matches!(request.params(), RequestParams::ListChats(_))
         ));
-        history
     }
 
     /// Return the effect of typing a key.

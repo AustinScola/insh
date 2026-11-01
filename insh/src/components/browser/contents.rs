@@ -536,6 +536,11 @@ impl FooterInfo for Contents {
 }
 
 impl Contents {
+    /// Return which of the shown rows is selected.
+    pub fn selected_row(&self) -> Option<usize> {
+        self.state.selected
+    }
+
     /// Return a parser for the keys which the contents responds to.
     fn command_parser() -> CommandParser<Action> {
         CommandParser::new()

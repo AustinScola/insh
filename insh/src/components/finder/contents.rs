@@ -33,6 +33,11 @@ mod contents {
     use til::{CommandParser, Component, KeyPattern, Parsed};
 
     impl Contents {
+        /// Return which of the shown rows is selected.
+        pub fn selected_row(&self) -> Option<usize> {
+            self.state.selected()
+        }
+
         /// Return a parser for the keys which the contents responds to.
         fn command_parser() -> CommandParser<Action> {
             CommandParser::new()
@@ -132,6 +137,7 @@ mod contents {
                 Event::Find { phrase } => Action::Find { phrase },
                 Event::SetDir { dir } => Action::SetDir { dir },
                 Event::Unfocus => Action::Unfocus,
+                Event::SetPaneFocus { focused } => Action::SetPaneFocus { focused },
                 Event::TermEvent(term_event) => match term_event {
                     TermEvent::Resize(size) => Action::Resize { size },
                     // There is nothing to paste into a list of hits, and nothing here is done
@@ -271,6 +277,11 @@ mod event {
         },
         /// The events no longer go to the contents.
         Unfocus,
+        /// Whether what is typed goes to the pane the contents are in has changed.
+        SetPaneFocus {
+            /// Whether it does.
+            focused: bool,
+        },
         /// A response.
         Response(Response),
         /// A terminal event.
@@ -310,6 +321,8 @@ mod state {
         phrase: Option<String>,
         /// Whether the events go to the contents.
         focused: bool,
+        /// Whether what is typed goes to some pane other than the one the contents are in.
+        pane_unfocused: bool,
         /// Whether any files were found.
         hits: Option<bool>,
         /// The files found.
@@ -339,6 +352,7 @@ mod state {
                 dir: props.dir,
                 phrase: None,
                 focused: false,
+                pane_unfocused: false,
                 hits: None,
                 entries: Vec::new(),
                 selected: None,
@@ -394,7 +408,7 @@ mod state {
 
         /// Return whether the events go to the contents.
         pub fn focused(&self) -> bool {
-            self.focused
+            self.focused && !self.pane_unfocused
         }
 
         /// Return whether any files were found.
@@ -821,12 +835,19 @@ mod state {
         fn perform(&mut self, action: Action) -> Option<Effect> {
             // Running a command clears what the last one had to say. Responses are not commands,
             // so they leave it alone.
-            if !matches!(action, Action::HandleResponse(_)) {
+            if !matches!(
+                action,
+                Action::HandleResponse(_) | Action::SetPaneFocus { .. }
+            ) {
                 self.message = None;
             }
 
             match action {
                 Action::Unfocus => self.unfocus(),
+                Action::SetPaneFocus { focused } => {
+                    self.pane_unfocused = !focused;
+                    None
+                }
                 Action::Find { phrase } => self.find(&phrase),
                 Action::SetDir { dir } => self.set_dir(dir),
                 Action::Resize { size } => self.resize(size),
@@ -848,6 +869,30 @@ mod state {
             }
         }
     }
+
+    #[cfg(test)]
+    mod tests {
+        use super::*;
+
+        use test_case::test_case;
+
+        #[test_case(true, true, true; "the files are focused and so is the pane")]
+        #[test_case(true, false, false; "the files are focused but the pane is not")]
+        #[test_case(false, true, false; "the pane is focused but the files are not")]
+        fn test_focused(contents: bool, pane: bool, expected: bool) {
+            let mut state = State::from(
+                Props::builder()
+                    .dir(PathBuf::from("/tmp"))
+                    .size(Size::new(10, 40))
+                    .build(),
+            );
+            state.focused = contents;
+
+            state.perform(Action::SetPaneFocus { focused: pane });
+
+            assert_eq!(state.focused(), expected);
+        }
+    }
 }
 use state::State;
 
@@ -863,6 +908,11 @@ mod action {
     pub enum Action {
         /// Stop sending the events to the contents.
         Unfocus,
+        /// Take note of whether what is typed goes to the pane the contents are in.
+        SetPaneFocus {
+            /// Whether it does.
+            focused: bool,
+        },
         /// Find the files matching a pattern.
         Find {
             /// The pattern to match file names against.

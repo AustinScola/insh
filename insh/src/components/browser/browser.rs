@@ -13,7 +13,7 @@ use insh_api::{
     Request, RequestParams, Response, ResponseParams, SuggestDirRequestParams,
     VisitDirRequestParams,
 };
-use rend::{Fabric, Size};
+use rend::{Fabric, Location, Size};
 use term::{Key, KeyEvent, KeyMods, TermEvent};
 use til::Component;
 
@@ -68,13 +68,15 @@ impl Component<Props, Event, Effect> for Browser {
                 self.handle_contents_effect(contents_effect)
             }
             Event::SetFocus { focused } => {
-                // NOTE: Only the contents is told, because the directory bar shows whether it is
-                // being typed in by whether the browser has focused it, which is a different
-                // thing from whether what is typed reaches the browser at all.
-                let contents_event: ContentsEvent = match focused {
-                    true => ContentsEvent::Focus,
-                    false => ContentsEvent::Unfocus,
-                };
+                self.state.dir.handle(DirEvent::SetPaneFocus { focused });
+
+                // NOTE: The files are not shown as focused while the directory bar is being typed
+                // in, whatever is going on with the pane.
+                let contents_event: ContentsEvent =
+                    match focused && matches!(self.state.focus, Focus::Contents) {
+                        true => ContentsEvent::Focus,
+                        false => ContentsEvent::Unfocus,
+                    };
                 let contents_effect: Option<ContentsEffect> =
                     self.state.contents.handle(contents_event);
                 self.handle_contents_effect(contents_effect)
@@ -153,6 +155,18 @@ impl Component<Props, Event, Effect> for Browser {
 }
 
 impl Browser {
+    /// Return where in it looking back through it starts, which is the end of what is being typed
+    /// or the start of the selected row.
+    pub fn copy_start(&self) -> Option<Location> {
+        let (row, column): (usize, usize) = match self.state.focus {
+            Focus::Dir => (0, self.state.dir.end()),
+            // The directory bar is drawn above the files.
+            Focus::Contents => (self.state.contents.selected_row()? + 1, 0),
+        };
+
+        Some(Location::builder().row(row).column(column).build())
+    }
+
     /// Return the effect of what the directory bar did.
     fn handle_dir_effect(&mut self, dir_effect: Option<DirEffect>) -> Option<Effect> {
         match dir_effect {

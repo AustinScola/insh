@@ -5,15 +5,18 @@ mod searcher {
     use super::super::{Chats, Entry, Movement};
     use super::{Effect, Focus};
     use crate::components::common::{
-        Footer, FooterProps, Phrase, PhraseEffect, PhraseEvent, PhraseProps,
+        Footer, FooterProps, PaneContentsEvent as Event, Phrase, PhraseEffect, PhraseEvent,
+        PhraseProps,
     };
 
     use insh_api::{
         ChatSearchMode, Request, RequestParams, Response, ResponseParams, SearchChatsRequestParams,
     };
-    use rend::{Fabric, Size};
+    use rend::{Fabric, Location, Size};
     use term::{Key, KeyEvent, KeyMods, TermEvent};
-    use til::{Component, Event};
+    use til::Component;
+
+    use uuid::Uuid;
 
     /// The most chats to ask for at a time.
     const CHAT_LIMIT: usize = 100;
@@ -29,9 +32,15 @@ mod searcher {
         phrase: Phrase,
         /// Which part of the searcher has focus.
         focus: Focus,
+        /// The search which was made last.
+        ///
+        /// NOTE: Every pane is told about every response, and this is the only search wanted here.
+        searching: Option<Uuid>,
+        /// Whether what is typed goes to some pane other than the one this is in.
+        pane_unfocused: bool,
     }
 
-    impl Component<Size, Event<Response>, Effect> for Searcher {
+    impl Component<Size, Event, Effect> for Searcher {
         fn new(size: Size) -> Self {
             let mut phrase = Phrase::new(PhraseProps::builder().build());
             // There is nothing to look through yet, so this opens ready to be typed in.
@@ -46,6 +55,8 @@ mod searcher {
                 chats,
                 phrase,
                 focus: Focus::Phrase,
+                searching: None,
+                pane_unfocused: false,
             }
         }
 
@@ -53,8 +64,13 @@ mod searcher {
             String::from("inshie history searcher")
         }
 
-        fn handle(&mut self, event: Event<Response>) -> Option<Effect> {
+        fn handle(&mut self, event: Event) -> Option<Effect> {
             match event {
+                Event::SetFocus { focused } => {
+                    self.pane_unfocused = !focused;
+                    self.phrase.handle(PhraseEvent::SetPaneFocus { focused });
+                    None
+                }
                 Event::Response(response) => self.handle_response(response),
                 Event::TermEvent(TermEvent::Resize(size)) => {
                     self.chats.resize(size.rows.saturating_sub(CHROME_ROWS));
@@ -84,7 +100,7 @@ mod searcher {
             if size.rows > CHROME_ROWS {
                 fabric = fabric.quilt_bottom(self.chats.render(
                     Size::new(size.rows - CHROME_ROWS, size.columns),
-                    matches!(self.focus, Focus::Chats),
+                    matches!(self.focus, Focus::Chats) && !self.pane_unfocused,
                 ));
             }
 
@@ -97,6 +113,18 @@ mod searcher {
     }
 
     impl Searcher {
+        /// Return where in it looking back through it starts, which is the end of what is being
+        /// typed or the start of the selected chat.
+        pub fn copy_start(&self) -> Option<Location> {
+            let (row, column): (usize, usize) = match self.focus {
+                Focus::Phrase => (0, self.phrase.end()),
+                // The box which what to search for is typed into is drawn above the chats.
+                Focus::Chats => (self.chats.selected_row()? + 1, 0),
+            };
+
+            Some(Location::builder().row(row).column(column).build())
+        }
+
         /// Handle something typed into the box which what to search for goes in.
         fn handle_phrase(&mut self, term_event: TermEvent) -> Option<Effect> {
             match self.phrase.handle(PhraseEvent::TermEvent(term_event)) {
@@ -110,17 +138,18 @@ mod searcher {
                         return None;
                     }
 
-                    Some(Effect::Request(
-                        Request::builder()
-                            .params(RequestParams::SearchChats(
-                                SearchChatsRequestParams::builder()
-                                    .text(phrase)
-                                    .mode(ChatSearchMode::Both)
-                                    .limit(CHAT_LIMIT)
-                                    .build(),
-                            ))
-                            .build(),
-                    ))
+                    let request: Request = Request::builder()
+                        .params(RequestParams::SearchChats(
+                            SearchChatsRequestParams::builder()
+                                .text(phrase)
+                                .mode(ChatSearchMode::Both)
+                                .limit(CHAT_LIMIT)
+                                .build(),
+                        ))
+                        .build();
+                    self.searching = Some(*request.uuid());
+
+                    Some(Effect::Request(request))
                 }
                 Some(PhraseEffect::Quit) => Some(Effect::Quit),
                 Some(PhraseEffect::Bell) => Some(Effect::Bell),
@@ -154,7 +183,9 @@ mod searcher {
 
         /// Handle a response from the daemon.
         fn handle_response(&mut self, response: Response) -> Option<Effect> {
+            let uuid: Option<Uuid> = Some(*response.uuid());
             let params = match response.params() {
+                ResponseParams::SearchChats(_) if uuid != self.searching => return None,
                 ResponseParams::SearchChats(params) => params,
                 _ => {
                     #[cfg(feature = "logging")]

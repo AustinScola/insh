@@ -85,11 +85,15 @@ mod borders {
                         continue;
                     }
 
+                    // NOTE: The rows and columns either side are looked at together, so that the
+                    // spot off the corner of a pane counts as beside it. That is where the lines
+                    // along two of its edges meet, and it has no pane directly next to it when
+                    // the lines cross.
                     let beside = |pane: &PaneLayout| {
-                        (row > 0 && covers(pane, row - 1, column))
-                            || covers(pane, row + 1, column)
-                            || (column > 0 && covers(pane, row, column - 1))
-                            || covers(pane, row, column + 1)
+                        (row.saturating_sub(1)..=row + 1).any(|near_row| {
+                            (column.saturating_sub(1)..=column + 1)
+                                .any(|near_column| covers(pane, near_row, near_column))
+                        })
                     };
 
                     let at: Location = Location::builder().row(row).column(column).build();
@@ -324,6 +328,66 @@ mod borders {
                 .collect();
 
             assert_eq!(drawn, expected);
+        }
+
+        #[test_case(1; "the pane above and to the left")]
+        #[test_case(2; "the pane above and to the right")]
+        #[test_case(3; "the pane below and to the left")]
+        #[test_case(4; "the pane below and to the right")]
+        fn test_where_the_lines_cross_is_drawn_in_the_color_of_the_focused_pane(focused: u128) {
+            let panes = vec![
+                layout(1, 0, 0, 1, 2),
+                layout(2, 0, 3, 1, 2),
+                layout(3, 2, 0, 1, 2),
+                layout(4, 2, 3, 1, 2),
+            ];
+            let size = Size::new(3, 5);
+
+            let mut fabric = Fabric::new(size);
+            Borders::of(&panes, &pane(focused), size).draw(&mut fabric);
+
+            assert_eq!(
+                fabric.spot(1, 2).style().color(),
+                Some(Color::FocusedBorder.into())
+            );
+        }
+
+        #[test]
+        fn test_where_a_line_runs_into_another_is_drawn_in_the_color_of_the_focused_pane() {
+            // The pane is above the line running to the right and beside the one down the middle,
+            // and touches where they meet only by its corner.
+            let panes = vec![
+                layout(1, 0, 0, 3, 2),
+                layout(2, 0, 3, 1, 2),
+                layout(3, 2, 3, 1, 2),
+            ];
+            let size = Size::new(3, 5);
+
+            let mut fabric = Fabric::new(size);
+            Borders::of(&panes, &pane(2), size).draw(&mut fabric);
+
+            assert_eq!(
+                fabric.spot(1, 2).style().color(),
+                Some(Color::FocusedBorder.into())
+            );
+        }
+
+        #[test]
+        fn test_a_line_away_from_the_pane_which_is_focused_is_not_drawn_in_its_color() {
+            let panes = vec![
+                layout(1, 0, 0, 3, 2),
+                layout(2, 0, 3, 1, 2),
+                layout(3, 2, 3, 1, 2),
+            ];
+            let size = Size::new(3, 5);
+
+            let mut fabric = Fabric::new(size);
+            Borders::of(&panes, &pane(2), size).draw(&mut fabric);
+
+            assert_eq!(
+                fabric.spot(2, 2).style().color(),
+                Some(Color::Border.into())
+            );
         }
 
         #[test]

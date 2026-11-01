@@ -1152,11 +1152,18 @@ impl GetChatResponseParams {
 /// Response parameters for whether a chat was deleted.
 #[derive(Debug, Clone, TypedBuilder, Serialize, Deserialize)]
 pub struct DeleteChatResponseParams {
+    /// Which chat it was asked to delete.
+    chat_id: i64,
     /// Whether the chat was deleted.
     deleted: bool,
 }
 
 impl DeleteChatResponseParams {
+    /// Return which chat it was asked to delete.
+    pub fn chat_id(&self) -> i64 {
+        self.chat_id
+    }
+
     /// Return whether the chat was deleted.
     pub fn deleted(&self) -> bool {
         self.deleted
