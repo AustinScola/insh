@@ -244,6 +244,17 @@ mod command {
             /// What to call it, which is asked for when it is not given.
             name: Option<String>,
         },
+        /// Say which directory a new pane starts in.
+        SetDir {
+            /// Set it for the window, which is what is done when nothing is said.
+            #[arg(short, long, conflicts_with = "session")]
+            window: bool,
+            /// Set it for the session, which goes for every window with none of its own.
+            #[arg(short, long)]
+            session: bool,
+            /// The directory, which is from the directory of the pane when it is a relative one.
+            dir: String,
+        },
         /// Make a new session.
         NewSession {
             /// What to call it, which is a name made up from the ones already taken when there is
@@ -345,6 +356,13 @@ mod command {
         #[test_case("rename-session work", Ok(Some(Command::RenameSession { name: Some(String::from("work")) })); "saying what to call the session")]
         #[test_case("rename-window", Ok(Some(Command::RenameWindow { name: None })); "asking what to call the window")]
         #[test_case("rename-window notes", Ok(Some(Command::RenameWindow { name: Some(String::from("notes")) })); "saying what to call the window")]
+        #[test_case("set-dir /tmp", Ok(Some(Command::SetDir { window: false, session: false, dir: String::from("/tmp") })); "a directory, for the window by default")]
+        #[test_case("set-dir --window /tmp", Ok(Some(Command::SetDir { window: true, session: false, dir: String::from("/tmp") })); "a directory for the window")]
+        #[test_case("set-dir -w /tmp", Ok(Some(Command::SetDir { window: true, session: false, dir: String::from("/tmp") })); "a directory for the window, said the short way")]
+        #[test_case("set-dir --session /tmp", Ok(Some(Command::SetDir { window: false, session: true, dir: String::from("/tmp") })); "a directory for the session")]
+        #[test_case("set-dir -s '/tmp/the dir'", Ok(Some(Command::SetDir { window: false, session: true, dir: String::from("/tmp/the dir") })); "a directory for the session, said the short way with a space in it")]
+        #[test_case("set-dir", Err(Complaint::saying("The following required arguments were not provided:")); "a directory is asked for but not given")]
+        #[test_case("set-dir -w -s /tmp", Err(Complaint::saying("The argument '--window' cannot be used with '--session'")); "both a window and a session")]
         #[test_case("new-session", Ok(Some(Command::NewSession { name: None })); "a session")]
         #[test_case("new-session work", Ok(Some(Command::NewSession { name: Some(String::from("work")) })); "a session with a name")]
         #[test_case("new-session 'the work one'", Ok(Some(Command::NewSession { name: Some(String::from("the work one")) })); "a session with a name with a space in it")]
@@ -563,13 +581,18 @@ mod prompt {
                 // Nothing was typed, so there is nothing to do but stop.
                 Ok(None) => Some(Effect::Close),
                 Err(Complaint { message }) => {
-                    self.complaint = Some(message);
-                    self.typed.clear();
-                    self.suggestion = None;
-                    self.suggesting = None;
+                    self.complain(message);
                     None
                 }
             }
+        }
+
+        /// Say what was wrong with what was typed, and start again from nothing.
+        pub fn complain(&mut self, message: String) {
+            self.complaint = Some(message);
+            self.typed.clear();
+            self.suggestion = None;
+            self.suggesting = None;
         }
 
         /// Draw the prompt, which is one row along the bottom where the footer usually is.

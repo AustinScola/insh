@@ -111,15 +111,17 @@ mod session {
     use crate::color::Color;
     use crate::components::common::{Footer, FooterInfo, FooterProps};
     use crate::config::Config;
+    use crate::typed_path::TypedPath;
 
     use insh_api::{
-        AttachRequestParams, DragPaneRequestParams, KillPaneRequestParams,
+        AttachRequestParams, DirScope, DragPaneRequestParams, KillPaneRequestParams,
         ListSessionsRequestParams, NewSessionRequestParams, NewWindowRequestParams, PaneLayout,
         RenameSessionRequestParams, RenameWindowRequestParams, Request, RequestParams,
         ResizeClientRequestParams, Response, ResponseParams, RunCommandRequestParams,
         RunInPaneRequestParams, ScrollPaneRequestParams, SelectPaneRequestParams,
-        SelectWindowRequestParams, Split, SplitPaneRequestParams, SwapPaneRequestParams,
-        SyncPanesRequestParams, WritePaneRequestParams, ZoomPaneRequestParams,
+        SelectWindowRequestParams, SetDirRequestParams, Split, SplitPaneRequestParams,
+        SwapPaneRequestParams, SyncPanesRequestParams, WritePaneRequestParams,
+        ZoomPaneRequestParams,
     };
     use rend::{Fabric, Location, Size};
     use term::{Key, KeyEvent, KeyMods, MouseButton, MouseEvent, MouseEventKind, TermEvent};
@@ -405,6 +407,20 @@ mod session {
                     None
                 }
                 PromptEffect::Run { command, typed } => {
+                    // NOTE: This is complained about rather than left to the daemon because only
+                    // the client knows what a relative path is from, and it is checked before the
+                    // prompt goes so that what was wrong can be said where it was typed.
+                    if let Command::SetDir { dir, .. } = &command {
+                        let dir: PathBuf = self.state.typed_dir(dir);
+                        if !dir.is_dir() {
+                            let message = format!("Not a directory: {}", dir.display());
+                            if let Some(prompt) = self.state.prompt.as_mut() {
+                                prompt.complain(message);
+                            }
+                            return None;
+                        }
+                    }
+
                     self.state.prompt = None;
 
                     // NOTE: The daemon is told what was typed so that it is suggested next time,
@@ -877,6 +893,15 @@ mod session {
                         return None;
                     }
                 },
+                Command::SetDir { session, dir, .. } => RequestParams::SetDir(
+                    SetDirRequestParams::builder()
+                        .scope(match session {
+                            true => DirScope::Session,
+                            false => DirScope::Window,
+                        })
+                        .dir(self.typed_dir(&dir))
+                        .build(),
+                ),
                 Command::NewSession { name } => {
                     RequestParams::NewSession(NewSessionRequestParams::builder().name(name).build())
                 }
@@ -892,6 +917,31 @@ mod session {
             };
 
             Some(Effect::Request(Request::builder().params(params).build()))
+        }
+
+        /// Return the directory a new pane of the window being looked at starts in.
+        fn starting_dir(&self) -> PathBuf {
+            return self
+                .layout
+                .as_ref()
+                .and_then(|layout| layout.dir())
+                .unwrap_or(&self.dir)
+                .clone();
+        }
+
+        /// Return the directory which was typed, where a relative one is from the directory of the
+        /// pane what is typed goes to.
+        pub fn typed_dir(&self, typed: &str) -> PathBuf {
+            let from: PathBuf = self
+                .active()
+                .and_then(|pane| self.panes.get(&pane))
+                .map_or_else(|| self.starting_dir(), |pane| pane.dir().to_path_buf());
+
+            return TypedPath::builder()
+                .home(dirs::home_dir())
+                .from(from)
+                .build()
+                .resolve(typed);
         }
 
         /// Return what asking for what is typed to go to the pane asks for.
@@ -1333,7 +1383,7 @@ mod session {
 
         /// Give the events to the pane and ask for whatever it asks for.
         pub fn tell_pane(&mut self, pane: &Uuid, events: Vec<PaneEvent>) -> Option<Effect> {
-            let dir: PathBuf = self.dir.clone();
+            let dir: PathBuf = self.starting_dir();
             let shown = self.panes.get_mut(pane)?;
 
             let mut requests: Vec<Request> = Vec::new();
@@ -1466,7 +1516,7 @@ mod session {
                         let pane = Pane::new(
                             PaneProps::builder()
                                 .layout(shown.clone())
-                                .dir(self.dir.clone())
+                                .dir(layout.dir().unwrap_or(&self.dir).clone())
                                 .config(self.config.clone())
                                 .build(),
                         );
@@ -1647,7 +1697,7 @@ pub use session::Session;
 
 #[cfg(test)]
 mod tests {
-    use std::path::PathBuf;
+    use std::path::{Path, PathBuf};
 
     use super::{Effect, Event, Props, Session};
     use crate::color::Color;
@@ -1656,8 +1706,8 @@ mod tests {
     use file_info::FileInfo;
     use file_type::FileType;
     use insh_api::{
-        GetFilesResponseParams, Layout, LayoutResponseParams, PaneKind, PaneLayout, PaneScreen,
-        Request, RequestParams, Response, ResponseParams, Split, Window,
+        DirScope, GetFilesResponseParams, Layout, LayoutResponseParams, PaneKind, PaneLayout,
+        PaneScreen, Request, RequestParams, Response, ResponseParams, Split, Window,
     };
     use rend::{Fabric, Location, Size};
     use term::{Key, KeyEvent, KeyMods, MouseButton, MouseEvent, MouseEventKind, TermEvent};
@@ -1851,6 +1901,100 @@ mod tests {
             background(&fabric, 2, column + 3),
             Some(Color::Highlight.into())
         );
+    }
+
+    /// Open the prompt and type the characters at it.
+    fn type_at_prompt(session: &mut Session, typed: &str) {
+        press(session, Key::Char('b'), KeyMods::CONTROL);
+        press(session, Key::Char(':'), KeyMods::NONE);
+        for character in typed.chars() {
+            press(session, Key::Char(character), KeyMods::NONE);
+        }
+    }
+
+    #[test_case::test_case("set-dir /tmp", DirScope::Window, "/tmp"; "the window by default")]
+    #[test_case::test_case("set-dir -w /tmp", DirScope::Window, "/tmp"; "the window")]
+    #[test_case::test_case("set-dir -s /tmp", DirScope::Session, "/tmp"; "the session")]
+    #[test_case::test_case("set-dir ..", DirScope::Window, "/"; "from the directory of the pane")]
+    fn test_setting_the_starting_directory_asks_the_daemon(
+        typed: &str,
+        scope: DirScope,
+        dir: &str,
+    ) {
+        let mut session: Session = browsing();
+        type_at_prompt(&mut session, typed);
+
+        let requests: Vec<Request> = match press(&mut session, Key::CarriageReturn, KeyMods::NONE) {
+            Some(Effect::Requests(requests)) => requests,
+            _ => panic!("Expected the directory to be set."),
+        };
+
+        match requests.last().unwrap().params() {
+            RequestParams::SetDir(params) => {
+                assert_eq!(params.scope(), scope);
+                assert_eq!(params.dir(), &PathBuf::from(dir));
+            }
+            _ => panic!("Expected the directory to be set."),
+        }
+    }
+
+    #[test]
+    fn test_a_starting_directory_which_is_not_a_directory_is_complained_about() {
+        let mut session: Session = browsing();
+        type_at_prompt(&mut session, "set-dir /no/such/dir");
+
+        let effect: Option<Effect> = press(&mut session, Key::CarriageReturn, KeyMods::NONE);
+
+        assert!(effect.is_none());
+        let fabric: Fabric = session.render(Size::new(24, 80));
+        assert!(fabric
+            .text(23, 0..80)
+            .starts_with("Not a directory: /no/such/dir"));
+    }
+
+    #[test_case::test_case(Some("/var"), "/var"; "the one which was set")]
+    #[test_case::test_case(None, "/tmp"; "the one the client was started in when none was set")]
+    fn test_a_new_pane_starts_in_the_starting_directory(set: Option<&str>, expected: &str) {
+        let window: Uuid = Uuid::from_u128(200);
+        let layout: Layout = Layout::builder()
+            .session(Uuid::from_u128(201))
+            .name("0")
+            .windows(vec![Window::builder().window(window).name("0").build()])
+            .window(window)
+            .panes(vec![shown(1, (0, 0), (23, 80), PaneKind::Component)])
+            .pane(pane(1))
+            .dir(set.map(PathBuf::from))
+            .build();
+        let mut session: Session = Session::new(
+            Props::builder()
+                .request(REQUEST)
+                .size(Size::new(24, 80))
+                .dir(PathBuf::from("/tmp"))
+                .config(Config::default())
+                .build(),
+        );
+
+        let effect: Option<Effect> = session.handle(Event::Response(
+            Response::builder()
+                .uuid(REQUEST)
+                .params(ResponseParams::Layout(
+                    LayoutResponseParams::builder()
+                        .layout(layout)
+                        .screens(Vec::new())
+                        .build(),
+                ))
+                .build(),
+        ));
+
+        let requests: Vec<Request> = match effect {
+            Some(Effect::Requests(requests)) => requests,
+            _ => panic!("Expected the pane to ask for its files."),
+        };
+        let asked: Option<&Path> = requests.iter().find_map(|request| match request.params() {
+            RequestParams::GetFiles(params) => Some(params.dir()),
+            _ => None,
+        });
+        assert_eq!(asked, Some(Path::new(expected)));
     }
 
     #[test]

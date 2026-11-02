@@ -14,7 +14,7 @@ use crate::disconnected_client::DisconnectedClient;
 use crate::stop::Stop;
 
 use insh_api::{
-    DetachedResponseParams, LayoutResponseParams, PaneExitedResponseParams, PaneScreen,
+    DetachedResponseParams, DirScope, LayoutResponseParams, PaneExitedResponseParams, PaneScreen,
     PaneScreenResponseParams, RequestParams, Response, ResponseParams, SessionSummary,
     SessionsResponseParams, Split,
 };
@@ -261,6 +261,21 @@ impl Multiplexer {
                     None => return,
                 }
                 self.tell_about_layout(&client, Vec::new());
+            }
+            RequestParams::SetDir(params) => {
+                let (scope, dir) = (params.scope(), params.dir().clone());
+                let session: Uuid = match self.attachments.get(&client) {
+                    Some(attachment) => attachment.session,
+                    None => return,
+                };
+                match (self.sessions.get_mut(&session), scope) {
+                    (Some(session), DirScope::Window) => session.window_mut().set_dir(dir),
+                    (Some(session), DirScope::Session) => session.set_dir(dir),
+                    (None, _) => return,
+                }
+                // NOTE: Every client showing the session is told, since whichever of them next
+                // draws a new pane is the one which has to know where it starts.
+                self.tell_all_about_layout(session, Vec::new());
             }
             RequestParams::SyncPanes(_) => {
                 match self.session_of_mut(&client) {

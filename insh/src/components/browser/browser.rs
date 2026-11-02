@@ -1,6 +1,6 @@
 //! Contains the [`Browser`] component.
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use super::{Contents, ContentsEffect, ContentsEvent, ContentsProps};
 use crate::components::common::{Dir, DirEffect, DirEvent, DirProps, Footer, FooterProps};
@@ -155,6 +155,11 @@ impl Component<Props, Event, Effect> for Browser {
 }
 
 impl Browser {
+    /// Return the directory it is showing.
+    pub fn dir(&self) -> &Path {
+        self.state.dir.dir()
+    }
+
     /// Return where in it looking back through it starts, which is the end of what is being typed
     /// or the start of the selected row.
     pub fn copy_start(&self) -> Option<Location> {
