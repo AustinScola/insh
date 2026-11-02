@@ -46,6 +46,7 @@ impl Scheduler {
                 | RequestParams::SyncPanes(_)
                 | RequestParams::RenameSession(_)
                 | RequestParams::RenameWindow(_)
+                | RequestParams::SetDir(_)
                 | RequestParams::ScrollPane(_)
                 | RequestParams::SwapPane(_)
                 | RequestParams::NewWindow(_)

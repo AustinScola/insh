@@ -26,6 +26,7 @@ mod requester;
 mod response_handler;
 mod stateful;
 mod string;
+mod typed_path;
 
 use std::io;
 use std::os::unix::net::UnixStream;

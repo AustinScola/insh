@@ -151,6 +151,11 @@ mod pane {
             self.state.modes()
         }
 
+        /// Return the directory it is in.
+        pub fn dir(&self) -> &Path {
+            self.state.dir()
+        }
+
         /// Return whether what is typed in it goes to a program rather than to the browser.
         pub fn is_program(&self) -> bool {
             self.state.kind() == PaneKind::Program
@@ -484,7 +489,7 @@ pub use pane::Pane;
 
 /// Contains the [`State`] struct.
 mod state {
-    use std::path::PathBuf;
+    use std::path::{Path, PathBuf};
 
     use super::pane::{Asked, Contents, Showing};
     use super::{Effect, Props};
@@ -556,6 +561,15 @@ mod state {
         /// Return what it holds.
         pub fn kind(&self) -> PaneKind {
             self.layout.kind()
+        }
+
+        /// Return the directory it is in, which is wherever the browser has been taken to while
+        /// the browser is what is being shown.
+        pub fn dir(&self) -> &Path {
+            match &self.contents {
+                Contents::Browser(browser) => browser.dir(),
+                _ => &self.dir,
+            }
         }
 
         /// Return the ways the program in it has asked its terminal to behave.

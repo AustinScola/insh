@@ -24,6 +24,15 @@ pub enum Split {
     Below,
 }
 
+/// What a default starting directory is set for.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum DirScope {
+    /// The window being looked at.
+    Window,
+    /// The session a client is showing.
+    Session,
+}
+
 /// What a pane holds.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum PaneKind {
@@ -120,6 +129,9 @@ pub struct Layout {
     /// Whether what is typed goes to every pane of the window at once.
     #[builder(default)]
     synchronized: bool,
+    /// The directory a new pane of that window starts in, when one has been set.
+    #[builder(default)]
+    dir: Option<PathBuf>,
 }
 
 impl Layout {
@@ -161,6 +173,11 @@ impl Layout {
     /// Return whether what is typed goes to every pane of the window at once.
     pub fn synchronized(&self) -> bool {
         return self.synchronized;
+    }
+
+    /// Return the directory a new pane of that window starts in, when one has been set.
+    pub fn dir(&self) -> Option<&PathBuf> {
+        return self.dir.as_ref();
     }
 }
 
@@ -570,6 +587,27 @@ impl RenameWindowRequestParams {
     }
 }
 
+/// Request parameters for setting the default starting directory.
+#[derive(Debug, TypedBuilder, Serialize, Deserialize)]
+pub struct SetDirRequestParams {
+    /// What to set it for.
+    scope: DirScope,
+    /// The directory.
+    dir: PathBuf,
+}
+
+impl SetDirRequestParams {
+    /// Return what to set it for.
+    pub fn scope(&self) -> DirScope {
+        return self.scope;
+    }
+
+    /// Return the directory.
+    pub fn dir(&self) -> &PathBuf {
+        return &self.dir;
+    }
+}
+
 /// Request parameters for sending what is typed to every pane of the window at once, or stopping.
 #[derive(Debug, TypedBuilder, Serialize, Deserialize)]
 pub struct SyncPanesRequestParams {}
@@ -724,7 +762,7 @@ impl ResizeClientRequestParams {
 ///
 /// These are shared so that the daemon, which is what suggests a command, and the client, which is
 /// what works out which one was typed, never disagree about which there are.
-pub const COMMAND_NAMES: [&str; 22] = [
+pub const COMMAND_NAMES: [&str; 23] = [
     "change-mode",
     "detach",
     "focus-down",
@@ -741,6 +779,7 @@ pub const COMMAND_NAMES: [&str; 22] = [
     "resize-pane-left",
     "resize-pane-right",
     "resize-pane-up",
+    "set-dir",
     "split-horizontally",
     "split-vertically",
     "switch-pane-next",

@@ -145,6 +145,7 @@ mod state {
     use crate::components::common::{Phrase, PhraseEffect, PhraseEvent, PhraseProps};
     use crate::current_dir;
     use crate::stateful::Stateful;
+    use crate::typed_path::TypedPath;
 
     use term::TermEvent;
     use til::Component;
@@ -203,29 +204,11 @@ mod state {
 
         /// Return the path which a string shows.
         fn path(&self, string: &str) -> PathBuf {
-            let path: PathBuf = match &self.home {
-                Some(home) => match string.strip_prefix('~') {
-                    Some("") => home.clone(),
-                    Some(rest) => match rest.strip_prefix(PATH_SEPARATOR) {
-                        Some(rest) => home.join(rest),
-                        None => PathBuf::from(string),
-                    },
-                    None => PathBuf::from(string),
-                },
-                None => PathBuf::from(string),
-            };
-
-            // A relative path is from the directory which is shown. It cannot be left relative,
-            // because inshd runs from the root rather than from wherever insh was started, so the
-            // two would not agree on what it means.
-            let path: PathBuf = match path.is_absolute() {
-                true => path,
-                false => self.dir.join(path),
-            };
-
-            // Collecting the components is what takes off the trailing separator which the bar
-            // shows and the completions come back with.
-            return path.components().collect();
+            return TypedPath::builder()
+                .home(self.home.clone())
+                .from(self.dir.clone())
+                .build()
+                .resolve(string);
         }
 
         /// Show a different directory.
@@ -387,6 +370,10 @@ mod state {
         #[test_case("/data/foo/", "/data/foo"; "outside the home directory")]
         #[test_case("~foo", "/home/pat/~foo"; "a tilde which is not the home directory")]
         #[test_case("foo/bar", "/home/pat/foo/bar"; "a relative path")]
+        #[test_case("..", "/home"; "the directory above")]
+        #[test_case("~/foo/../bar", "/home/pat/bar"; "going up partway through")]
+        #[test_case("/..", "/"; "above the root")]
+        #[test_case(".", "/home/pat"; "the directory itself")]
         #[test_case("/", "/"; "the root")]
         fn test_path(string: &str, expected: &str) {
             assert_eq!(state().path(string), PathBuf::from(expected));

@@ -1,3 +1,6 @@
+# 0.6.4
+- Add a `set-dir` command for setting the default starting directory for a window or session. 
+
 # 0.6.3
 - Fix inshd log spam.
 - Fix the copy mode start position for the browser, finder, searcher, editor, and terminal.

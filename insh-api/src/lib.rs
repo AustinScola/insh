@@ -12,16 +12,17 @@ use std::time::Duration;
 mod multiplexer;
 
 pub use multiplexer::{
-    AttachRequestParams, DetachRequestParams, DetachedResponseParams, DragPaneRequestParams,
-    KillPaneRequestParams, Layout, LayoutResponseParams, ListSessionsRequestParams,
-    NewSessionRequestParams, NewWindowRequestParams, PaneExitedResponseParams, PaneKind,
-    PaneLayout, PaneRow, PaneScreen, PaneScreenResponseParams, PaneSummary,
-    RenameSessionRequestParams, RenameWindowRequestParams, ResizeClientRequestParams,
+    AttachRequestParams, DetachRequestParams, DetachedResponseParams, DirScope,
+    DragPaneRequestParams, KillPaneRequestParams, Layout, LayoutResponseParams,
+    ListSessionsRequestParams, NewSessionRequestParams, NewWindowRequestParams,
+    PaneExitedResponseParams, PaneKind, PaneLayout, PaneRow, PaneScreen, PaneScreenResponseParams,
+    PaneSummary, RenameSessionRequestParams, RenameWindowRequestParams, ResizeClientRequestParams,
     RunCommandRequestParams, RunCommandResponseParams, RunInPaneRequestParams,
     ScrollPaneRequestParams, SelectPaneRequestParams, SelectWindowRequestParams, SessionSummary,
-    SessionsResponseParams, Split, SplitPaneRequestParams, SuggestCommandRequestParams,
-    SuggestCommandResponseParams, SwapPaneRequestParams, SyncPanesRequestParams, Window,
-    WindowSummary, WritePaneRequestParams, ZoomPaneRequestParams, COMMAND_NAMES,
+    SessionsResponseParams, SetDirRequestParams, Split, SplitPaneRequestParams,
+    SuggestCommandRequestParams, SuggestCommandResponseParams, SwapPaneRequestParams,
+    SyncPanesRequestParams, Window, WindowSummary, WritePaneRequestParams, ZoomPaneRequestParams,
+    COMMAND_NAMES,
 };
 
 use file_info::FileInfo;
@@ -105,6 +106,8 @@ pub enum RequestParams {
     RenameSession(RenameSessionRequestParams),
     /// Call a window something else.
     RenameWindow(RenameWindowRequestParams),
+    /// Set the default starting directory of a window or a session.
+    SetDir(SetDirRequestParams),
     /// Look back through what has scrolled off the top of a pane.
     ScrollPane(ScrollPaneRequestParams),
     /// Swap a pane with the one before or after it.

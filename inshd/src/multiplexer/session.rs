@@ -1,6 +1,7 @@
 //! A session, the windows in it, and the panes in those.
 
 use std::collections::HashMap;
+use std::path::PathBuf;
 
 use super::pane::Pane;
 use super::tree::Tree;
@@ -33,6 +34,9 @@ pub struct Window {
     /// Whether what is typed goes to every pane of the window at once.
     #[builder(default)]
     synchronized: bool,
+    /// The directory a new pane of it starts in, when one has been set.
+    #[builder(default)]
+    dir: Option<PathBuf>,
 }
 
 impl Window {
@@ -106,6 +110,16 @@ impl Window {
     pub fn synchronize(&mut self) {
         self.synchronized = !self.synchronized;
     }
+
+    /// Return the directory a new pane of it starts in, when one has been set.
+    pub fn dir(&self) -> Option<&PathBuf> {
+        return self.dir.as_ref();
+    }
+
+    /// Set the directory a new pane of it starts in.
+    pub fn set_dir(&mut self, dir: PathBuf) {
+        self.dir = Some(dir);
+    }
 }
 
 /// A session: the windows a client shows and the panes in them.
@@ -132,6 +146,9 @@ pub struct Session {
     panes: HashMap<Uuid, Pane>,
     /// How big the smallest of the terminals showing it is, which is how big it is drawn.
     size: Size,
+    /// The directory a new pane of a window with none of its own starts in, when one has been set.
+    #[builder(default)]
+    dir: Option<PathBuf>,
 }
 
 impl Session {
@@ -156,6 +173,17 @@ impl Session {
     /// Call it something else.
     pub fn rename(&mut self, name: String) {
         self.name = name;
+    }
+
+    /// Set the directory a new pane of a window with none of its own starts in.
+    pub fn set_dir(&mut self, dir: PathBuf) {
+        self.dir = Some(dir);
+    }
+
+    /// Return the directory a new pane of the window being looked at starts in, when one has been
+    /// set for the window or for the session.
+    pub fn starting_dir(&self) -> Option<&PathBuf> {
+        return self.window().dir().or(self.dir.as_ref());
     }
 
     /// Return the given window, to be changed, or the one being looked at when there is none.
@@ -422,6 +450,7 @@ impl Session {
             .pane(self.active_pane())
             .zoomed(self.window().zoomed().is_some())
             .synchronized(self.window().synchronized())
+            .dir(self.starting_dir().cloned())
             .build();
     }
 
@@ -453,5 +482,63 @@ impl Session {
         self.fit();
 
         return true;
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::path::Path;
+
+    use super::*;
+
+    /// Return a session with one window and one pane in it.
+    fn session() -> Session {
+        let mut session = Session::builder()
+            .name("0")
+            .windows(Vec::new())
+            .active(Uuid::nil())
+            .panes(HashMap::new())
+            .size(Size::new(24, 80))
+            .build();
+        session.add_window(String::from("1"), Pane::empty(Size::new(23, 80)));
+
+        return session;
+    }
+
+    #[test]
+    fn test_no_starting_dir_until_one_is_set() {
+        assert_eq!(session().starting_dir(), None);
+        assert_eq!(session().layout().dir(), None);
+    }
+
+    #[test]
+    fn test_a_window_goes_by_the_starting_dir_of_the_session_until_it_has_its_own() {
+        let mut session: Session = session();
+
+        session.set_dir(PathBuf::from("/session"));
+        assert_eq!(
+            session.layout().dir().map(PathBuf::as_path),
+            Some(Path::new("/session"))
+        );
+
+        session.window_mut().set_dir(PathBuf::from("/window"));
+        assert_eq!(
+            session.layout().dir().map(PathBuf::as_path),
+            Some(Path::new("/window"))
+        );
+    }
+
+    #[test]
+    fn test_a_starting_dir_set_for_a_window_is_not_the_one_of_a_new_window() {
+        let mut session: Session = session();
+        session.set_dir(PathBuf::from("/session"));
+        session.window_mut().set_dir(PathBuf::from("/window"));
+
+        session.add_window(String::from("2"), Pane::empty(Size::new(23, 80)));
+
+        assert_eq!(
+            session.starting_dir().map(PathBuf::as_path),
+            Some(Path::new("/session"))
+        );
     }
 }
