@@ -2,12 +2,11 @@ name: Docs
 
 on:
   push:
+  # A release tag starts a run on the master branch through this.
+  workflow_dispatch:
 
-# Needed by the GitHub Pages actions.
 permissions:
   contents: read
-  pages: write
-  id-token: write
 
 # Deploy one version of the site at a time and let a deployment which is in progress finish.
 concurrency:
@@ -15,8 +14,27 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  # Only the master branch is allowed to deploy, so a release tag has the site rebuilt from it rather
+  # than deploying itself. The master branch builds a version of the docs for every release tag.
+  rebuild-from-master:
+    name: Rebuild from master
+    if: ${{ startsWith(github.ref, 'refs/tags/v') }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    permissions:
+      actions: write
+
+    steps:
+      - name: Run the workflow on the master branch
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: gh workflow run docs.yaml --ref master
+
   build:
     name: Build
+    if: ${{ !startsWith(github.ref, 'refs/tags/') }}
     runs-on: ubuntu-latest
     timeout-minutes: 20
 
@@ -95,13 +113,11 @@ jobs:
           key: ${{ steps.cache-mdbook-binary.outputs.cache-primary-key }}
 
       # The master version of the docs is built from whatever was pushed so that a branch which
-      # breaks the docs fails before it is merged. A release tag is the exception since that version
-      # should keep coming from the master branch.
+      # breaks the docs fails before it is merged.
       - name: Build the site
         env:
           CI: 1
-          MASTER_REF: ${{ startsWith(github.ref, 'refs/tags/') && 'origin/master' || '' }}
-        run: ./scripts/build-docs-site "${MASTER_REF}"
+        run: ./scripts/build-docs-site
 
       - name: Upload the site
         uses: actions/upload-pages-artifact@v5
@@ -111,9 +127,14 @@ jobs:
   deploy:
     name: Deploy
     needs: build
-    if: ${{ github.ref == 'refs/heads/master' || startsWith(github.ref, 'refs/tags/v') }}
+    if: ${{ github.ref == 'refs/heads/master' }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
+
+    # Needed by the GitHub Pages actions.
+    permissions:
+      pages: write
+      id-token: write
 
     environment:
       name: github-pages
