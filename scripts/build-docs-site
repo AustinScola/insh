@@ -6,9 +6,7 @@
 # Every version is built from scratch on every run, so nothing about the site is carried over from
 # one build to the next.
 #
-# The unreleased "master" version is built from the working tree unless a git ref is given as the
-# first argument. CI gives `origin/master` when the workflow was triggered by a release tag so that
-# it keeps coming from the master branch.
+# The unreleased "master" version is built from the working tree.
 
 set -euo pipefail
 
@@ -17,8 +15,6 @@ REPO_ROOT="$(git rev-parse --show-toplevel)"
 source "${REPO_ROOT}/scripts/lib/ensure_mdbook_installed.sh"
 
 ensure_mdbook_installed
-
-MASTER_REF="${1:-}"
 
 SITE="${REPO_ROOT}/site"
 
@@ -75,12 +71,8 @@ cd "${REPO_ROOT}"
 rm -rf "${SITE}"
 mkdir -p "${SITE}"
 
-if [[ -n "${MASTER_REF}" ]]; then
-    build_version "${MASTER_REF}" master
-else
-    mdbook build "${REPO_ROOT}/docs" --dest-dir "${SITE}/master"
-    VERSIONS+=(master)
-fi
+mdbook build "${REPO_ROOT}/docs" --dest-dir "${SITE}/master"
+VERSIONS+=(master)
 
 for TAG in $(git tag --list 'v*' --sort=-v:refname); do
     build_version "${TAG}" "${TAG}"
