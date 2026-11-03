@@ -1,3 +1,16 @@
+# 0.6.5
+- Fix artifacting on terminal resize.
+- Add mouse scroll support in terminal panes.
+- Fix terminal line wrapping responding to pane resize.
+- Fix copy mode larger than pane size.
+- Improve `set-dir` suggestions.
+- Fix returning to the correct directory for the file browser.
+- Add more copy mode movement commands.
+- Change the behavior of `$` in copy mode.
+- Fix being able to search for hidden files in the finder.
+- Preserve pane size ratio better on resizing.
+- Change directory suggestions to have `<Tab>` and `<Shift>-<Tab>`.
+
 # 0.6.4
 - Add a `set-dir` command for setting the default starting directory for a window or session. 
 

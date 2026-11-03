@@ -12,17 +12,17 @@ use std::time::Duration;
 mod multiplexer;
 
 pub use multiplexer::{
-    AttachRequestParams, DetachRequestParams, DetachedResponseParams, DirScope,
-    DragPaneRequestParams, KillPaneRequestParams, Layout, LayoutResponseParams,
-    ListSessionsRequestParams, NewSessionRequestParams, NewWindowRequestParams,
-    PaneExitedResponseParams, PaneKind, PaneLayout, PaneRow, PaneScreen, PaneScreenResponseParams,
-    PaneSummary, RenameSessionRequestParams, RenameWindowRequestParams, ResizeClientRequestParams,
-    RunCommandRequestParams, RunCommandResponseParams, RunInPaneRequestParams,
-    ScrollPaneRequestParams, SelectPaneRequestParams, SelectWindowRequestParams, SessionSummary,
-    SessionsResponseParams, SetDirRequestParams, Split, SplitPaneRequestParams,
-    SuggestCommandRequestParams, SuggestCommandResponseParams, SwapPaneRequestParams,
-    SyncPanesRequestParams, Window, WindowSummary, WritePaneRequestParams, ZoomPaneRequestParams,
-    COMMAND_NAMES,
+    AttachRequestParams, CopyPaneRequestParams, CopyPaneResponseParams, DetachRequestParams,
+    DetachedResponseParams, DirScope, DragPaneRequestParams, KillPaneRequestParams, Layout,
+    LayoutResponseParams, ListSessionsRequestParams, NewSessionRequestParams,
+    NewWindowRequestParams, PaneExitedResponseParams, PaneKind, PaneLayout, PaneRow, PaneScreen,
+    PaneScreenResponseParams, PaneSummary, RenameSessionRequestParams, RenameWindowRequestParams,
+    ResizeClientRequestParams, RunCommandRequestParams, RunCommandResponseParams,
+    RunInPaneRequestParams, ScrollPaneRequestParams, SelectPaneRequestParams,
+    SelectWindowRequestParams, SessionSummary, SessionsResponseParams, SetDirRequestParams, Split,
+    SplitPaneRequestParams, SuggestCommandRequestParams, SuggestCommandResponseParams,
+    SwapPaneRequestParams, SyncPanesRequestParams, Window, WindowSummary, WritePaneRequestParams,
+    ZoomPaneRequestParams, COMMAND_NAMES,
 };
 
 use file_info::FileInfo;
@@ -110,6 +110,8 @@ pub enum RequestParams {
     SetDir(SetDirRequestParams),
     /// Look back through what has scrolled off the top of a pane.
     ScrollPane(ScrollPaneRequestParams),
+    /// Take the text written in a pane from one spot to another.
+    CopyPane(CopyPaneRequestParams),
     /// Swap a pane with the one before or after it.
     SwapPane(SwapPaneRequestParams),
     /// Make a new window.
@@ -612,6 +614,8 @@ pub enum ResponseParams {
     Detached(DetachedResponseParams),
     /// The sessions there are.
     Sessions(SessionsResponseParams),
+    /// The text taken from a pane.
+    CopyPane(CopyPaneResponseParams),
     /// A suggested command for the multiplexer.
     SuggestCommand(SuggestCommandResponseParams),
     /// A command was taken note of.

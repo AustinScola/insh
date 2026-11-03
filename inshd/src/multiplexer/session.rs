@@ -242,6 +242,11 @@ impl Session {
         };
     }
 
+    /// Return the given pane.
+    pub fn pane(&self, pane: &Uuid) -> Option<&Pane> {
+        return self.panes.get(pane);
+    }
+
     /// Return the given pane, to be written to.
     pub fn pane_mut(&mut self, pane: &Uuid) -> Option<&mut Pane> {
         return self.panes.get_mut(pane);
@@ -297,7 +302,13 @@ impl Session {
             pane.close();
         }
 
+        let size: Size = self.window_size();
         for window in &mut self.windows {
+            // NOTE: What the pane had is given to the one beside it a row or a column at a time,
+            // so the arrangement is put in the same units as the screen first.
+            if window.zoomed().is_none() {
+                window.tree_mut().rescale(size);
+            }
             window.tree_mut().remove(pane);
         }
 
@@ -336,19 +347,29 @@ impl Session {
     }
 
     /// Give every pane of the window being looked at the size the arrangement of them says.
+    ///
+    /// NOTE: The arrangement itself is left alone. Putting it in the same units as the screen
+    /// rounds each part to a whole number of rows or columns, and doing that every time the window
+    /// changes size would round the rounding of the size before, until making it small and big
+    /// again had moved every line toward the start of the window.
     pub fn fit(&mut self) {
-        // NOTE: The sizes of the parts are only put in the same units as the screen when all of
-        // them are shown. A pane which has been made to fill the window is given the whole of it
-        // without the arrangement changing, so that the window goes back to what it was.
-        if self.window().zoomed().is_none() {
-            let size: Size = self.window_size();
-            self.window_mut().tree_mut().rescale(size);
-        }
-
         for layout in self.layouts() {
             if let Some(pane) = self.panes.get_mut(layout.pane()) {
                 pane.resize(layout.size());
             }
+        }
+    }
+
+    /// Put the arrangement of the window being looked at in the same units as the screen, which is
+    /// what moving a line by a row or a column, or splitting a pane in two, is worked out in.
+    ///
+    /// NOTE: This is only done when all of the panes are shown. A pane which has been made to fill
+    /// the window is given the whole of it without the arrangement changing, so that the window
+    /// goes back to what it was.
+    fn rescale(&mut self) {
+        if self.window().zoomed().is_none() {
+            let size: Size = self.window_size();
+            self.window_mut().tree_mut().rescale(size);
         }
     }
 
@@ -371,12 +392,14 @@ impl Session {
                 .panes
                 .get(&zoomed)
                 .map_or(PaneKind::Component, Pane::kind);
+            let dir: Option<PathBuf> = self.panes.get(&zoomed).and_then(Pane::dir).cloned();
 
             return vec![PaneLayout::builder()
                 .pane(zoomed)
                 .at(Location::default())
                 .size(self.window_size())
                 .kind(kind)
+                .dir(dir)
                 .build()];
         }
 
@@ -389,12 +412,15 @@ impl Session {
                     .panes
                     .get(layout.pane())
                     .map_or(PaneKind::Component, Pane::kind);
+                let dir: Option<PathBuf> =
+                    self.panes.get(layout.pane()).and_then(Pane::dir).cloned();
 
                 PaneLayout::builder()
                     .pane(*layout.pane())
                     .at(layout.at())
                     .size(layout.size())
                     .kind(kind)
+                    .dir(dir)
                     .build()
             })
             .collect();
@@ -456,6 +482,7 @@ impl Session {
 
     /// Move the line on the far side of the pane the given number of rows or columns.
     pub fn drag(&mut self, panes: &[Uuid], split: Split, by: isize) -> bool {
+        self.rescale();
         if !self.window_mut().tree_mut().drag(panes, split, by) {
             return false;
         }
@@ -473,6 +500,7 @@ impl Session {
     pub fn split(&mut self, pane: &Uuid, split: Split, new: Pane) -> bool {
         let id: Uuid = new.id();
 
+        self.rescale();
         if !self.window_mut().tree_mut().split(pane, split, id) {
             return false;
         }
@@ -540,5 +568,31 @@ mod tests {
             session.starting_dir().map(PathBuf::as_path),
             Some(Path::new("/session"))
         );
+    }
+
+    /// Return how many columns each pane of the window being looked at has, from left to right.
+    fn columns(session: &Session) -> Vec<usize> {
+        let mut layouts: Vec<PaneLayout> = session.layouts();
+        layouts.sort_by_key(|layout| layout.at().column);
+        return layouts.iter().map(|layout| layout.size().columns).collect();
+    }
+
+    #[test]
+    fn test_the_panes_keep_their_proportions_however_often_the_window_changes_size() {
+        let mut session: Session = session();
+        let pane: Uuid = session.active_pane();
+        for _ in 0..2 {
+            let new: Pane = Pane::empty(Size::new(23, 80));
+            session.split(&pane, Split::Beside, new);
+        }
+        let before: Vec<usize> = columns(&session);
+
+        for _ in 0..5 {
+            session.resize(Size::new(24, 13));
+            session.resize(Size::new(24, 251));
+        }
+        session.resize(Size::new(24, 80));
+
+        assert_eq!(columns(&session), before);
     }
 }

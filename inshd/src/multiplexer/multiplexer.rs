@@ -14,9 +14,9 @@ use crate::disconnected_client::DisconnectedClient;
 use crate::stop::Stop;
 
 use insh_api::{
-    DetachedResponseParams, DirScope, LayoutResponseParams, PaneExitedResponseParams, PaneScreen,
-    PaneScreenResponseParams, RequestParams, Response, ResponseParams, SessionSummary,
-    SessionsResponseParams, Split,
+    CopyPaneResponseParams, DetachedResponseParams, DirScope, LayoutResponseParams,
+    PaneExitedResponseParams, PaneScreen, PaneScreenResponseParams, RequestParams, Response,
+    ResponseParams, SessionSummary, SessionsResponseParams, Split,
 };
 use rend::Size;
 
@@ -213,6 +213,24 @@ impl Multiplexer {
 
                 self.tell_about_pane(session, pane);
             }
+            RequestParams::CopyPane(params) => {
+                let text: Option<String> = self.session_of(&client).and_then(|session| {
+                    session
+                        .pane(params.pane())
+                        .and_then(|pane| pane.text(params.from(), params.to()))
+                });
+
+                if let Some(text) = text {
+                    self.send(
+                        client,
+                        uuid,
+                        ResponseParams::CopyPane(
+                            CopyPaneResponseParams::builder().text(text).build(),
+                        ),
+                        true,
+                    );
+                }
+            }
             RequestParams::SwapPane(params) => {
                 let (pane, after) = (*params.pane(), params.after());
                 let screens: Vec<PaneScreen> = match self.session_of_mut(&client) {
@@ -332,7 +350,15 @@ impl Multiplexer {
                     }
                     None => return,
                 };
-                self.tell_about_layout(&client, screens);
+
+                // NOTE: Every client showing the session is told, not only the one which changed
+                // size, since the panes changed size for all of them. One which was not told would
+                // go on drawing them where they were and be sent rows for where they are now.
+                let session: Uuid = match self.attachments.get(&client) {
+                    Some(attachment) => attachment.session,
+                    None => return,
+                };
+                self.tell_all_about_layout(session, screens);
             }
             // NOTE: Everything else is answered by a request handler rather than here, and only
             // the ones which are not reach the multiplexer at all.

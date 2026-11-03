@@ -114,14 +114,14 @@ mod session {
     use crate::typed_path::TypedPath;
 
     use insh_api::{
-        AttachRequestParams, DirScope, DragPaneRequestParams, KillPaneRequestParams,
-        ListSessionsRequestParams, NewSessionRequestParams, NewWindowRequestParams, PaneLayout,
-        RenameSessionRequestParams, RenameWindowRequestParams, Request, RequestParams,
-        ResizeClientRequestParams, Response, ResponseParams, RunCommandRequestParams,
-        RunInPaneRequestParams, ScrollPaneRequestParams, SelectPaneRequestParams,
-        SelectWindowRequestParams, SetDirRequestParams, Split, SplitPaneRequestParams,
-        SwapPaneRequestParams, SyncPanesRequestParams, WritePaneRequestParams,
-        ZoomPaneRequestParams,
+        AttachRequestParams, CopyPaneRequestParams, DirScope, DragPaneRequestParams,
+        KillPaneRequestParams, ListSessionsRequestParams, NewSessionRequestParams,
+        NewWindowRequestParams, PaneLayout, RenameSessionRequestParams, RenameWindowRequestParams,
+        Request, RequestParams, ResizeClientRequestParams, Response, ResponseParams,
+        RunCommandRequestParams, RunInPaneRequestParams, ScrollPaneRequestParams,
+        SelectPaneRequestParams, SelectWindowRequestParams, SetDirRequestParams, Split,
+        SplitPaneRequestParams, SwapPaneRequestParams, SyncPanesRequestParams,
+        WritePaneRequestParams, ZoomPaneRequestParams,
     };
     use rend::{Fabric, Location, Size};
     use term::{Key, KeyEvent, KeyMods, MouseButton, MouseEvent, MouseEventKind, TermEvent};
@@ -231,6 +231,7 @@ mod session {
             // Changing size still goes to the daemon, since the panes behind the list are drawn
             // for whatever size the client is.
             if let TermEvent::Resize(size) = term_event {
+                self.state.size = size;
                 return Some(Effect::Request(
                     Request::builder()
                         .params(RequestParams::ResizeClient(
@@ -320,7 +321,7 @@ mod session {
                     Parsed::Command(action) => return self.state.stop_copying(action),
                     Parsed::Unknown(mut keys) => keys.drain(..).next()?,
                 },
-                TermEvent::Mouse(_) => return None,
+                TermEvent::Mouse(mouse_event) => return self.state.scroll_copying(mouse_event),
                 TermEvent::Resize(size) => {
                     self.state.size = size;
                     return Some(Effect::Request(
@@ -353,7 +354,8 @@ mod session {
                     return None;
                 }
                 Key::Char(' ' | 'v') => {
-                    self.state.copying.as_mut()?.mark();
+                    let top: usize = self.state.first_shown_row();
+                    self.state.copying.as_mut()?.mark(top);
                     return None;
                 }
                 Key::CarriageReturn | Key::Char('y') => return self.state.copy(),
@@ -363,6 +365,12 @@ mod session {
                 Key::Char('l') | Key::Right => Moving::Right,
                 Key::Char('0') | Key::Home => Moving::Start,
                 Key::Char('$') | Key::End => Moving::End,
+                Key::Char('w') => Moving::NextWord,
+                Key::Char('W') => Moving::NextBigWord,
+                Key::Char('b') => Moving::PreviousWord,
+                Key::Char('B') => Moving::PreviousBigWord,
+                Key::Char('e') => Moving::EndOfWord,
+                Key::Char('E') => Moving::EndOfBigWord,
                 // NOTE: These move the pane itself rather than where in it is being looked at,
                 // since there is no going the whole way in a pane which is one screen big.
                 Key::Char('g') => {
@@ -378,7 +386,8 @@ mod session {
 
             // Going past the top or the bottom of the pane is what looks further back through what
             // has scrolled off it, since there is nowhere left in the pane to go that way.
-            let rows: isize = self.state.copying.as_mut()?.move_toward(moving);
+            let drawn: Fabric = self.state.drawn_active()?;
+            let rows: isize = self.state.copying.as_mut()?.move_toward(moving, &drawn);
             match rows {
                 0 => None,
                 rows => self.state.look_back(rows),
@@ -446,10 +455,11 @@ mod session {
         /// Do what was done with the mouse.
         ///
         /// Pressing in a pane sends what is typed there, and pressing on one of the lines between
-        /// two panes takes hold of it so that moving the mouse drags it. What is done with the
-        /// mouse otherwise is left alone, since a program in a pane which has asked for the
-        /// reports itself should be getting them, and passing them on is something to do once a
-        /// pane can say it wants them.
+        /// two panes takes hold of it so that moving the mouse drags it, and scrolling looks back
+        /// through what has scrolled off the top of a pane, the way it does in tmux. What is done
+        /// with the mouse otherwise is left alone, since a program in a pane which has asked for
+        /// the reports itself should be getting them, and passing them on is something to do once
+        /// a pane can say it wants them.
         fn handle_mouse_event(&mut self, mouse_event: MouseEvent) -> Option<Effect> {
             let (row, column) = (mouse_event.row, mouse_event.column);
 
@@ -470,6 +480,8 @@ mod session {
                     ))
                 }
                 MouseEventKind::Drag(MouseButton::Left) => self.state.dragged(row, column),
+                MouseEventKind::ScrollUp => self.state.scroll(row, column, State::SCROLLED_ROWS),
+                MouseEventKind::ScrollDown => self.state.scroll(row, column, -State::SCROLLED_ROWS),
                 MouseEventKind::Release(_) => {
                     self.state.dragging = None;
                     None
@@ -490,6 +502,15 @@ mod session {
                 return None;
             }
 
+            // NOTE: The same goes for the text taken from a pane, which is only put on the
+            // clipboard once the daemon has said what it is, since it is the one which has the
+            // rows which have scrolled off the top.
+            if let ResponseParams::CopyPane(params) = response.params() {
+                let mut clipboard = Clipboard::new();
+                clipboard.copy(params.text().to_string());
+                return None;
+            }
+
             // NOTE: The same goes for what the daemon suggests the rest of what is being typed at
             // the prompt is, which is asked for on a request of the prompt's own.
             if let ResponseParams::SuggestCommand(_) = response.params() {
@@ -497,6 +518,16 @@ mod session {
                     prompt.handle_response(&response);
                 }
                 return None;
+            }
+
+            // NOTE: A directory which is being typed at the prompt is suggested the way one typed
+            // in a directory bar is, and the bar of a browser in a pane asks for the same thing, so
+            // the prompt only takes the answer to the request which it asked.
+            if let Some(prompt) = self.state.prompt.as_mut() {
+                if prompt.is_suggestion(response.uuid()) {
+                    prompt.handle_response(&response);
+                    return None;
+                }
             }
 
             if response.uuid() != self.state.request() {
@@ -611,6 +642,10 @@ mod session {
         /// Everything which is not one of them is sent on to the program in the pane, so this is
         /// what keeps the two of them apart.
         const PREFIX: Key = Key::Char('b');
+
+        /// How many rows one turn of the mouse wheel, or one step of scrolling with a trackpad,
+        /// scrolls a pane by.
+        pub const SCROLLED_ROWS: isize = 3;
 
         /// Return the parser for the commands which are done again without the prefix, which are
         /// the ones which move a line between two panes.
@@ -879,7 +914,13 @@ mod session {
                             .as_ref()
                             .map(|layout| layout.name().to_string())
                             .unwrap_or_default();
-                        self.prompt = Some(Prompt::asking(Asking::SessionName, called));
+                        self.prompt = Some(
+                            Prompt::builder()
+                                .asking(Asking::SessionName)
+                                .typed(called)
+                                .paths(self.typed_paths())
+                                .build(),
+                        );
                         return None;
                     }
                 },
@@ -889,7 +930,13 @@ mod session {
                     ),
                     None => {
                         let called: String = self.window_name().unwrap_or_default();
-                        self.prompt = Some(Prompt::asking(Asking::WindowName, called));
+                        self.prompt = Some(
+                            Prompt::builder()
+                                .asking(Asking::WindowName)
+                                .typed(called)
+                                .paths(self.typed_paths())
+                                .build(),
+                        );
                         return None;
                     }
                 },
@@ -932,6 +979,12 @@ mod session {
         /// Return the directory which was typed, where a relative one is from the directory of the
         /// pane what is typed goes to.
         pub fn typed_dir(&self, typed: &str) -> PathBuf {
+            return self.typed_paths().resolve(typed);
+        }
+
+        /// Return what a path typed at the prompt means, which is from the directory of the pane
+        /// what is typed goes to when it is a relative one.
+        fn typed_paths(&self) -> TypedPath {
             let from: PathBuf = self
                 .active()
                 .and_then(|pane| self.panes.get(&pane))
@@ -940,8 +993,7 @@ mod session {
             return TypedPath::builder()
                 .home(dirs::home_dir())
                 .from(from)
-                .build()
-                .resolve(typed);
+                .build();
         }
 
         /// Return what asking for what is typed to go to the pane asks for.
@@ -976,7 +1028,12 @@ mod session {
         fn change_mode(&mut self, mode: Mode) -> Option<Effect> {
             match mode {
                 Mode::Prompt => {
-                    self.prompt = Some(Prompt::asking(Asking::Command, String::new()));
+                    self.prompt = Some(
+                        Prompt::builder()
+                            .asking(Asking::Command)
+                            .paths(self.typed_paths())
+                            .build(),
+                    );
                 }
                 Mode::Copy => {
                     // NOTE: A pane which draws one of insh's own components has nothing which has
@@ -1124,9 +1181,20 @@ mod session {
         /// The pane what is typed already goes to is not given back, so that clicking in it does
         /// not ask the daemon for something which is already so.
         pub fn pane_at(&self, row: usize, column: usize) -> Option<Uuid> {
+            let clicked: Uuid = self.pane_under(row, column)?;
+
+            match Some(clicked) == self.active() {
+                true => None,
+                false => Some(clicked),
+            }
+        }
+
+        /// Return the pane which is drawn in the spot, which is none at all when it is one of the
+        /// lines between them or the footer.
+        fn pane_under(&self, row: usize, column: usize) -> Option<Uuid> {
             let layout = self.layout.as_ref()?;
 
-            let clicked = layout.panes().iter().find(|pane| {
+            let under = layout.panes().iter().find(|pane| {
                 let (at, size) = (pane.at(), pane.size());
                 row >= at.row
                     && row < at.row + size.rows
@@ -1134,10 +1202,7 @@ mod session {
                     && column < at.column + size.columns
             })?;
 
-            match clicked.pane() == layout.pane() {
-                true => None,
-                false => Some(*clicked.pane()),
-            }
+            Some(*under.pane())
         }
 
         /// Return the pane which is next along in the given direction, which is none at all when
@@ -1271,16 +1336,129 @@ mod session {
         /// rather than putting an empty string over whatever was on the clipboard already.
         pub fn copy(&mut self) -> Option<Effect> {
             let pane: Uuid = self.active()?;
-            let size: Size = self.pane_size(&pane)?;
-            let drawn: Fabric = self.panes.get(&pane)?.render(size);
+            let top: usize = self.first_shown_row();
+            let copying: &Copying = self.copying.as_ref()?;
 
-            if let Some(text) = self.copying.as_ref()?.text(&drawn) {
-                let mut clipboard = Clipboard::new();
-                clipboard.copy(text);
-            }
+            // NOTE: What is being taken from a program may be more than fits on the screen, and
+            // only the daemon has the rows which have scrolled off, so it is asked for the text.
+            // One of insh's own components has nothing which has scrolled off, so all of what is
+            // being taken from it is what is drawn.
+            let taken: Option<Effect> = match self.is_program(&pane) {
+                true => copying.selection(top).map(|(from, to)| {
+                    Effect::Request(
+                        Request::builder()
+                            .params(RequestParams::CopyPane(
+                                CopyPaneRequestParams::builder()
+                                    .pane(pane)
+                                    .from(from)
+                                    .to(to)
+                                    .build(),
+                            ))
+                            .build(),
+                    )
+                }),
+                false => {
+                    let drawn: Fabric = self.drawn_active()?;
+                    if let Some(text) = copying.text(&drawn, top) {
+                        let mut clipboard = Clipboard::new();
+                        clipboard.copy(text);
+                    }
+                    None
+                }
+            };
 
             self.leave_copying();
-            return self.look_back(isize::MIN);
+            let stop: Option<Effect> = self.look_back(isize::MIN);
+            return Self::after(taken, stop);
+        }
+
+        /// Return what is drawn in the pane what is typed goes to.
+        pub fn drawn_active(&self) -> Option<Fabric> {
+            let pane: Uuid = self.active()?;
+            let size: Size = self.pane_size(&pane)?;
+            return Some(self.panes.get(&pane)?.render(size));
+        }
+
+        /// Return which row the top one of the pane what is typed goes to is, counted from the
+        /// first row the program in it ever wrote on.
+        pub fn first_shown_row(&self) -> usize {
+            return self
+                .active()
+                .and_then(|pane| self.panes.get(&pane))
+                .map_or(0, Pane::first_shown_row);
+        }
+
+        /// Do what scrolling the given number of rows up, or down when that is negative, in the
+        /// spot does.
+        ///
+        /// Scrolling in a pane which what is typed does not go to makes it the one it goes to,
+        /// the way clicking in it does. Scrolling up in a program looks back through what has
+        /// scrolled off the top of it, which stops again once it is scrolled back to the bottom,
+        /// the way tmux has it. A program which is writing on the other screen has nothing which
+        /// has scrolled off, so it is sent the arrow keys instead, which is what a terminal does
+        /// to let a program like less or vim be scrolled through.
+        pub fn scroll(&mut self, row: usize, column: usize, rows: isize) -> Option<Effect> {
+            let pane: Uuid = self.pane_under(row, column)?;
+            if Some(pane) != self.active() {
+                return Some(Effect::Request(
+                    Request::builder().params(Self::focus(pane)).build(),
+                ));
+            }
+            if !self.is_program(&pane) {
+                return None;
+            }
+
+            if self
+                .panes
+                .get(&pane)?
+                .modes()
+                .contains(Modes::ALTERNATE_SCREEN)
+            {
+                let key = KeyEvent {
+                    key: match rows > 0 {
+                        true => Key::Up,
+                        false => Key::Down,
+                    },
+                    mods: KeyMods::NONE,
+                };
+                let bytes: Vec<u8> = (0..rows.unsigned_abs())
+                    .flat_map(|_| Vec::<u8>::from(&key))
+                    .collect();
+                return self.write(bytes).map(Effect::Request);
+            }
+
+            // There is nothing below the bottom of a pane to scroll down to.
+            if rows < 0 {
+                return None;
+            }
+
+            self.change_mode(Mode::Copy);
+            self.copying = self.copying.take().map(Copying::leaving_at_bottom);
+            return self.look_back(rows);
+        }
+
+        /// Do what was done with the mouse while the pane is being looked back through, which is
+        /// only scrolling it.
+        pub fn scroll_copying(&mut self, mouse_event: MouseEvent) -> Option<Effect> {
+            let rows: isize = match mouse_event.kind {
+                MouseEventKind::ScrollUp => Self::SCROLLED_ROWS,
+                MouseEventKind::ScrollDown => -Self::SCROLLED_ROWS,
+                _ => return None,
+            };
+
+            // NOTE: Looking back through it stops once it is scrolled back to the bottom, when it
+            // was scrolling which began it, since that is the only way there is to have come.
+            let looking_back: usize = self
+                .active()
+                .and_then(|pane| self.panes.get(&pane))
+                .map_or(0, Pane::looking_back);
+            let bottom: bool = rows < 0 && looking_back <= rows.unsigned_abs();
+            if bottom && self.copying.as_ref()?.leaves_at_bottom() {
+                self.leave_copying();
+                return self.look_back(isize::MIN);
+            }
+
+            return self.look_back(rows);
         }
 
         /// Return how big the pane is, which is nothing at all when it is not one of the panes
@@ -1516,7 +1694,7 @@ mod session {
                         let pane = Pane::new(
                             PaneProps::builder()
                                 .layout(shown.clone())
-                                .dir(layout.dir().unwrap_or(&self.dir).clone())
+                                .dir(shown.dir().or(layout.dir()).unwrap_or(&self.dir).clone())
                                 .config(self.config.clone())
                                 .build(),
                         );
@@ -1594,7 +1772,7 @@ mod session {
                 // that it is plain where in it is being read from and how far along it has got.
                 if shown.pane() == layout.pane() {
                     if let Some(copying) = &self.copying {
-                        copying.show(&mut drawn);
+                        copying.show(&mut drawn, pane.first_shown_row());
                     }
                 }
 
@@ -1901,6 +2079,121 @@ mod tests {
             background(&fabric, 2, column + 3),
             Some(Color::Highlight.into())
         );
+    }
+
+    /// Return a session with one program in it, writing on the screen the modes say, along with
+    /// how far back it is being looked through.
+    fn program(modes: Modes, looking_back: usize) -> Session {
+        let screen: PaneScreen = PaneScreen::builder()
+            .pane(pane(1))
+            .rows(Vec::new())
+            .cursor(Some(Location::builder().row(0).column(0).build()))
+            .modes(modes)
+            .looking_back(looking_back)
+            .build();
+        let (session, _): (Session, Effect) = session(
+            vec![shown(1, (0, 0), (23, 80), PaneKind::Program)],
+            1,
+            vec![screen],
+        );
+        session
+    }
+
+    /// Return whether the pane is being looked back through, which is when the cursor of the
+    /// program in it is not shown.
+    fn copying(session: &Session) -> bool {
+        session.render(Size::new(24, 80)).cursor().is_none()
+    }
+
+    /// Return how many rows the effect asks to look further back through the pane, which is
+    /// nothing at all when it does not.
+    fn scrolled(effect: &Option<Effect>) -> Option<isize> {
+        let requests: Vec<&Request> = match effect {
+            Some(Effect::Request(request)) => vec![request],
+            Some(Effect::Requests(requests)) => requests.iter().collect(),
+            _ => Vec::new(),
+        };
+
+        requests.iter().find_map(|request| match request.params() {
+            RequestParams::ScrollPane(params) => Some(params.rows()),
+            _ => None,
+        })
+    }
+
+    #[test]
+    fn test_scrolling_up_in_a_program_looks_back_through_it() {
+        let mut session: Session = program(Modes::default(), 0);
+
+        let effect: Option<Effect> = mouse(&mut session, MouseEventKind::ScrollUp, 5, 5);
+
+        assert_eq!(scrolled(&effect), Some(3));
+        assert!(copying(&session), "it should be in copy mode");
+    }
+
+    #[test]
+    fn test_scrolling_down_in_a_program_which_is_not_being_looked_back_through_does_nothing() {
+        let mut session: Session = program(Modes::default(), 0);
+
+        let effect: Option<Effect> = mouse(&mut session, MouseEventKind::ScrollDown, 5, 5);
+
+        assert!(effect.is_none());
+        assert!(!copying(&session));
+    }
+
+    #[test]
+    fn test_scrolling_back_to_the_bottom_stops_looking_back() {
+        let mut session: Session = program(Modes::default(), 0);
+        mouse(&mut session, MouseEventKind::ScrollUp, 5, 5);
+
+        let effect: Option<Effect> = mouse(&mut session, MouseEventKind::ScrollDown, 5, 5);
+
+        assert_eq!(scrolled(&effect), Some(isize::MIN));
+        assert!(!copying(&session), "it should have left copy mode");
+    }
+
+    #[test]
+    fn test_scrolling_back_to_the_bottom_does_not_stop_looking_back_when_it_was_asked_for() {
+        let mut session: Session = program(Modes::default(), 0);
+        enter_copy_mode(&mut session);
+
+        mouse(&mut session, MouseEventKind::ScrollDown, 5, 5);
+
+        assert!(copying(&session), "it should still be in copy mode");
+    }
+
+    #[test]
+    fn test_scrolling_on_the_other_screen_sends_the_arrow_keys() {
+        let mut session: Session = program(Modes::default() | Modes::ALTERNATE_SCREEN, 0);
+
+        let effect: Option<Effect> = mouse(&mut session, MouseEventKind::ScrollUp, 5, 5);
+
+        let written: Vec<u8> = match effect {
+            Some(Effect::Request(request)) => match request.params() {
+                RequestParams::WritePane(params) => params.bytes().to_vec(),
+                _ => panic!("Expected the keys to be sent."),
+            },
+            _ => panic!("Expected the keys to be sent."),
+        };
+        assert_eq!(written, b"\x1b[A\x1b[A\x1b[A");
+        assert!(!copying(&session));
+    }
+
+    #[test]
+    fn test_copying_from_a_program_asks_the_daemon_for_the_text() {
+        let mut session: Session = program(Modes::default(), 0);
+        enter_copy_mode(&mut session);
+        press(&mut session, Key::Char('v'), KeyMods::NONE);
+
+        let effect: Option<Effect> = press(&mut session, Key::Char('y'), KeyMods::NONE);
+
+        let requests: Vec<Request> = match effect {
+            Some(Effect::Requests(requests)) => requests,
+            _ => panic!("Expected the text to be asked for."),
+        };
+        assert!(matches!(
+            requests[0].params(),
+            RequestParams::CopyPane(params) if *params.pane() == pane(1)
+        ));
     }
 
     /// Open the prompt and type the characters at it.

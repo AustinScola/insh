@@ -24,6 +24,7 @@ mod cursor;
 mod grid;
 mod modes;
 mod parser;
+mod reflow;
 mod screen;
 
 pub use action::Action;

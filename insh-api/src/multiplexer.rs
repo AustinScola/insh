@@ -58,6 +58,10 @@ pub struct PaneLayout {
     /// What it holds.
     #[builder(default = PaneKind::Component)]
     kind: PaneKind,
+    /// The directory the program it holds, or held last, was started in, which is nothing at all
+    /// when none was said.
+    #[builder(default)]
+    dir: Option<PathBuf>,
 }
 
 impl PaneLayout {
@@ -79,6 +83,11 @@ impl PaneLayout {
     /// Return what it holds.
     pub fn kind(&self) -> PaneKind {
         return self.kind;
+    }
+
+    /// Return the directory the program it holds, or held last, was started in.
+    pub fn dir(&self) -> Option<&PathBuf> {
+        return self.dir.as_ref();
     }
 }
 
@@ -227,6 +236,10 @@ pub struct PaneScreen {
     /// How many rows back through what has scrolled off the top is being looked.
     #[builder(default)]
     looking_back: usize,
+    /// Which row the top one of the screen is, counted from the first row the program ever wrote
+    /// on, which is how a row is told apart however much has scrolled off since.
+    #[builder(default)]
+    first_shown_row: usize,
 }
 
 impl PaneScreen {
@@ -263,6 +276,12 @@ impl PaneScreen {
     /// Return how many rows back through what has scrolled off the top is being looked.
     pub fn looking_back(&self) -> usize {
         return self.looking_back;
+    }
+
+    /// Return which row the top one of the screen is, counted from the first row the program ever
+    /// wrote on.
+    pub fn first_shown_row(&self) -> usize {
+        return self.first_shown_row;
     }
 }
 
@@ -546,6 +565,37 @@ impl ScrollPaneRequestParams {
     /// Return how many rows further back to look.
     pub fn rows(&self) -> isize {
         return self.rows;
+    }
+}
+
+/// Request parameters for taking the text written in a pane from one spot to another.
+///
+/// The rows are counted from the first row the program in the pane ever wrote on, which is what
+/// lets the text be taken from rows which have scrolled off the top or are not being looked at.
+#[derive(Debug, TypedBuilder, Serialize, Deserialize)]
+pub struct CopyPaneRequestParams {
+    /// Which pane to take it from.
+    pane: Uuid,
+    /// The spot to take it from.
+    from: Location,
+    /// The spot to take it up to, which is taken as well.
+    to: Location,
+}
+
+impl CopyPaneRequestParams {
+    /// Return which pane to take it from.
+    pub fn pane(&self) -> &Uuid {
+        return &self.pane;
+    }
+
+    /// Return the spot to take it from.
+    pub fn from(&self) -> Location {
+        return self.from;
+    }
+
+    /// Return the spot to take it up to.
+    pub fn to(&self) -> Location {
+        return self.to;
     }
 }
 
@@ -892,6 +942,20 @@ impl PaneExitedResponseParams {
 /// Response parameters for a client no longer showing a session.
 #[derive(Debug, Clone, TypedBuilder, Serialize, Deserialize)]
 pub struct DetachedResponseParams {}
+
+/// Response parameters for the text taken from a pane.
+#[derive(Debug, Clone, TypedBuilder, Serialize, Deserialize)]
+pub struct CopyPaneResponseParams {
+    /// The text.
+    text: String,
+}
+
+impl CopyPaneResponseParams {
+    /// Return the text.
+    pub fn text(&self) -> &str {
+        return &self.text;
+    }
+}
 
 /// Response parameters for the sessions there are.
 #[derive(Debug, Clone, TypedBuilder, Serialize, Deserialize)]

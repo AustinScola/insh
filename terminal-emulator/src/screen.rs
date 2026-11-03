@@ -35,6 +35,7 @@ mod screen {
     use crate::cursor::Cursor;
     use crate::grid::{Grid, Line};
     use crate::modes::Modes;
+    use crate::reflow::Reflow;
 
     use ansi::{
         ClearTabStops, ControlCharacter, ControlFunction, EraseInDisplay, EraseInLine, Mode,
@@ -85,6 +86,11 @@ mod screen {
         scrollback: VecDeque<Line>,
         /// How many rows are kept after they have scrolled off the top.
         scrollback_length: usize,
+        /// How many rows have been let go of from the top of what has scrolled off.
+        ///
+        /// This is what counts a row from the first one there ever was, which is a number that
+        /// stays with it however much more scrolls off after it.
+        forgotten: usize,
         /// How many times the bell has rung since it was last asked about.
         bells: usize,
         /// How many rows back through what has scrolled off the top is being looked.
@@ -117,6 +123,7 @@ mod screen {
                 title: None,
                 scrollback: VecDeque::new(),
                 scrollback_length: props.scrollback,
+                forgotten: 0,
                 bells: 0,
                 looking_back: 0,
             };
@@ -235,6 +242,76 @@ mod screen {
             return self.looking_back;
         }
 
+        /// Return which row the top one of what is being looked at is, counted from the first row
+        /// there ever was.
+        pub fn first_shown_row(&self) -> usize {
+            return self.forgotten + self.scrollback.len() - self.looking_back;
+        }
+
+        /// Return the text written from the one spot to the other, the rows of which are counted
+        /// from the first row there ever was.
+        ///
+        /// A row between the first and the last is taken whole, and the ones at either end are
+        /// taken from or up to the spot which is in them, which is how a terminal takes a run of
+        /// text rather than a block of it. The rows are put on lines of their own, apart from one
+        /// which was wrapped onto the next, which is the same line carrying on. The blanks at the
+        /// end of a line are left off, since a terminal writes a row out to its full width with
+        /// them and keeping them would put a run of spaces after every line of what was taken.
+        pub fn text(&self, from: Location, to: Location) -> String {
+            let (first, last): (Location, Location) =
+                match (from.row, from.column) <= (to.row, to.column) {
+                    true => (from, to),
+                    false => (to, from),
+                };
+
+            let mut text = String::new();
+            for row in first.row..=last.row {
+                let line: &Line = match self.counted_line(row) {
+                    Some(line) => line,
+                    None => continue,
+                };
+
+                let start: usize = match row == first.row {
+                    true => first.column,
+                    false => 0,
+                };
+                let end: usize = match row == last.row {
+                    true => (last.column + 1).min(line.columns()),
+                    false => line.columns(),
+                };
+
+                let carries_on: bool =
+                    line.is_wrapped() && end == line.columns() && row != last.row;
+                match carries_on {
+                    true => text.push_str(&line.text(start..end)),
+                    false => {
+                        text.push_str(line.text(start..end).trim_end());
+                        if row != last.row {
+                            text.push('\n');
+                        }
+                    }
+                }
+            }
+
+            return text;
+        }
+
+        /// Return the row which is the given number counted from the first row there ever was,
+        /// which is nothing at all when it has been let go of or is past the bottom of the screen.
+        fn counted_line(&self, row: usize) -> Option<&Line> {
+            let row: usize = row.checked_sub(self.forgotten)?;
+            if row < self.scrollback.len() {
+                return Some(&self.scrollback[row]);
+            }
+
+            let row: usize = row - self.scrollback.len();
+            if row < self.size.rows {
+                return Some(self.grid.line(row));
+            }
+
+            return None;
+        }
+
         /// Look the given number of rows further back through what has scrolled off the top, or
         /// fewer rows back when that is negative, and return whether it moved at all.
         ///
@@ -266,44 +343,134 @@ mod screen {
 
         /// Change the size of the screen.
         ///
-        /// What is written stays in the row and column it was written in. Nothing is broken up and
-        /// put back together to fit the new width, which is what a terminal does only if it goes
-        /// to the trouble, and the rows which no longer fit scroll off the top.
+        /// A screen which changes how many columns it has wraps what was written again for the new
+        /// width, the way a terminal which goes to the trouble does, which is what a shell which
+        /// redraws its prompt counts on. One which only changes how many rows it has leaves what
+        /// was written in the row and column it was written in, and the rows which no longer fit
+        /// scroll off the top.
         pub fn resize(&mut self, size: Size) {
             let size: Size = Self::at_least_one(size);
             if size == self.size {
                 return;
             }
 
-            let style: Style = Style::default();
-            let scrolled: Vec<Line> = self.grid.resize(size, style, self.cursor.at.row);
-            if let Some(other) = &mut self.other {
-                // NOTE: The alternate screen has no history of its own, so whatever it loses is
-                // gone. A program which uses it draws the whole of it again when it changes size.
-                other.resize(size, style, other.size().rows);
-            }
+            // NOTE: What has scrolled off the top is wrapped again along with the rest, so how far
+            // back through it was being looked no longer says where in it that was.
+            self.stop_looking_back();
 
-            // NOTE: The rows which scrolled off the top are kept the way the ones which scroll off
-            // it while a program writes are, since a program wrote them just the same.
-            let scrolled_off: usize = scrolled.len();
-            for line in scrolled {
-                self.remember(line);
+            let style: Style = Style::default();
+            match size.columns == self.size.columns {
+                true => {
+                    let scrolled: Vec<Line> = self.grid.resize(size, style, self.cursor.at.row);
+                    if let Some(other) = &mut self.other {
+                        other.resize(size, style, other.size().rows);
+                    }
+
+                    // NOTE: The rows which scrolled off the top are kept the way the ones which
+                    // scroll off it while a program writes are, since a program wrote them just
+                    // the same.
+                    let scrolled_off: usize = scrolled.len();
+                    for line in scrolled {
+                        self.remember(line);
+                    }
+
+                    // The cursor goes up along with the rows which scrolled off above it, so that
+                    // it stays on the row it was writing in.
+                    self.cursor.at.row = self.cursor.at.row.saturating_sub(scrolled_off);
+                }
+                false => self.reflow(size),
             }
 
             self.tabs = Self::default_tabs(size.columns);
             self.region = 0..size.rows;
             self.size = size;
 
-            // The cursor goes up along with the rows which scrolled off above it, so that it stays
-            // on the row it was writing in.
-            self.cursor.at.row = self
-                .cursor
-                .at
-                .row
-                .saturating_sub(scrolled_off)
-                .min(size.rows - 1);
+            self.cursor.at.row = self.cursor.at.row.min(size.rows - 1);
             self.cursor.at.column = self.cursor.at.column.min(size.columns - 1);
             self.cursor.wrapping = false;
+        }
+
+        /// Wrap what was written on the screen and what has scrolled off the top of it again for
+        /// a screen of the given size.
+        ///
+        /// The row which was at the top of the screen stays at the top of it, so that nothing is
+        /// brought back from what has scrolled off. Rows which no longer fit scroll off the top,
+        /// apart from the blank ones below the cursor, which go first.
+        ///
+        /// NOTE: The other screen is not wrapped again. Nothing on it is kept once it has gone, and
+        /// a program which uses it draws the whole of it again when it changes size, so it is only
+        /// cut down or filled out.
+        fn reflow(&mut self, size: Size) {
+            let style: Style = Style::default();
+            let alternate: bool = self.other.is_some();
+
+            // The screen which has a history is the first one, which is the one put aside while the
+            // other one is being written on, and so is the cursor which was writing on it.
+            let first: Grid = match self.other.take() {
+                Some(first) => {
+                    self.grid.resize(size, style, self.cursor.at.row);
+                    first
+                }
+                None => mem::replace(&mut self.grid, Grid::blank(size)),
+            };
+            let cursor: Location = match alternate {
+                true => self.saved.map_or(self.cursor.at, |saved| saved.at),
+                false => self.cursor.at,
+            };
+
+            let top: usize = self.scrollback.len();
+            let mut rows: Vec<Line> = self.scrollback.drain(..).collect();
+            rows.extend(first.into_lines());
+
+            // NOTE: The blank rows below the cursor are only there to fill the screen out, so they
+            // are let go of rather than being wrapped along with the rest. Keeping them would push
+            // what was written off the top of a screen which was made narrower.
+            let cursor_row: usize = top + cursor.row;
+            while rows.len() > cursor_row + 1 && rows.last().is_some_and(Line::is_blank) {
+                rows.pop();
+            }
+
+            let mut spots: [Location; 2] = [
+                Location {
+                    row: cursor_row,
+                    column: cursor.column,
+                },
+                Location {
+                    row: top,
+                    column: 0,
+                },
+            ];
+            let mut rows: Vec<Line> = Reflow::of(rows, size.columns, &mut spots);
+            let [cursor, was_top] = spots;
+
+            // The row which was at the top stays there, unless that would leave the cursor below
+            // the bottom of the screen.
+            let from: usize = was_top.row.max((cursor.row + 1).saturating_sub(size.rows));
+            let mut shown: Vec<Line> = rows.split_off(from);
+            shown.truncate(size.rows);
+            shown.resize(size.rows, Line::blank(size.columns, style));
+
+            for line in rows {
+                self.remember(line);
+            }
+
+            let grid: Grid = Grid::of(shown, size.columns);
+            let at: Location = Location {
+                row: cursor.row - from,
+                column: cursor.column,
+            };
+            match alternate {
+                true => {
+                    self.other = Some(grid);
+                    if let Some(saved) = &mut self.saved {
+                        saved.at = at;
+                    }
+                }
+                false => {
+                    self.grid = grid;
+                    self.cursor.at = at;
+                }
+            }
         }
 
         /// Return a size which has at least one row and one column.
@@ -387,7 +554,13 @@ mod screen {
         }
 
         /// Move to the first column of the next row, scrolling when there is no next row.
+        ///
+        /// The row which is left is taken as carrying on into the next one, which is what says it
+        /// is one line with it when the rows are wrapped again for another width.
         fn wrap(&mut self) {
+            let row: usize = self.cursor.at.row;
+            self.grid.line_mut(row).set_wrapped(true);
+
             self.cursor.wrapping = false;
             self.cursor.at.column = 0;
             self.down_a_row();
@@ -494,12 +667,14 @@ mod screen {
         /// there are more of them than are kept.
         fn remember(&mut self, line: Line) {
             if self.scrollback_length == 0 {
+                self.forgotten += 1;
                 return;
             }
 
             self.scrollback.push_back(line);
             while self.scrollback.len() > self.scrollback_length {
                 self.scrollback.pop_front();
+                self.forgotten += 1;
             }
         }
 
@@ -755,6 +930,7 @@ mod screen {
                 EraseInDisplay::All => self.grid.erase(0..rows, style),
                 EraseInDisplay::AllAndScrollback => {
                     self.grid.erase(0..rows, style);
+                    self.forgotten += self.scrollback.len();
                     self.scrollback.clear();
                 }
                 EraseInDisplay::Unknown(_) => {}
@@ -835,6 +1011,8 @@ mod screen {
                     }
                 }
             }
+
+            self.modes.set(Modes::ALTERNATE_SCREEN, set);
 
             // The whole screen is a different one now, so all of it has to be sent again.
             self.grid.damage_all();
@@ -1146,7 +1324,7 @@ mod screen {
                     .iter()
                     .map(line)
                     .collect::<Vec<String>>(),
-                vec!["abc   ", "def   "]
+                vec!["abc", "def"]
             );
         }
 
@@ -1177,6 +1355,83 @@ mod screen {
                 vec!["abc", "def", "   ", "   ", "   ", "   "]
             );
             assert_eq!(screen.scrollback().len(), 0);
+        }
+
+        #[test]
+        fn test_a_line_which_was_wrapped_is_put_back_together_when_the_screen_is_made_wider() {
+            let mut screen = screen();
+            write(&mut screen, b"abcdefgh\r\nij");
+
+            screen.resize(Size::new(ROWS, 10));
+
+            assert_eq!(rows(&screen)[0], "abcdefgh  ");
+            assert_eq!(rows(&screen)[1], "ij        ");
+            assert_eq!(
+                screen.cursor(),
+                Location::builder().row(1).column(2).build()
+            );
+        }
+
+        #[test]
+        fn test_a_line_is_wrapped_when_the_screen_is_made_narrower() {
+            let mut screen = screen();
+            write(&mut screen, b"abcde\r\nfg");
+
+            screen.resize(Size::new(ROWS, 3));
+
+            assert_eq!(rows(&screen), vec!["abc", "de ", "fg ", "   "]);
+            assert_eq!(
+                screen.cursor(),
+                Location::builder().row(2).column(2).build()
+            );
+        }
+
+        #[test]
+        fn test_what_has_scrolled_off_is_wrapped_again_too() {
+            let mut screen = screen();
+            write(&mut screen, b"abcdefgh\r\n1\r\n2\r\n3\r\n4");
+
+            screen.resize(Size::new(ROWS, 10));
+
+            // The line which had been wrapped across the row which scrolled off and the one which
+            // did not is one line again, and it is the one which is left in the history.
+            assert_eq!(
+                screen
+                    .scrollback()
+                    .iter()
+                    .map(line)
+                    .collect::<Vec<String>>(),
+                vec!["abcdefgh  "]
+            );
+            assert_eq!(rows(&screen)[0], "1         ");
+        }
+
+        #[test]
+        fn test_text_carries_a_wrapped_line_on_without_a_newline() {
+            let mut screen = screen();
+            write(&mut screen, b"abcdefgh\r\nij");
+
+            let text: String = screen.text(
+                Location::builder().row(0).column(0).build(),
+                Location::builder().row(2).column(5).build(),
+            );
+
+            assert_eq!(text, "abcdefgh\nij");
+        }
+
+        #[test]
+        fn test_text_is_taken_from_what_has_scrolled_off() {
+            let mut screen = screen();
+            write(&mut screen, b"a\r\nb\r\nc\r\nd\r\ne");
+
+            // The first row there ever was is the one which scrolled off.
+            assert_eq!(screen.first_shown_row(), 1);
+            let text: String = screen.text(
+                Location::builder().row(0).column(0).build(),
+                Location::builder().row(1).column(0).build(),
+            );
+
+            assert_eq!(text, "a\nb");
         }
 
         #[test]

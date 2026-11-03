@@ -390,13 +390,21 @@ pub use command::{Command, Mode};
 
 /// Contains the [`Prompt`] component.
 mod prompt {
-    use super::{Asking, Command, Complaint};
-    use crate::color::Color;
+    use std::path::MAIN_SEPARATOR as PATH_SEPARATOR;
 
-    use insh_api::{Request, RequestParams, Response, ResponseParams, SuggestCommandRequestParams};
+    use super::{Asking, Command, Complaint, Words};
+    use crate::color::Color;
+    use crate::completion::Completion;
+    use crate::typed_path::TypedPath;
+
+    use insh_api::{
+        Request, RequestParams, Response, ResponseParams, SuggestCommandRequestParams,
+        SuggestDirRequestParams,
+    };
     use rend::{Fabric, Size, Yarn};
     use term::{Key, KeyEvent, KeyMods, TermEvent};
 
+    use typed_builder::TypedBuilder;
     use uuid::Uuid;
 
     /// What the prompt has been asked to do.
@@ -422,32 +430,40 @@ mod prompt {
     }
 
     /// Where a command for the multiplexer, or what to call something, is typed.
+    #[derive(TypedBuilder)]
     pub struct Prompt {
         /// What it is asking for.
         asking: Asking,
         /// What has been typed so far.
+        #[builder(default)]
         typed: String,
+        /// What a directory typed at it means.
+        paths: TypedPath,
         /// What was said about the last thing which was typed, when it was not a command.
+        #[builder(setter(skip), default)]
         complaint: Option<String>,
         /// What the daemon suggested the rest of what has been typed is.
+        #[builder(setter(skip), default)]
         suggestion: Option<String>,
         /// The request which the suggestion being shown is for.
         ///
         /// NOTE: A suggestion is asked for on every key, so the one which is shown is the one the
         /// last request was answered with and whatever answers an older one is let go of.
+        #[builder(setter(skip), default)]
         suggesting: Option<Uuid>,
+        /// The directory which was asked to be suggested the rest of, when what is being typed is
+        /// a directory rather than a command.
+        #[builder(setter(skip), default)]
+        suggesting_dir: Option<String>,
     }
 
     impl Prompt {
-        /// Return a prompt which asks for the given thing, starting with what is already typed.
-        pub fn asking(asking: Asking, typed: String) -> Self {
-            return Self {
-                asking,
-                typed,
-                complaint: None,
-                suggestion: None,
-                suggesting: None,
-            };
+        /// The command which a directory is typed after.
+        const SET_DIR: &'static str = "set-dir";
+
+        /// Return whether the response is the answer to the suggestion which was asked for last.
+        pub fn is_suggestion(&self, uuid: &Uuid) -> bool {
+            return self.suggesting == Some(*uuid);
         }
 
         /// Take note of what the daemon suggested, which is ignored unless it was asked for last.
@@ -456,9 +472,42 @@ mod prompt {
                 return;
             }
 
-            if let ResponseParams::SuggestCommand(params) = response.params() {
-                self.suggestion = params.suggestion().clone();
+            match response.params() {
+                ResponseParams::SuggestCommand(params) => {
+                    self.suggestion = params.suggestion().clone();
+                }
+                ResponseParams::SuggestDir(params) => {
+                    self.suggestion = params
+                        .suggestion()
+                        .as_deref()
+                        .and_then(|suggestion| self.dir_suggestion(suggestion));
+                }
+                _ => {}
             }
+        }
+
+        /// Return the whole of what has been typed with the rest of the directory which was
+        /// suggested on the end of it.
+        ///
+        /// The directory comes back as an absolute path, but it is shown the way it is being typed,
+        /// so only what comes after what was asked about goes on the end of what was typed. That
+        /// is the same however the start of it was typed, whether from the home directory, from
+        /// the directory of the pane, or from the root.
+        fn dir_suggestion(&self, suggestion: &str) -> Option<String> {
+            let asked: &str = self.suggesting_dir.as_deref()?;
+            let rest: &str = suggestion.strip_prefix(asked)?;
+
+            // NOTE: What is typed is split into words the way a shell splits it, so anything in the
+            // rest which would split it or be taken for a quote is said with a backslash before it.
+            let mut suggested: String = self.typed.trim_start().to_string();
+            for character in rest.chars() {
+                if character.is_whitespace() || matches!(character, '\\' | '\'' | '"') {
+                    suggested.push('\\');
+                }
+                suggested.push(character);
+            }
+
+            return Some(suggested);
         }
 
         /// Do what the key says.
@@ -487,7 +536,19 @@ mod prompt {
                     self.typed.pop();
                     self.complaint = None;
                 }
+                // NOTE: Tab takes the next part of what is suggested, which is the next word or the
+                // next part of a directory, and shift and tab take all of it, the way they do in a
+                // directory bar. The rest is still the suggestion once a part has been taken, so it
+                // is kept rather than asked for again.
                 (Key::HorizontalTab, _) => {
+                    if let Some(next) = self.next_part() {
+                        self.typed = next;
+                        if self.completion().is_some() {
+                            return None;
+                        }
+                    }
+                }
+                (Key::BackTab, _) => {
                     if let Some(completion) = self.completion() {
                         self.typed = completion;
                     }
@@ -520,16 +581,54 @@ mod prompt {
             // rather than left showing until the daemon answers.
             self.suggestion = None;
 
-            let request = Request::builder()
-                .params(RequestParams::SuggestCommand(
+            // NOTE: A directory which is being typed is suggested the way one typed in a directory
+            // bar is, from the directories which have been gone to and then from the ones which
+            // are there, rather than from the commands which have been run.
+            self.suggesting_dir = self
+                .dir_being_typed()
+                .map(|dir| self.paths.resolve(&dir).to_string_lossy().into_owned());
+
+            let params: RequestParams = match &self.suggesting_dir {
+                Some(dir) => RequestParams::SuggestDir(
+                    SuggestDirRequestParams::builder()
+                        .partial(dir.clone())
+                        .build(),
+                ),
+                None => RequestParams::SuggestCommand(
                     SuggestCommandRequestParams::builder()
                         .partial(self.typed.clone())
                         .build(),
-                ))
-                .build();
+                ),
+            };
+            let request = Request::builder().params(params).build();
             self.suggesting = Some(*request.uuid());
 
             return Some(Effect::Request(request));
+        }
+
+        /// Return the directory which is being typed after the command which sets one, which is
+        /// nothing at all when it is something else being typed.
+        ///
+        /// Nothing is suggested for a directory which ends with a separator, the way nothing is in
+        /// a directory bar, since there is no part of the next one typed to go on yet.
+        fn dir_being_typed(&self) -> Option<String> {
+            if self.typed.ends_with(char::is_whitespace) {
+                return None;
+            }
+
+            let words: Words = Words::of(&self.typed).ok()?;
+            let (command, rest): (&String, &[String]) = words.words().split_first()?;
+            let dir: &String = rest.last()?;
+
+            let typing_dir: bool = command == Self::SET_DIR
+                && !dir.is_empty()
+                && !dir.starts_with('-')
+                && !dir.ends_with(PATH_SEPARATOR);
+
+            return match typing_dir {
+                true => Some(dir.clone()),
+                false => None,
+            };
         }
 
         /// Return what has been typed so far.
@@ -557,6 +656,21 @@ mod prompt {
             }
 
             return Some(suggestion.clone());
+        }
+
+        /// Return what has been typed with the next part of what was suggested on the end of it.
+        ///
+        /// A part is a word, or a part of a directory, so that the command which is being typed is
+        /// taken before anything which was typed after it the last time it was run.
+        fn next_part(&self) -> Option<String> {
+            let suggestion: String = self.completion()?;
+            return Completion::builder()
+                .typed(self.typed.trim_start())
+                .suggested(&suggestion)
+                .separators(&[' ', PATH_SEPARATOR])
+                .escapable(true)
+                .build()
+                .next_part();
         }
 
         /// Return what doing what was typed asks for.
@@ -593,6 +707,7 @@ mod prompt {
             self.typed.clear();
             self.suggestion = None;
             self.suggesting = None;
+            self.suggesting_dir = None;
         }
 
         /// Draw the prompt, which is one row along the bottom where the footer usually is.
@@ -615,12 +730,20 @@ mod prompt {
 
             // The rest of the command which has been started is shown greyed ahead of what has
             // been typed, which tab takes. It is the only one it could be, so there is never more
-            // than one of them to choose between.
+            // than one of them to choose between. Tab only takes the next part of it, so that part
+            // is shown darker than the rest, which shift and tab take as well.
             if let Some(completion) = self.completion() {
-                if let Some(rest) = completion.strip_prefix(self.typed.trim_start()) {
+                let typed: &str = self.typed.trim_start();
+                let next: usize = self.next_part().map_or(0, |next| next.len() - typed.len());
+
+                if let Some(rest) = completion.strip_prefix(typed) {
+                    let (next, rest): (&str, &str) = rest.split_at(next.min(rest.len()));
+
+                    let mut next_yarn = Yarn::from(next);
+                    next_yarn.color(Color::InvertedLightGrayedText.into());
                     let mut rest_yarn = Yarn::from(rest);
                     rest_yarn.color(Color::InvertedGrayedText.into());
-                    yarn = yarn.concat(rest_yarn);
+                    yarn = yarn.concat(next_yarn).concat(rest_yarn);
                 }
             }
 
@@ -635,7 +758,152 @@ mod prompt {
     mod tests {
         use super::*;
 
+        use std::path::PathBuf;
+
+        use insh_api::SuggestDirResponseParams;
+
         use test_case::test_case;
+
+        /// Return a prompt for a command with the given thing typed at it already, in a pane whose
+        /// directory is the home one.
+        fn prompt(typed: &str) -> Prompt {
+            Prompt::builder()
+                .asking(Asking::Command)
+                .typed(typed.to_string())
+                .paths(
+                    TypedPath::builder()
+                        .home(Some(PathBuf::from("/home/pat")))
+                        .from(PathBuf::from("/home/pat/work"))
+                        .build(),
+                )
+                .build()
+        }
+
+        /// Type the character at the prompt, and return what it asks the daemon.
+        fn type_character(prompt: &mut Prompt, character: char) -> Option<Request> {
+            match prompt.handle(TermEvent::KeyEvent(KeyEvent {
+                key: Key::Char(character),
+                mods: KeyMods::NONE,
+            })) {
+                Some(Effect::Request(request)) => Some(request),
+                _ => None,
+            }
+        }
+
+        #[test_case("set-dir ~/fo", Some("/home/pat/fo"); "from the home directory")]
+        #[test_case("set-dir /tm", Some("/tm"); "from the root")]
+        #[test_case("set-dir -s fo", Some("/home/pat/work/fo"); "from the directory of the pane")]
+        #[test_case("set-dir ../fo", Some("/home/pat/fo"); "from the directory above it")]
+        #[test_case("set-dir ~/foo/", None; "ending with a separator, which has nothing to go on")]
+        #[test_case("set-dir -", None; "an option")]
+        #[test_case("new-session fo", None; "after another command")]
+        fn test_a_directory_being_typed_is_suggested_the_way_a_directory_bar_suggests_one(
+            typed: &str,
+            expected: Option<&str>,
+        ) {
+            // All but the last character is typed already, and the last is typed now.
+            let (before, last): (&str, &str) = typed.split_at(typed.len() - 1);
+            let mut prompt = prompt(before);
+
+            let request: Request =
+                type_character(&mut prompt, last.chars().next().unwrap()).unwrap();
+
+            let asked: Option<&str> = match request.params() {
+                RequestParams::SuggestDir(params) => Some(params.partial()),
+                _ => None,
+            };
+            assert_eq!(asked, expected);
+        }
+
+        #[test_case("set-dir ~/fo", "/home/pat/foo bar/", Some("set-dir ~/foo\\ bar/"); "the rest of it, shown the way it is being typed")]
+        #[test_case("set-dir ../fo", "/home/pat/foo/", Some("set-dir ../foo/"); "from the directory above")]
+        #[test_case("set-dir ~/fo", "/elsewhere/", None; "one which is not the rest of what was typed")]
+        fn test_the_directory_suggested_goes_on_the_end_of_what_was_typed(
+            typed: &str,
+            suggested: &str,
+            expected: Option<&str>,
+        ) {
+            let (before, last): (&str, &str) = typed.split_at(typed.len() - 1);
+            let mut prompt = prompt(before);
+            let request: Request =
+                type_character(&mut prompt, last.chars().next().unwrap()).unwrap();
+
+            prompt.handle_response(
+                &Response::builder()
+                    .uuid(*request.uuid())
+                    .params(ResponseParams::SuggestDir(
+                        SuggestDirResponseParams::builder()
+                            .suggestion(Some(suggested.to_string()))
+                            .build(),
+                    ))
+                    .build(),
+            );
+
+            assert_eq!(prompt.completion().as_deref(), expected);
+        }
+
+        /// Return a prompt with the directory typed at it, which the daemon has suggested the rest
+        /// of.
+        fn suggested(typed: &str, suggested: &str) -> Prompt {
+            let (before, last): (&str, &str) = typed.split_at(typed.len() - 1);
+            let mut prompt = prompt(before);
+            let request: Request =
+                type_character(&mut prompt, last.chars().next().unwrap()).unwrap();
+            prompt.handle_response(
+                &Response::builder()
+                    .uuid(*request.uuid())
+                    .params(ResponseParams::SuggestDir(
+                        SuggestDirResponseParams::builder()
+                            .suggestion(Some(suggested.to_string()))
+                            .build(),
+                    ))
+                    .build(),
+            );
+            prompt
+        }
+
+        #[test]
+        fn test_tab_takes_the_next_part_of_a_directory_at_a_time() {
+            let mut prompt = suggested("set-dir ~/fo", "/home/pat/foo/bar/");
+            let tab = TermEvent::KeyEvent(KeyEvent {
+                key: Key::HorizontalTab,
+                mods: KeyMods::NONE,
+            });
+
+            assert!(prompt.handle(tab.clone()).is_none());
+            assert_eq!(prompt.typed(), "set-dir ~/foo/");
+
+            prompt.handle(tab);
+            assert_eq!(prompt.typed(), "set-dir ~/foo/bar/");
+        }
+
+        #[test]
+        fn test_tab_takes_the_command_before_the_directory_run_with_it_last_time() {
+            let mut prompt = prompt("set-d");
+            prompt.suggestion = Some(String::from("set-dir ~/foo/"));
+            let tab = TermEvent::KeyEvent(KeyEvent {
+                key: Key::HorizontalTab,
+                mods: KeyMods::NONE,
+            });
+
+            prompt.handle(tab.clone());
+            assert_eq!(prompt.typed(), "set-dir ");
+
+            prompt.handle(tab);
+            assert_eq!(prompt.typed(), "set-dir ~/");
+        }
+
+        #[test]
+        fn test_shift_and_tab_takes_all_of_a_directory() {
+            let mut prompt = suggested("set-dir ~/fo", "/home/pat/foo/bar/");
+
+            prompt.handle(TermEvent::KeyEvent(KeyEvent {
+                key: Key::BackTab,
+                mods: KeyMods::SHIFT,
+            }));
+
+            assert_eq!(prompt.typed(), "set-dir ~/foo/bar/");
+        }
 
         #[test_case(Key::Char('u'), KeyMods::CONTROL, ""; "clearing the line")]
         #[test_case(Key::Char('w'), KeyMods::CONTROL, "new-session "; "rubbing out the last word, which leaves the space before it")]
@@ -644,7 +912,7 @@ mod prompt {
         #[test_case(Key::Char('a'), KeyMods::CONTROL, "new-session work"; "a chord which means nothing here")]
         #[test_case(Key::Char('a'), KeyMods::ALT, "new-session work"; "a chord held with alt")]
         fn test_handle(key: Key, mods: KeyMods, expected: &str) {
-            let mut prompt = Prompt::asking(Asking::Command, String::from("new-session work"));
+            let mut prompt = prompt("new-session work");
 
             prompt.handle(TermEvent::KeyEvent(KeyEvent { key, mods }));
 
@@ -654,7 +922,7 @@ mod prompt {
         #[test_case(Key::Escape, KeyMods::NONE; "escape")]
         #[test_case(Key::Char('c'), KeyMods::CONTROL; "control and c")]
         fn test_handle_closes(key: Key, mods: KeyMods) {
-            let mut prompt = Prompt::asking(Asking::Command, String::from("new-session work"));
+            let mut prompt = prompt("new-session work");
 
             let effect = prompt.handle(TermEvent::KeyEvent(KeyEvent { key, mods }));
 

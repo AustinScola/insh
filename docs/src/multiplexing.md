@@ -38,6 +38,12 @@ are all borrowed. As is the usage of a prefix.
 | `j` \| `<Down>`    | Move the cursor down.                           |
 | `k` \| `<Up>`      | Move the cursor up.                             |
 | `l` \| `<Right>`   | Move the cursor right.                          |
+| `w`                | Move the cursor to the next word.               |
+| `W`                | Move the cursor to the next WORD.               |
+| `b`                | Move the cursor to the beginning of the word.   |
+| `B`                | Move the cursor to the beginning of the WORD.   |
+| `e`                | Move the cursor to the end of the word.         |
+| `E`                | Move the cursor to the end of the WORD.         |
 | `0` \| `<Home>`    | Move the cursor to the start of the line.       |
 | `$` \| `<End>`     | Move the cursor to the end of the line.         |
 | `gg`               | Move the cursor to the start of the buffer.     |

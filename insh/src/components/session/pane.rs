@@ -181,6 +181,18 @@ mod pane {
             self.state.copy_start()
         }
 
+        /// Return which row the top one of it is, counted from the first row the program in it
+        /// ever wrote on, which is always the first for one of insh's own components since
+        /// nothing scrolls off the top of those.
+        pub fn first_shown_row(&self) -> usize {
+            self.state.first_shown_row()
+        }
+
+        /// Return how many rows back through what has scrolled off the top of it is being looked.
+        pub fn looking_back(&self) -> usize {
+            self.state.looking_back()
+        }
+
         /// Return whether a response is any business of what it is showing.
         #[cfg(test)]
         pub fn wants(&self, params: &ResponseParams) -> bool {
@@ -580,6 +592,23 @@ mod state {
             }
         }
 
+        /// Return which row the top one of it is, counted from the first row the program in it
+        /// ever wrote on.
+        pub fn first_shown_row(&self) -> usize {
+            match &self.contents {
+                Contents::Terminal(terminal) => terminal.first_shown_row(),
+                _ => 0,
+            }
+        }
+
+        /// Return how many rows back through what has scrolled off the top of it is being looked.
+        pub fn looking_back(&self) -> usize {
+            match &self.contents {
+                Contents::Terminal(terminal) => terminal.looking_back(),
+                _ => 0,
+            }
+        }
+
         /// Return where the cursor is in it.
         pub fn cursor(&self) -> Option<Location> {
             match &self.contents {
@@ -620,6 +649,11 @@ mod state {
             self.layout = layout;
 
             if changed {
+                // NOTE: The browser is gone once a program is run in the pane, so where it had
+                // been taken to is taken note of first. Otherwise the browser which comes back
+                // once the program has finished shows wherever the pane was last shown instead.
+                self.dir = self.dir().to_path_buf();
+
                 let (contents, asked) = Contents::of(&self.layout, &self.dir, &self.config);
                 self.contents = contents;
                 self.asked = asked;
@@ -1380,6 +1414,34 @@ mod tests {
 
         assert_eq!(row, 0);
         assert!(column > 0);
+    }
+
+    #[test]
+    fn test_the_browser_comes_back_where_it_was_left_once_a_program_has_finished() {
+        let mut pane: Pane = browsing(20, 60, files(1, None));
+
+        // The browser is taken from where the pane was shown to the root, by typing it in the
+        // directory bar.
+        press_with(&mut pane, Key::Char('d'), KeyMods::CONTROL);
+        for _ in 0.."/tmp/".len() {
+            press_with(&mut pane, Key::Backspace, KeyMods::NONE);
+        }
+        press(&mut pane, '/');
+        press_with(&mut pane, Key::CarriageReturn, KeyMods::NONE);
+        assert_eq!(pane.dir(), Path::new("/"));
+
+        // A program is run in the pane, and then finishes.
+        pane.relayout(
+            PaneLayout::builder()
+                .pane(Uuid::from_u128(1))
+                .at(Location::default())
+                .size(Size::new(20, 60))
+                .kind(PaneKind::Program)
+                .build(),
+        );
+        pane.relayout(layout(20, 60));
+
+        assert_eq!(pane.dir(), Path::new("/"));
     }
 
     #[test]

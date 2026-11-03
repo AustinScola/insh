@@ -18,6 +18,12 @@ pub struct Line {
     cells: Vec<Cell>,
     /// The way each column is written.
     styles: Vec<Style>,
+    /// Whether what is written in the row carries on into the row below it.
+    ///
+    /// A row is only carried on from when the text written in it ran past its last column, rather
+    /// than when a program moved down to the next row, and this is what tells one long line which
+    /// was wrapped from several short ones when the rows are wrapped again for another width.
+    wrapped: bool,
 }
 
 impl Line {
@@ -26,7 +32,53 @@ impl Line {
         return Self {
             cells: vec![Cell::BLANK; columns],
             styles: vec![style; columns],
+            wrapped: false,
         };
+    }
+
+    /// Return a row of what is written in each column and the way each column is written.
+    pub(crate) fn of(cells: Vec<Cell>, styles: Vec<Style>, wrapped: bool) -> Self {
+        return Self {
+            cells,
+            styles,
+            wrapped,
+        };
+    }
+
+    /// Return what is written in each column.
+    pub(crate) fn cells(&self) -> &[Cell] {
+        return &self.cells;
+    }
+
+    /// Return the way each column is written.
+    pub(crate) fn styles(&self) -> &[Style] {
+        return &self.styles;
+    }
+
+    /// Return whether what is written in the row carries on into the row below it.
+    pub fn is_wrapped(&self) -> bool {
+        return self.wrapped;
+    }
+
+    /// Take what is written in the row as carrying on into the row below it, or not.
+    pub fn set_wrapped(&mut self, wrapped: bool) {
+        self.wrapped = wrapped;
+    }
+
+    /// Return whether nothing at all is written in the row.
+    pub fn is_blank(&self) -> bool {
+        return self.cells.iter().all(|cell| *cell == Cell::BLANK);
+    }
+
+    /// Return the text written in the columns.
+    pub fn text(&self, columns: Range<usize>) -> String {
+        let columns: Range<usize> =
+            columns.start.min(self.columns())..columns.end.min(self.columns());
+
+        return self.cells[columns]
+            .iter()
+            .map(ToString::to_string)
+            .collect();
     }
 
     /// Return how many columns the row has.
@@ -92,6 +144,12 @@ impl Line {
 
         self.clear_cluster(columns.start);
         self.clear_cluster(columns.end - 1);
+
+        // NOTE: The last column is the one the text ran past when the row was wrapped, so once it
+        // has been blanked the row no longer carries on into the next one.
+        if columns.end == self.columns() {
+            self.wrapped = false;
+        }
 
         for column in columns {
             self.cells[column] = Cell::BLANK;
@@ -239,6 +297,21 @@ impl Grid {
             // Nothing has been sent anywhere yet, so all of it is waiting to be.
             damaged: (0..size.rows).collect(),
         };
+    }
+
+    /// Return a screen of the rows, every one of which has the given number of columns.
+    pub(crate) fn of(lines: Vec<Line>, columns: usize) -> Self {
+        let rows: usize = lines.len();
+        return Self {
+            lines,
+            columns,
+            damaged: (0..rows).collect(),
+        };
+    }
+
+    /// Return the rows, taking them off the screen.
+    pub(crate) fn into_lines(self) -> Vec<Line> {
+        return self.lines;
     }
 
     /// Return which rows have been written on since they were last asked for, and take them as
