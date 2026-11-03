@@ -44,6 +44,8 @@ bitflags! {
         const CONTROL_SEQUENCE_MOUSE_REPORTS = 1 << 12;
         /// The terminal being focused and unfocused is reported.
         const REPORT_FOCUS = 1 << 13;
+        /// The other screen is being written on, which has nothing which has scrolled off it.
+        const ALTERNATE_SCREEN = 1 << 14;
     }
 }
 

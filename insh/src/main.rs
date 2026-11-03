@@ -15,6 +15,7 @@ mod args;
 mod clipboard;
 mod color;
 mod command_message;
+mod completion;
 mod components;
 mod config;
 mod current_dir;

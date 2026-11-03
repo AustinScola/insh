@@ -68,9 +68,14 @@ mod phrase {
                         mods: KeyMods::CONTROL,
                         ..
                     }) => Some(Action::PopPart),
+                    // NOTE: Tab takes the next part of what is suggested and shift and tab takes
+                    // all of it, so that a long path can be taken a directory at a time.
                     TermEvent::KeyEvent(KeyEvent {
                         key: Key::HorizontalTab,
                         mods: KeyMods::NONE,
+                    }) => Some(Action::CompletePart),
+                    TermEvent::KeyEvent(KeyEvent {
+                        key: Key::BackTab, ..
                     }) => Some(Action::Complete),
                     TermEvent::KeyEvent(KeyEvent {
                         key: Key::CarriageReturn,
@@ -100,12 +105,22 @@ mod phrase {
             let mut yarn = Yarn::from(string);
             yarn.color(Color::InvertedText.into());
 
+            // NOTE: Of a phrase which has parts, tab only takes the next part of the completion,
+            // so that part is shown darker than the rest of it, which shift and tab take as well.
             if self.state.is_focused() {
                 if let Some(completion) = self.state.completion() {
                     if let Some(rest) = completion.strip_prefix(self.state.value()) {
+                        let next: usize = self
+                            .state
+                            .next_part()
+                            .map_or(0, |next| next.len() - string.len());
+                        let (next, rest): (&str, &str) = rest.split_at(next.min(rest.len()));
+
+                        let mut next_yarn: Yarn = Yarn::from(next);
+                        next_yarn.color(Color::InvertedLightGrayedText.into());
                         let mut rest_yarn: Yarn = Yarn::from(rest);
                         rest_yarn.color(Color::InvertedGrayedText.into());
-                        yarn = yarn.concat(rest_yarn);
+                        yarn = yarn.concat(next_yarn).concat(rest_yarn);
                     }
                 }
             }
@@ -127,6 +142,33 @@ mod phrase {
         /// Return what has been typed in.
         pub fn value(&self) -> &str {
             self.state.value()
+        }
+    }
+    #[cfg(test)]
+    mod tests {
+        use super::*;
+
+        use ansi::Color as AnsiColor;
+
+        use test_case::test_case;
+
+        #[test_case(4, Color::InvertedLightGrayedText; "the next part, which tab takes")]
+        #[test_case(6, Color::InvertedGrayedText; "the rest, which only shift and tab take")]
+        fn test_the_next_part_of_the_completion_is_drawn_darker(column: usize, expected: Color) {
+            let phrase = Phrase {
+                state: State::builder()
+                    .value("~/fo")
+                    .completion(String::from("~/foo/bar/"))
+                    .part_separator('/')
+                    .build(),
+            };
+
+            let fabric: Fabric = phrase.render(Size::new(1, 20));
+
+            assert_eq!(
+                fabric.spot(0, column).style().color(),
+                Some(AnsiColor::from(expected))
+            );
         }
     }
 }
@@ -166,6 +208,7 @@ pub use event::Event;
 /// Contains the [`State`] struct.
 mod state {
     use super::{Action, Effect};
+    use crate::completion::Completion;
     use crate::stateful::Stateful;
 
     use typed_builder::TypedBuilder;
@@ -357,6 +400,37 @@ mod state {
             None
         }
 
+        /// Return the phrase with the next part of the completion on the end of it, which is
+        /// nothing at all when the phrase has no parts or there is no more of the completion.
+        pub fn next_part(&self) -> Option<String> {
+            return Completion::builder()
+                .typed(&self.value)
+                .suggested(self.completion.as_deref()?)
+                .separators(&[self.part_separator?])
+                .build()
+                .next_part();
+        }
+
+        /// Take the next part of the completion onto the phrase, or all of it when the phrase has
+        /// no parts.
+        ///
+        /// What is left of the completion is held on to, rather than a new one being asked for,
+        /// so that the part after it is the next one taken.
+        fn complete_part(&mut self) -> Option<Effect> {
+            if self.part_separator.is_none() {
+                return self.complete();
+            }
+
+            if let Some(next) = self.next_part() {
+                self.value = next;
+            }
+            if self.completion.as_deref() == Some(self.value.as_str()) {
+                self.completion = None;
+            }
+
+            None
+        }
+
         /// Enter the phrase.
         fn find(&mut self) -> Option<Effect> {
             self.focus = false;
@@ -386,6 +460,7 @@ mod state {
                 Action::PopPart => self.pop_part(),
                 Action::SetCompletion { uuid, completion } => self.set_completion(uuid, completion),
                 Action::Complete => self.complete(),
+                Action::CompletePart => self.complete_part(),
                 Action::Enter => self.find(),
                 Action::Quit => self.quit(),
             }
@@ -412,6 +487,36 @@ mod state {
             state.pop_part();
 
             assert_eq!(state.value(), expected);
+        }
+
+        #[test]
+        fn test_complete_part_takes_a_part_at_a_time() {
+            let mut state: State = State::builder()
+                .value("~/fo")
+                .completion(String::from("~/foo/bar/"))
+                .part_separator('/')
+                .build();
+
+            state.perform(Action::CompletePart);
+            assert_eq!(state.value(), "~/foo/");
+            assert_eq!(state.completion().as_deref(), Some("~/foo/bar/"));
+
+            state.perform(Action::CompletePart);
+            assert_eq!(state.value(), "~/foo/bar/");
+            assert_eq!(state.completion(), &None);
+        }
+
+        #[test]
+        fn test_complete_takes_all_of_it() {
+            let mut state: State = State::builder()
+                .value("~/fo")
+                .completion(String::from("~/foo/bar/"))
+                .part_separator('/')
+                .build();
+
+            state.perform(Action::Complete);
+
+            assert_eq!(state.value(), "~/foo/bar/");
         }
 
         #[test]
@@ -491,6 +596,8 @@ mod action {
         },
         /// Take the completion as the phrase.
         Complete,
+        /// Take the next part of the completion onto the phrase.
+        CompletePart,
         /// Enter the phrase.
         Enter,
         /// Quit.

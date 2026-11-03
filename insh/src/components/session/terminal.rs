@@ -86,6 +86,17 @@ mod terminal {
         pub fn cursor(&self) -> Option<Location> {
             self.state.cursor()
         }
+
+        /// Return which row the top one of the pane is, counted from the first row the program
+        /// ever wrote on.
+        pub fn first_shown_row(&self) -> usize {
+            self.state.first_shown_row()
+        }
+
+        /// Return how many rows back through what has scrolled off the top is being looked.
+        pub fn looking_back(&self) -> usize {
+            self.state.looking_back()
+        }
     }
 }
 pub use terminal::Terminal;
@@ -113,6 +124,10 @@ mod state {
         last_cursor: Option<Location>,
         /// The ways the program has asked its terminal to behave.
         modes: Modes,
+        /// Which row the top one is, counted from the first row the program ever wrote on.
+        first_shown_row: usize,
+        /// How many rows back through what has scrolled off the top is being looked.
+        looking_back: usize,
     }
 
     impl From<Props> for State {
@@ -123,6 +138,8 @@ mod state {
                 cursor: None,
                 last_cursor: None,
                 modes: Modes::default(),
+                first_shown_row: 0,
+                looking_back: 0,
             }
         }
     }
@@ -151,6 +168,16 @@ mod state {
         /// Return the ways the program has asked its terminal to behave.
         pub fn modes(&self) -> Modes {
             self.modes
+        }
+
+        /// Return which row the top one is, counted from the first row the program ever wrote on.
+        pub fn first_shown_row(&self) -> usize {
+            self.first_shown_row
+        }
+
+        /// Return how many rows back through what has scrolled off the top is being looked.
+        pub fn looking_back(&self) -> usize {
+            self.looking_back
         }
 
         /// Take note of where it is and how big it is now.
@@ -184,6 +211,8 @@ mod state {
             self.cursor = screen.cursor();
             self.last_cursor = self.cursor.or(self.last_cursor);
             self.modes = screen.modes();
+            self.first_shown_row = screen.first_shown_row();
+            self.looking_back = screen.looking_back();
         }
     }
 }

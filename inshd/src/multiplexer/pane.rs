@@ -8,7 +8,7 @@ use std::os::unix::io::{AsRawFd, FromRawFd, IntoRawFd, RawFd};
 use std::path::PathBuf;
 
 use insh_api::{PaneKind, PaneRow, PaneScreen};
-use rend::Size;
+use rend::{Location, Size};
 use terminal_emulator::{Parser, Screen, ScreenProps};
 
 use nix::libc::{self, ioctl, setenv, winsize as WindowSize, TIOCSWINSZ};
@@ -69,6 +69,11 @@ pub struct Pane {
     size: Size,
     /// The program running in it, which is nothing at all for a pane a client draws itself.
     program: Option<Program>,
+    /// The directory the program running in it, or which ran in it last, was started in.
+    ///
+    /// NOTE: This outlives the program, since a client which has not seen the pane before shows
+    /// the browser in it once the program has finished, and this is where that was.
+    dir: Option<PathBuf>,
 }
 
 impl Pane {
@@ -84,6 +89,7 @@ impl Pane {
             id: Uuid::new_v4(),
             size: Self::at_least_one(size),
             program: None,
+            dir: None,
         };
     }
 
@@ -98,6 +104,11 @@ impl Pane {
             Some(_) => PaneKind::Program,
             None => PaneKind::Component,
         };
+    }
+
+    /// Return the directory the program running in it, or which ran in it last, was started in.
+    pub fn dir(&self) -> Option<&PathBuf> {
+        return self.dir.as_ref();
     }
 
     /// Return a size which has at least one row and one column.
@@ -119,6 +130,7 @@ impl Pane {
     #[allow(unreachable_code)]
     pub fn run(&mut self, props: Props) -> Result<(File, File, Receiver<Vec<u8>>), IoError> {
         self.close();
+        self.dir = props.dir.clone();
 
         let size: Size = self.size;
         let window_size: Winsize = Winsize {
@@ -197,6 +209,16 @@ impl Pane {
             Some(program) => program.screen.look_back(rows),
             None => false,
         };
+    }
+
+    /// Return the text written from the one spot to the other, the rows of which are counted from
+    /// the first row the program ever wrote on, which is nothing at all when there is no program
+    /// in the pane.
+    pub fn text(&self, from: Location, to: Location) -> Option<String> {
+        return self
+            .program
+            .as_ref()
+            .map(|program| program.screen.text(from, to));
     }
 
     /// Take the bytes the program wrote as having been written on the screen.
@@ -324,6 +346,7 @@ impl Pane {
             .title(screen.title().map(ToString::to_string))
             .bells(bells)
             .looking_back(screen.looking_back())
+            .first_shown_row(screen.first_shown_row())
             .build();
     }
 
@@ -364,8 +387,6 @@ impl Pane {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    use rend::Location;
 
     #[test]
     fn test_moving_the_cursor_without_writing_on_a_row_is_sent() {
