@@ -1,3 +1,6 @@
+# 0.6.7
+- Fix pasting into the text input. 
+
 # 0.6.6
 - Fix forwarding of mouse events to terminal panes.
 - Fix returning to the searcher after viewing a line.
