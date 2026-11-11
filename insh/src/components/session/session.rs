@@ -202,10 +202,7 @@ mod session {
             match term_event {
                 TermEvent::KeyEvent(key_event) => self.handle_key_event(key_event),
                 TermEvent::Mouse(mouse_event) => self.handle_mouse_event(mouse_event),
-                TermEvent::Paste(text) => {
-                    let bytes: Vec<u8> = self.state.pasted(&text);
-                    self.state.write(bytes).map(Effect::Request)
-                }
+                TermEvent::Paste(text) => self.state.paste(text),
                 TermEvent::Resize(size) => {
                     self.state.size = size;
                     Some(Effect::Request(
@@ -1470,6 +1467,22 @@ mod session {
         /// either way, which is why the components are gone through here rather than the one pane
         /// what is typed usually goes to.
         pub fn send(&mut self, keys: Vec<KeyEvent>) -> Option<Effect> {
+            let bytes: Vec<u8> = keys.iter().flat_map(Vec::<u8>::from).collect();
+            let events: Vec<TermEvent> = keys.into_iter().map(TermEvent::KeyEvent).collect();
+
+            return self.type_in(bytes, events);
+        }
+
+        /// Send what was pasted where it goes, the same way as what was typed.
+        pub fn paste(&mut self, text: String) -> Option<Effect> {
+            let bytes: Vec<u8> = self.pasted(&text);
+
+            return self.type_in(bytes, vec![TermEvent::Paste(text)]);
+        }
+
+        /// Send the bytes to the daemon for the programs which what is typed goes to, and give the
+        /// events to the components which it goes to.
+        fn type_in(&mut self, bytes: Vec<u8>, events: Vec<TermEvent>) -> Option<Effect> {
             let synchronized: bool = self
                 .layout
                 .as_ref()
@@ -1493,7 +1506,6 @@ mod session {
             // NOTE: The daemon sends what is typed to every pane of a window which is being typed
             // in together itself, so it is only told once however many panes there are.
             if typed_in.iter().any(|pane| self.is_program(pane)) {
-                let bytes: Vec<u8> = keys.iter().flat_map(Vec::<u8>::from).collect();
                 if let Some(request) = self.write(bytes) {
                     requests.push(request);
                 }
@@ -1504,9 +1516,9 @@ mod session {
                     continue;
                 }
 
-                let events: Vec<PaneEvent> = keys
+                let events: Vec<PaneEvent> = events
                     .iter()
-                    .map(|key| PaneEvent::TermEvent(TermEvent::KeyEvent(key.clone())))
+                    .map(|event| PaneEvent::TermEvent(event.clone()))
                     .collect();
 
                 match self.tell_pane(&pane, events) {
@@ -1931,7 +1943,7 @@ mod session {
         ///
         /// A terminal only wraps pasted text when the program running in it has asked for it, so
         /// the markers only go on when the program has.
-        pub fn pasted(&self, text: &str) -> Vec<u8> {
+        fn pasted(&self, text: &str) -> Vec<u8> {
             let wrapped: bool = self
                 .active()
                 .and_then(|pane| self.panes.get(&pane))
@@ -2985,6 +2997,22 @@ mod tests {
         // The directory bar is yellow once it is being typed in, and the file no longer is.
         assert_eq!(background(&fabric, 0, 50), Some(Color::Highlight.into()));
         assert_ne!(background(&fabric, 1, 42), Some(Color::Highlight.into()));
+    }
+
+    #[test]
+    fn test_pasting_goes_to_the_component_in_the_pane() {
+        let mut session: Session = browsing();
+        mouse(
+            &mut session,
+            MouseEventKind::Press(MouseButton::Left),
+            0,
+            50,
+        );
+
+        session.handle(Event::TermEvent(TermEvent::Paste(String::from("foo"))));
+        let fabric: Fabric = session.render(Size::new(24, 80));
+
+        assert!(fabric.text(0, 41..80).contains("/tmp/foo"));
     }
 
     #[test]

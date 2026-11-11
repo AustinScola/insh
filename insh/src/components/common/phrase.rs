@@ -337,7 +337,9 @@ mod state {
         /// dropped rather than run together with it or treated as an enter, either of which would
         /// do something surprising with a paste which spans lines.
         fn paste(&mut self, text: String) -> Option<Effect> {
-            let line: &str = text.lines().next().unwrap_or_default();
+            // NOTE: A line can end with a carriage return on its own, because most terminals on
+            // macOS send the newlines in pasted text as the enter key does.
+            let line: &str = text.split(['\r', '\n']).next().unwrap_or_default();
 
             if line.is_empty() {
                 return Some(Effect::Bell);
@@ -498,6 +500,19 @@ mod state {
             let mut state: State = State::builder().value(value).part_separator('/').build();
 
             state.pop_part();
+
+            assert_eq!(state.value(), expected);
+        }
+
+        #[test_case("~/foo", "~/foo"; "one line")]
+        #[test_case("~/foo\n~/bar", "~/foo"; "lines ending with a newline")]
+        #[test_case("~/foo\r\n~/bar", "~/foo"; "lines ending with a carriage return and a newline")]
+        #[test_case("~/foo\r~/bar", "~/foo"; "lines ending with a carriage return")]
+        #[test_case("~/foo\r", "~/foo"; "a trailing carriage return")]
+        fn test_paste_takes_the_first_line(text: &str, expected: &str) {
+            let mut state: State = State::builder().build();
+
+            state.paste(String::from(text));
 
             assert_eq!(state.value(), expected);
         }
