@@ -42,13 +42,12 @@ mod tree {
     pub struct Tree {
         /// The sessions there are.
         sessions: Vec<SessionSummary>,
-        /// The sessions whose windows are not shown.
-        shut: Vec<Uuid>,
-        /// The windows whose panes are shown.
+        /// The sessions whose windows are shown.
         ///
-        /// NOTE: A session shows its windows until it is asked not to and a window shows its
-        /// panes only once it is asked to, so one of these says which are shut and the other
-        /// which are open.
+        /// NOTE: Only the names of the sessions are listed until one is asked to show its
+        /// windows, so that the list is one row a session however many windows there are.
+        opened_sessions: Vec<Uuid>,
+        /// The windows whose panes are shown.
         opened: Vec<Uuid>,
         /// The sessions and the windows in them, a row each.
         rows: Vec<Row>,
@@ -72,9 +71,9 @@ mod tree {
                 .unwrap_or_else(|| self.showing());
         }
 
-        /// Work out the rows again from the sessions and which of them are shut.
+        /// Work out the rows again from the sessions and which of them are open.
         fn lay_out(&mut self) {
-            self.rows = Row::of(&self.sessions, &self.shut, &self.opened);
+            self.rows = Row::of(&self.sessions, &self.opened_sessions, &self.opened);
             self.selected = self.selected.min(self.rows.len().saturating_sub(1));
         }
 
@@ -138,12 +137,12 @@ mod tree {
             }
 
             let session: Uuid = row.session();
-            match self.shut.iter().position(|shut| *shut == session) {
-                Some(at) => {
-                    self.shut.remove(at);
+            match self.opened_sessions.contains(&session) {
+                true => self.move_by(1),
+                false => {
+                    self.opened_sessions.push(session);
                     self.lay_out();
                 }
-                None => self.move_by(1),
             }
 
             None
@@ -176,8 +175,12 @@ mod tree {
                 return;
             }
 
-            if !self.shut.contains(&session) {
-                self.shut.push(session);
+            if let Some(at) = self
+                .opened_sessions
+                .iter()
+                .position(|open| *open == session)
+            {
+                self.opened_sessions.remove(at);
                 self.lay_out();
             }
         }
@@ -301,21 +304,27 @@ mod row {
 
         /// Return a row for each session, and for each window of the sessions which are open.
         ///
+        /// The session being shown is the row the list opens on while its windows are not.
+        ///
         /// Only the names are shown. How many windows a session has is plain from the ones listed
         /// under it, and which session and window are the ones being looked at is said by the
         /// list opening on them rather than by marking them.
-        pub fn of(sessions: &[SessionSummary], shut: &[Uuid], opened: &[Uuid]) -> Vec<Self> {
+        pub fn of(
+            sessions: &[SessionSummary],
+            opened_sessions: &[Uuid],
+            opened: &[Uuid],
+        ) -> Vec<Self> {
             let mut rows: Vec<Self> = Vec::new();
 
             for session in sessions {
-                let open: bool = !shut.contains(session.session());
+                let open: bool = opened_sessions.contains(session.session());
                 let windows: usize = session.windows().len();
 
                 rows.push(Self {
                     session: *session.session(),
                     window: None,
                     pane: None,
-                    here: false,
+                    here: session.showing() && !open,
                     text: format!(
                         "{}{}",
                         match open {
@@ -519,10 +528,35 @@ mod tests {
         }))
     }
 
-    #[test]
-    fn test_every_session_and_every_window_of_each_is_listed() {
+    /// Return a tree showing the sessions with both of them open, on the window being looked at.
+    fn opened() -> Tree {
         let mut tree = Tree::default();
         tree.show(&sessions());
+
+        // The session being shown is selected, and the other is the last row once it is open.
+        press(&mut tree, Key::Char('l'));
+        for _ in 0..3 {
+            press(&mut tree, Key::Char('j'));
+        }
+        press(&mut tree, Key::Char('l'));
+        for _ in 0..2 {
+            press(&mut tree, Key::Char('k'));
+        }
+
+        tree
+    }
+
+    #[test]
+    fn test_only_the_sessions_are_listed_to_begin_with() {
+        let mut tree = Tree::default();
+        tree.show(&sessions());
+
+        assert_eq!(shown(&tree, 3), vec!["▸ 0", "▸ 1", ""]);
+    }
+
+    #[test]
+    fn test_every_session_and_every_window_of_each_is_listed() {
+        let tree: Tree = opened();
 
         assert_eq!(
             shown(&tree, 5),
@@ -543,8 +577,7 @@ mod tests {
 
     #[test]
     fn test_a_window_lists_its_panes_once_it_is_asked_to() {
-        let mut tree = Tree::default();
-        tree.show(&sessions());
+        let mut tree: Tree = opened();
 
         // The first window is selected, and going right shows what is in it.
         press(&mut tree, Key::Char('l'));
@@ -557,8 +590,7 @@ mod tests {
 
     #[test]
     fn test_a_pane_of_a_window_is_picked() {
-        let mut tree = Tree::default();
-        tree.show(&sessions());
+        let mut tree: Tree = opened();
         press(&mut tree, Key::Char('l'));
         press(&mut tree, Key::Char('j'));
         press(&mut tree, Key::Char('j'));
@@ -572,8 +604,7 @@ mod tests {
 
     #[test]
     fn test_going_left_from_a_pane_goes_to_the_window_it_is_in() {
-        let mut tree = Tree::default();
-        tree.show(&sessions());
+        let mut tree: Tree = opened();
         press(&mut tree, Key::Char('l'));
         press(&mut tree, Key::Char('j'));
 
@@ -589,8 +620,7 @@ mod tests {
 
     #[test]
     fn test_a_window_stops_listing_its_panes() {
-        let mut tree = Tree::default();
-        tree.show(&sessions());
+        let mut tree: Tree = opened();
         press(&mut tree, Key::Char('l'));
 
         press(&mut tree, Key::Char('h'));
@@ -600,8 +630,7 @@ mod tests {
 
     #[test]
     fn test_a_session_which_is_shut_does_not_list_its_windows() {
-        let mut tree = Tree::default();
-        tree.show(&sessions());
+        let mut tree: Tree = opened();
 
         // Left from a window goes to the session it is in, and left again shuts it.
         press(&mut tree, Key::Char('h'));
@@ -612,8 +641,7 @@ mod tests {
 
     #[test]
     fn test_a_session_which_is_shut_is_opened_again() {
-        let mut tree = Tree::default();
-        tree.show(&sessions());
+        let mut tree: Tree = opened();
         press(&mut tree, Key::Char('h'));
         press(&mut tree, Key::Char('h'));
 
@@ -624,8 +652,7 @@ mod tests {
 
     #[test]
     fn test_going_right_from_a_session_which_is_open_walks_into_it() {
-        let mut tree = Tree::default();
-        tree.show(&sessions());
+        let mut tree: Tree = opened();
         press(&mut tree, Key::Char('h'));
 
         // The session is selected and already open, so right goes to the first window of it.
@@ -639,8 +666,7 @@ mod tests {
 
     #[test]
     fn test_picking_a_session_shows_the_window_being_looked_at_in_it() {
-        let mut tree = Tree::default();
-        tree.show(&sessions());
+        let mut tree: Tree = opened();
         press(&mut tree, Key::Char('h'));
 
         assert!(matches!(
@@ -652,8 +678,7 @@ mod tests {
 
     #[test]
     fn test_moving_down_goes_through_the_sessions_as_well_as_the_windows() {
-        let mut tree = Tree::default();
-        tree.show(&sessions());
+        let mut tree: Tree = opened();
 
         // From the first window: its sibling, the second session, and then its window.
         for _ in 0..3 {
@@ -669,8 +694,7 @@ mod tests {
 
     #[test]
     fn test_the_selection_does_not_move_past_either_end() {
-        let mut tree = Tree::default();
-        tree.show(&sessions());
+        let mut tree: Tree = opened();
 
         for _ in 0..10 {
             press(&mut tree, Key::Char('k'));
@@ -688,8 +712,7 @@ mod tests {
 
     #[test]
     fn test_the_same_window_stays_selected_when_the_sessions_are_sent_again() {
-        let mut tree = Tree::default();
-        tree.show(&sessions());
+        let mut tree: Tree = opened();
         press(&mut tree, Key::Char('j'));
 
         tree.show(&sessions());
@@ -702,8 +725,7 @@ mod tests {
 
     #[test]
     fn test_the_tree_is_closed_without_showing_anything() {
-        let mut tree = Tree::default();
-        tree.show(&sessions());
+        let mut tree: Tree = opened();
 
         assert!(matches!(
             press(&mut tree, Key::Char('q')),

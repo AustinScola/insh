@@ -78,7 +78,10 @@ mod pane {
     use super::{Effect, Event, Props, State};
     use crate::components::browser::{Browser, BrowserEffect, BrowserProps};
     use crate::components::chat::{Chat, ChatEffect, ChatProps};
-    use crate::components::file_creator::{FileCreator, FileCreatorEffect, FileCreatorProps};
+    use crate::components::common::Hover;
+    use crate::components::file_creator::{
+        FileCreator, FileCreatorEffect, FileCreatorProps, FileCreatorPurpose,
+    };
     use crate::components::finder::{Finder, FinderEffect, FinderProps};
     use crate::components::history::{
         History, HistoryEffect, HistorySearcher, HistorySearcherEffect,
@@ -88,8 +91,6 @@ mod pane {
     use std::path::{Path, PathBuf};
 
     use crate::config::Config;
-
-    use file_type::FileType;
 
     use insh_api::{
         FileSortOptions, GetFilesRequestParams, PaneKind, PaneLayout, Request, RequestParams,
@@ -198,6 +199,11 @@ mod pane {
         pub fn wants(&self, params: &ResponseParams) -> bool {
             self.state.wants(params)
         }
+
+        /// Return whether the row is shown as being under the mouse when it is.
+        pub fn hovers(&self, row: usize) -> Option<Hover> {
+            self.state.hovers(row)
+        }
     }
 
     /// What a pane is showing.
@@ -253,7 +259,7 @@ mod pane {
         pub fn of(layout: &PaneLayout, dir: &Path, config: &Config) -> (Self, Vec<Request>) {
             match layout.kind() {
                 PaneKind::Component => {
-                    Self::showing(&Showing::Browser(dir.to_path_buf()), layout, config)
+                    Self::showing(&Showing::Browser(dir.to_path_buf(), None), layout, config)
                 }
                 PaneKind::Program => {
                     let props = TerminalProps::builder().layout(layout.clone()).build();
@@ -272,10 +278,10 @@ mod pane {
             let size: Size = layout.size();
 
             match showing {
-                Showing::FileCreator(dir, file_type) => {
+                Showing::FileCreator(dir, purpose) => {
                     let props = FileCreatorProps::builder()
                         .dir(dir.clone())
-                        .file_type(*file_type)
+                        .purpose(*purpose)
                         .build();
                     (
                         Self::FileCreator(Box::new(FileCreator::new(props))),
@@ -290,8 +296,12 @@ mod pane {
                         .build();
                     (Self::Finder(Box::new(Finder::new(props))), Vec::new())
                 }
-                Showing::Searcher(dir) => {
-                    let props = SearcherProps::new(config.clone(), dir.clone(), size, None, None);
+                Showing::Searcher(dir, replacing) => {
+                    let mut props =
+                        SearcherProps::new(config.clone(), dir.clone(), size, None, None);
+                    if *replacing {
+                        props = props.replacing();
+                    }
                     (Self::Searcher(Box::new(Searcher::new(props))), Vec::new())
                 }
                 Showing::Chat(dir) => {
@@ -302,13 +312,18 @@ mod pane {
                         vec![Chat::initial_request()],
                     )
                 }
-                Showing::Browser(dir) => Self::browser(dir, size, config),
+                Showing::Browser(dir, file) => Self::browser(dir, file.clone(), size, config),
             }
         }
 
-        /// Return the browser showing the directory, along with the request which asks for the
-        /// files in it.
-        fn browser(dir: &Path, size: Size, config: &Config) -> (Self, Vec<Request>) {
+        /// Return the browser showing the directory with the file selected, along with the request
+        /// which asks for the files in it.
+        fn browser(
+            dir: &Path,
+            file: Option<PathBuf>,
+            size: Size,
+            config: &Config,
+        ) -> (Self, Vec<Request>) {
             let files = Request::builder()
                 .params(RequestParams::GetFiles(
                     GetFilesRequestParams::builder()
@@ -330,6 +345,7 @@ mod pane {
                 .config(config.clone())
                 .dir(dir.to_path_buf())
                 .size(size)
+                .file(file)
                 .pending_request(Some(*files.uuid()))
                 .build();
 
@@ -376,14 +392,15 @@ mod pane {
 
     /// Which of insh's own components a pane is being asked to show, and what it is to show of it.
     pub enum Showing {
-        /// The browser, showing the given directory.
-        Browser(PathBuf),
-        /// Making a new file of the given type in the given directory.
-        FileCreator(PathBuf, FileType),
+        /// The browser, showing the given directory with the given file in it selected.
+        Browser(PathBuf, Option<PathBuf>),
+        /// Naming a file in the given directory, for whatever the given purpose is.
+        FileCreator(PathBuf, FileCreatorPurpose),
         /// Finding files by name in the given directory.
         Finder(PathBuf),
-        /// Searching the files of the given directory for a phrase.
-        Searcher(PathBuf),
+        /// Searching the files of the given directory for a phrase, or replacing one in them when
+        /// it says so.
+        Searcher(PathBuf, bool),
         /// Chatting about the given directory.
         Chat(PathBuf),
     }
@@ -402,14 +419,14 @@ mod pane {
                     args: args.strings(),
                     dir: None,
                 }),
-                BrowserEffect::OpenFileCreator { dir, file_type } => {
-                    Some(Self::Show(Box::new(Showing::FileCreator(dir, file_type))))
+                BrowserEffect::OpenFileCreator { dir, purpose } => {
+                    Some(Self::Show(Box::new(Showing::FileCreator(dir, purpose))))
                 }
                 BrowserEffect::OpenFinder { dir } => {
                     Some(Self::Show(Box::new(Showing::Finder(dir))))
                 }
-                BrowserEffect::OpenSearcher { dir } => {
-                    Some(Self::Show(Box::new(Showing::Searcher(dir))))
+                BrowserEffect::OpenSearcher { dir, replacing } => {
+                    Some(Self::Show(Box::new(Showing::Searcher(dir, replacing))))
                 }
                 BrowserEffect::Request(request) => Some(Self::Request(request)),
                 BrowserEffect::Requests(requests) => Some(Self::Requests(requests)),
@@ -426,8 +443,11 @@ mod pane {
                     args: args.strings(),
                     dir: None,
                 }),
-                FinderEffect::Browse { dir, .. } | FinderEffect::Quit { dir } => {
-                    Some(Self::Show(Box::new(Showing::Browser(dir))))
+                FinderEffect::Browse { dir, file } => {
+                    Some(Self::Show(Box::new(Showing::Browser(dir, file))))
+                }
+                FinderEffect::Quit { dir } => {
+                    Some(Self::Show(Box::new(Showing::Browser(dir, None))))
                 }
                 FinderEffect::Request(request) => Some(Self::Request(request)),
                 FinderEffect::Bell => Some(Self::Bell),
@@ -442,8 +462,11 @@ mod pane {
                     args: args.strings(),
                     dir: None,
                 }),
-                SearcherEffect::Goto { dir, .. } | SearcherEffect::Quit { dir } => {
-                    Some(Self::Show(Box::new(Showing::Browser(dir))))
+                SearcherEffect::Goto { dir, file } => {
+                    Some(Self::Show(Box::new(Showing::Browser(dir, file))))
+                }
+                SearcherEffect::Quit { dir } => {
+                    Some(Self::Show(Box::new(Showing::Browser(dir, None))))
                 }
                 SearcherEffect::Request(request) => Some(Self::Request(request)),
                 SearcherEffect::Bell => Some(Self::Bell),
@@ -454,7 +477,10 @@ mod pane {
         pub fn of_chat(effect: ChatEffect, dir: &Path) -> Option<Self> {
             match effect {
                 ChatEffect::Request(request) => Some(Self::Request(request)),
-                ChatEffect::Quit => Some(Self::Show(Box::new(Showing::Browser(dir.to_path_buf())))),
+                ChatEffect::Quit => Some(Self::Show(Box::new(Showing::Browser(
+                    dir.to_path_buf(),
+                    None,
+                )))),
                 ChatEffect::Bell => Some(Self::Bell),
                 ChatEffect::OpenHistory => Some(Self::OpenHistory),
             }
@@ -485,12 +511,18 @@ mod pane {
         /// Return what the file creator effect asks the pane for.
         pub fn of_file_creator(effect: FileCreatorEffect, dir: &Path) -> Option<Self> {
             match effect {
-                FileCreatorEffect::Browse { dir, .. } => {
-                    Some(Self::Show(Box::new(Showing::Browser(dir))))
+                FileCreatorEffect::Browse { dir, file } => {
+                    Some(Self::Show(Box::new(Showing::Browser(dir, file))))
                 }
-                FileCreatorEffect::Quit => {
-                    Some(Self::Show(Box::new(Showing::Browser(dir.to_path_buf()))))
-                }
+                FileCreatorEffect::Quit => Some(Self::Show(Box::new(Showing::Browser(
+                    dir.to_path_buf(),
+                    None,
+                )))),
+                FileCreatorEffect::OpenVim(args) => Some(Self::Run {
+                    program: String::from("vim"),
+                    args: args.strings(),
+                    dir: None,
+                }),
                 FileCreatorEffect::Request(request) => Some(Self::Request(request)),
                 FileCreatorEffect::Bell => Some(Self::Bell),
             }
@@ -507,7 +539,7 @@ mod state {
     use super::{Effect, Props};
     use crate::components::browser::{BrowserEffect, BrowserEvent};
     use crate::components::chat::{Chat, ChatEffect};
-    use crate::components::common::PaneContentsEvent;
+    use crate::components::common::{Hover, PaneContentsEvent};
     use crate::components::file_creator::FileCreatorEvent;
     use crate::components::history::{History, HistorySearcher};
     use crate::config::Config;
@@ -536,6 +568,9 @@ mod state {
         /// The chat which was left to look through the past ones, which goes on being told about
         /// the reply it is waiting for.
         chat_aside: Option<Box<Chat>>,
+        /// The finder or searcher which a program was run from, which is shown again once the
+        /// program has finished.
+        left_for_program: Option<Contents>,
     }
 
     impl From<Props> for State {
@@ -554,6 +589,7 @@ mod state {
                 // go to it is a change which reaches them.
                 focused: true,
                 chat_aside: None,
+                left_for_program: None,
             }
         }
     }
@@ -580,6 +616,7 @@ mod state {
         pub fn dir(&self) -> &Path {
             match &self.contents {
                 Contents::Browser(browser) => browser.dir(),
+                Contents::FileCreator(file_creator) => file_creator.dir(),
                 _ => &self.dir,
             }
         }
@@ -625,6 +662,26 @@ mod state {
             self.contents.wants(params)
         }
 
+        /// Return whether the row is shown as being under the mouse when it is.
+        ///
+        /// Only the rows which pressing on would do something are, which each component says for
+        /// itself. Any row but the footer of the ones which do not is in a pane which what is
+        /// typed does not go to, since pressing there goes to it. The screen of a program is the
+        /// program's to draw, so none of it is.
+        pub fn hovers(&self, row: usize) -> Option<Hover> {
+            let footer: bool = row + 1 >= self.layout.size().rows;
+            match &self.contents {
+                Contents::Terminal(_) => None,
+                Contents::Browser(browser) => browser.hovers(row),
+                Contents::Finder(finder) => finder.hovers(row),
+                Contents::Searcher(searcher) => searcher.hovers(row),
+                Contents::FileCreator(file_creator) => file_creator.hovers(row),
+                Contents::Chat(_) | Contents::History(_) | Contents::HistorySearcher(_) => {
+                    (!self.focused && !footer).then_some(Hover::Row)
+                }
+            }
+        }
+
         /// Return where in it looking back through it starts.
         pub fn copy_start(&self) -> Option<Location> {
             match &self.contents {
@@ -654,11 +711,34 @@ mod state {
                 // once the program has finished shows wherever the pane was last shown instead.
                 self.dir = self.dir().to_path_buf();
 
-                let (contents, asked) = Contents::of(&self.layout, &self.dir, &self.config);
-                self.contents = contents;
+                // NOTE: Looking at a line of a file from the searcher, or a file from the finder,
+                // runs vim in the pane, and finishing with it goes back to where it was looked at
+                // from rather than to the browser.
+                let left: Option<Contents> = match self.layout.kind() {
+                    PaneKind::Component => self.left_for_program.take(),
+                    PaneKind::Program => None,
+                };
+                let back: bool = left.is_some();
+                let (contents, asked) = match left {
+                    Some(left) => (left, Vec::new()),
+                    None => Contents::of(&self.layout, &self.dir, &self.config),
+                };
+                let was: Contents = std::mem::replace(&mut self.contents, contents);
+                if matches!(was, Contents::Finder(_) | Contents::Searcher(_)) {
+                    self.left_for_program = Some(was);
+                }
                 self.asked = asked;
                 self.chat_aside = None;
-                self.tell_new_contents_about_focus();
+
+                match back {
+                    // NOTE: It is told neither how big the pane is nor whether what is typed goes
+                    // to it while the program is being shown instead.
+                    true => {
+                        self.term_event(TermEvent::Resize(self.layout.size()));
+                        self.tell_contents_about_focus();
+                    }
+                    false => self.tell_new_contents_about_focus(),
+                }
                 return;
             }
 
@@ -787,7 +867,21 @@ mod state {
                 Contents::HistorySearcher(searcher) => Asked::of_history_searcher(
                     searcher.handle(PaneContentsEvent::Response(response))?,
                 )?,
-                Contents::Terminal(_) => return None,
+                // NOTE: The finder or searcher which the program was run from goes on hearing about
+                // what it asked for, so that what it was still finding is there once it is shown
+                // again. Nothing it would go on to do is done while the program is shown instead.
+                Contents::Terminal(_) => {
+                    match self.left_for_program.as_mut() {
+                        Some(Contents::Finder(finder)) => {
+                            finder.handle(PaneContentsEvent::Response(response));
+                        }
+                        Some(Contents::Searcher(searcher)) => {
+                            searcher.handle(PaneContentsEvent::Response(response));
+                        }
+                        _ => {}
+                    }
+                    return None;
+                }
             };
 
             self.asked(asked)
@@ -835,10 +929,10 @@ mod state {
                     // The directory the pane is in is wherever it was last shown, so that going
                     // back to the browser from the finder shows where the finder was left.
                     self.dir = match showing.as_ref() {
-                        Showing::Browser(dir)
+                        Showing::Browser(dir, _)
                         | Showing::FileCreator(dir, _)
                         | Showing::Finder(dir)
-                        | Showing::Searcher(dir)
+                        | Showing::Searcher(dir, _)
                         | Showing::Chat(dir) => dir.clone(),
                     };
 
@@ -944,6 +1038,7 @@ mod tests {
         DeleteChatResponseParams, FindFilesResponseParams, GetChatResponseParams,
         GetFilesResponseParams, ListChatsResponseParams, PaneKind, PaneLayout, PaneScreen, Request,
         RequestParams, Response, ResponseParams, SearchPhraseResponseParams,
+        SuggestFileResponseParams,
     };
     use path_finder::Entry as PathEntry;
     use phrase_searcher::{FileHit, LineHit};
@@ -1393,14 +1488,16 @@ mod tests {
         assert_eq!(copy_start(&pane), (18, 3));
     }
 
-    #[test_case('f'; "the finder")]
-    #[test_case('s'; "the searcher")]
-    fn test_copy_mode_starts_where_what_to_look_for_is_typed(open: char) {
+    #[test_case('f', "Find: "; "the finder")]
+    #[test_case('s', "Search: "; "the searcher")]
+    fn test_copy_mode_starts_where_what_to_look_for_is_typed(open: char, label: &str) {
         let mut pane: Pane = browsing(20, 60, files(1, None));
         press(&mut pane, open);
         type_in(&mut pane, "abc");
 
-        assert_eq!(copy_start(&pane), (1, 3));
+        // What it is for is written before it.
+        assert!(drawn(&pane).contains(&format!("{}abc", label)));
+        assert_eq!(copy_start(&pane), (1, label.len() + 3));
     }
 
     #[test_case('f'; "the finder")]
@@ -1618,6 +1715,324 @@ mod tests {
         }
 
         assert!(drawn(&pane).contains("file09"));
+    }
+
+    /// Return the layout of a pane of the given size with a program running in it.
+    fn running(rows: usize, columns: usize) -> PaneLayout {
+        PaneLayout::builder()
+            .pane(Uuid::from_u128(1))
+            .at(Location::default())
+            .size(Size::new(rows, columns))
+            .kind(PaneKind::Program)
+            .build()
+    }
+
+    /// Return a pane with the searcher in it showing a hit in the file.
+    fn searching(file: &str) -> Pane {
+        let mut pane: Pane = browsing(20, 60, files(1, None));
+        press(&mut pane, 's');
+        press(&mut pane, 'x');
+        let request: Request = match press_with(&mut pane, Key::CarriageReturn, KeyMods::NONE) {
+            Some(Effect::Request(request)) => request,
+            _ => panic!("Expected the hits to be asked for."),
+        };
+        pane.handle(Event::Response(
+            Response::builder()
+                .uuid(*request.uuid())
+                .params(ResponseParams::SearchPhrase(
+                    SearchPhraseResponseParams::builder()
+                        .hits(vec![FileHit::new(
+                            Path::new(file),
+                            vec![LineHit::new(1, "x marks the spot")],
+                        )])
+                        .searched(1)
+                        .duration(Duration::ZERO)
+                        .build(),
+                ))
+                .last(true)
+                .build(),
+        ));
+        pane
+    }
+
+    #[test]
+    fn test_the_searcher_comes_back_once_the_line_looked_at_is_finished_with() {
+        let mut pane: Pane = searching("/tmp/a");
+        press(&mut pane, 'j');
+        assert!(matches!(
+            press_with(&mut pane, Key::CarriageReturn, KeyMods::NONE),
+            Some(Effect::Run { .. })
+        ));
+
+        pane.relayout(running(20, 60));
+        pane.relayout(layout(30, 60));
+
+        assert!(pane.take_asked().is_empty());
+        assert!(drawn(&pane).contains("x marks the spot"));
+        assert_eq!(drawn(&pane).lines().count(), 30);
+    }
+
+    #[test]
+    fn test_the_searcher_goes_on_finding_hits_while_a_line_is_looked_at() {
+        let mut pane: Pane = browsing(20, 60, files(1, None));
+        press(&mut pane, 's');
+        press(&mut pane, 'x');
+        let request: Request = match press_with(&mut pane, Key::CarriageReturn, KeyMods::NONE) {
+            Some(Effect::Request(request)) => request,
+            _ => panic!("Expected the hits to be asked for."),
+        };
+        let hits = |path: &str, line: &str, last: bool| {
+            Event::Response(
+                Response::builder()
+                    .uuid(*request.uuid())
+                    .params(ResponseParams::SearchPhrase(
+                        SearchPhraseResponseParams::builder()
+                            .hits(vec![FileHit::new(
+                                Path::new(path),
+                                vec![LineHit::new(1, line)],
+                            )])
+                            .searched(1)
+                            .duration(Duration::ZERO)
+                            .build(),
+                    ))
+                    .last(last)
+                    .build(),
+            )
+        };
+        pane.handle(hits("/tmp/a", "x marks the spot", false));
+        press(&mut pane, 'j');
+        press_with(&mut pane, Key::CarriageReturn, KeyMods::NONE);
+        pane.relayout(running(20, 60));
+
+        pane.handle(hits("/tmp/b", "x again", true));
+        pane.relayout(layout(20, 60));
+
+        assert!(drawn(&pane).contains("x marks the spot"));
+        assert!(drawn(&pane).contains("x again"));
+    }
+
+    #[test_case(false, "a"; "the first file, when the directory is gone to")]
+    #[test_case(true, "m"; "the file, when the file is gone to")]
+    fn test_going_from_the_searcher_to_the_browser_selects(really: bool, expected: &str) {
+        let mut pane: Pane = searching("/tmp/m");
+
+        let effect: Option<Effect> = match really {
+            true => press_with(&mut pane, Key::Char('G'), KeyMods::SHIFT),
+            false => press(&mut pane, 'g'),
+        };
+        let requests: Vec<Request> = match effect {
+            Some(Effect::Requests(requests)) => requests,
+            _ => panic!("Expected the files to be asked for."),
+        };
+        let files: Vec<FileInfo> = ["/tmp/a", "/tmp/m"]
+            .iter()
+            .map(|path| {
+                FileInfo::builder()
+                    .path(PathBuf::from(path))
+                    .r#type(Ok(FileType::File))
+                    .build()
+            })
+            .collect();
+        answer(&mut pane, requests.last().unwrap(), files);
+
+        // The directory bar is the top row, above the files.
+        let fabric: Fabric = pane.render(Size::new(0, 0));
+        let row: usize = (1..fabric.size().rows)
+            .find(|row| fabric.spot(*row, 0).style().background() == Some(Color::Highlight.into()))
+            .expect("Expected a row to be selected.");
+        assert_eq!(fabric.text(row, 0..fabric.size().columns).trim(), expected);
+    }
+
+    #[test_case("\\.rs$", Some("\\.rs$"); "a pattern")]
+    #[test_case("", None; "nothing, which is every file")]
+    fn test_the_searcher_searches_only_the_files_asked_for(typed: &str, expected: Option<&str>) {
+        let mut pane: Pane = searching("/tmp/a");
+
+        press(&mut pane, 'f');
+        assert!(drawn(&pane).contains("Files: "));
+        type_in(&mut pane, typed);
+        let request: Request = match press_with(&mut pane, Key::CarriageReturn, KeyMods::NONE) {
+            Some(Effect::Request(request)) => request,
+            _ => panic!("Expected the hits to be asked for again."),
+        };
+
+        match request.params() {
+            RequestParams::SearchPhrase(params) => {
+                assert_eq!(params.phrase(), "x");
+                assert_eq!(params.files(), expected);
+            }
+            _ => panic!("Expected the hits to be asked for again."),
+        }
+    }
+
+    #[test]
+    fn test_the_searcher_complains_about_files_which_are_not_a_pattern() {
+        let mut pane: Pane = searching("/tmp/a");
+
+        press(&mut pane, 'f');
+        type_in(&mut pane, "(");
+
+        assert!(matches!(
+            press_with(&mut pane, Key::CarriageReturn, KeyMods::NONE),
+            Some(Effect::Bell)
+        ));
+    }
+
+    /// Return the line which the request asks for the phrase to be replaced in, by the file and
+    /// the number of the line.
+    fn replaced(effect: Option<Effect>) -> Vec<(String, usize)> {
+        match effect {
+            Some(Effect::Request(request)) => match request.params() {
+                RequestParams::ReplacePhrase(params) => {
+                    assert_eq!((params.phrase(), params.replacement()), ("x", "z"));
+                    params
+                        .lines()
+                        .iter()
+                        .map(|line| (line.path().display().to_string(), line.line_number()))
+                        .collect()
+                }
+                _ => panic!("Expected the phrase to be replaced."),
+            },
+            None => Vec::new(),
+            _ => panic!("Expected the phrase to be replaced."),
+        }
+    }
+
+    #[test]
+    fn test_a_phrase_is_replaced_a_line_at_a_time_or_all_at_once() {
+        let mut pane: Pane = browsing(20, 60, files(1, None));
+        press_with(&mut pane, Key::Char('R'), KeyMods::SHIFT);
+        assert!(drawn(&pane).contains("Find: "));
+        assert!(drawn(&pane).contains("replacer"));
+
+        press(&mut pane, 'x');
+        press_with(&mut pane, Key::CarriageReturn, KeyMods::NONE);
+        press(&mut pane, 'z');
+        let request: Request = match press_with(&mut pane, Key::CarriageReturn, KeyMods::NONE) {
+            Some(Effect::Request(request)) => request,
+            _ => panic!("Expected the hits to be asked for."),
+        };
+        pane.handle(Event::Response(
+            Response::builder()
+                .uuid(*request.uuid())
+                .params(ResponseParams::SearchPhrase(
+                    SearchPhraseResponseParams::builder()
+                        .hits(vec![
+                            FileHit::new(
+                                Path::new("/tmp/a"),
+                                vec![LineHit::new(1, "x one"), LineHit::new(2, "x two")],
+                            ),
+                            FileHit::new(Path::new("/tmp/b"), vec![LineHit::new(3, "x three")]),
+                        ])
+                        .searched(2)
+                        .duration(Duration::ZERO)
+                        .build(),
+                ))
+                .last(true)
+                .build(),
+        ));
+        // Each line is shown as it is until it has been decided about.
+        assert!(drawn(&pane).contains("x one"));
+        assert!(!drawn(&pane).contains("z one"));
+        let fabric: Fabric = pane.render(Size::new(0, 0));
+        let (row, column): (usize, usize) = (0..fabric.size().rows)
+            .find_map(|row| {
+                let text: String = fabric.text(row, 0..fabric.size().columns);
+                text.find("x one").map(|column| (row, column))
+            })
+            .unwrap();
+        assert_eq!(
+            fabric.spot(row, column).style().underline(),
+            ansi::Underline::Single
+        );
+        assert_eq!(
+            fabric.spot(row, column + 2).style().underline(),
+            ansi::Underline::None
+        );
+
+        // The path is selected to begin with, which decides about its first line.
+        assert_eq!(
+            replaced(press(&mut pane, 'y')),
+            vec![(String::from("/tmp/a"), 1)]
+        );
+        assert_eq!(replaced(press(&mut pane, 'n')), Vec::new());
+        assert_eq!(
+            replaced(press_with(&mut pane, Key::Char('Y'), KeyMods::SHIFT)),
+            vec![(String::from("/tmp/b"), 3)]
+        );
+    }
+
+    #[test]
+    fn test_editing_a_file_from_the_browser_runs_vim_on_it() {
+        let mut pane: Pane = browsing(20, 60, files(1, None));
+        press(&mut pane, 'e');
+        assert!(drawn(&pane).contains("file editor"));
+
+        type_in(&mut pane, "new.txt");
+        let effect: Option<Effect> = press_with(&mut pane, Key::CarriageReturn, KeyMods::NONE);
+
+        match effect {
+            Some(Effect::Run { program, args, .. }) => {
+                assert_eq!(program, "vim");
+                assert!(args.iter().any(|arg| arg == "/tmp/new.txt"));
+            }
+            _ => panic!("Expected vim to be run on the file."),
+        }
+    }
+
+    #[test]
+    fn test_a_file_to_edit_can_be_followed_by_the_line_and_column_to_start_at() {
+        let mut pane: Pane = browsing(20, 60, files(1, None));
+        press(&mut pane, 'e');
+
+        type_in(&mut pane, "new.txt:12:3");
+        let effect: Option<Effect> = press_with(&mut pane, Key::CarriageReturn, KeyMods::NONE);
+
+        match effect {
+            Some(Effect::Run { args, .. }) => {
+                assert!(args.iter().any(|arg| arg == "/tmp/new.txt"));
+                assert!(args.iter().any(|arg| arg.contains("12")));
+            }
+            _ => panic!("Expected vim to be run on the file."),
+        }
+    }
+
+    #[test]
+    fn test_the_name_of_a_file_to_edit_is_completed() {
+        let mut pane: Pane = browsing(20, 60, files(1, None));
+        press(&mut pane, 'e');
+        press(&mut pane, 'm');
+
+        let request: Request = match press(&mut pane, 'a') {
+            Some(Effect::Request(request)) => request,
+            _ => panic!("Expected a completion to be asked for."),
+        };
+        match request.params() {
+            RequestParams::SuggestFile(params) => {
+                assert_eq!(params.dir(), Path::new("/tmp"));
+                assert_eq!(params.partial(), "ma");
+            }
+            _ => panic!("Expected a file to be suggested."),
+        }
+        pane.handle(Event::Response(
+            Response::builder()
+                .uuid(*request.uuid())
+                .params(ResponseParams::SuggestFile(
+                    SuggestFileResponseParams::builder()
+                        .suggestion(Some(String::from("main.rs")))
+                        .build(),
+                ))
+                .build(),
+        ));
+        press_with(&mut pane, Key::BackTab, KeyMods::SHIFT);
+        let effect: Option<Effect> = press_with(&mut pane, Key::CarriageReturn, KeyMods::NONE);
+
+        match effect {
+            Some(Effect::Run { args, .. }) => {
+                assert!(args.iter().any(|arg| arg == "/tmp/main.rs"));
+            }
+            _ => panic!("Expected vim to be run on the file."),
+        }
     }
 
     #[test]

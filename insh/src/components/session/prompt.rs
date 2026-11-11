@@ -11,6 +11,10 @@ mod asking {
         SessionName,
         /// What to call the window.
         WindowName,
+        /// What to look for going down through the pane being looked back through.
+        SearchDown,
+        /// What to look for going up through the pane being looked back through.
+        SearchUp,
     }
 
     impl Asking {
@@ -20,6 +24,8 @@ mod asking {
                 Self::Command => ":",
                 Self::SessionName => "(rename-session) ",
                 Self::WindowName => "(rename-window) ",
+                Self::SearchDown => "(search down) ",
+                Self::SearchUp => "(search up) ",
             };
         }
     }
@@ -676,8 +682,12 @@ mod prompt {
         /// Return what doing what was typed asks for.
         fn run(&mut self) -> Option<Effect> {
             if self.asking != Asking::Command {
-                // Nothing is called nothing at all, so an empty name only closes the prompt.
-                let name: String = self.typed.trim().to_string();
+                // Nothing is called nothing at all, so an empty name only closes the prompt. What
+                // is looked for is left as it was typed, since the spaces in it are part of it.
+                let name: String = match self.asking {
+                    Asking::SearchDown | Asking::SearchUp => self.typed.clone(),
+                    _ => self.typed.trim().to_string(),
+                };
                 return match name.is_empty() {
                     true => Some(Effect::Close),
                     false => Some(Effect::Name {

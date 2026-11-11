@@ -7,6 +7,8 @@ use std::ops::Range;
 
 use super::{Cell, Location, Row, Size, Spot, Style, Yarn};
 
+use ansi::Color;
+
 // MAYBE TODO: Use ranges for storage to save memory when elements are sparse?
 /// A 2D rectangle of styled text.
 #[derive(PartialEq, Eq, Debug, Clone, Default)]
@@ -158,6 +160,42 @@ impl Fabric {
 
         for written in &mut styles[columns] {
             *written = style;
+        }
+    }
+
+    /// Change the background of the range of the row to the color, leaving everything else about
+    /// the way it is written as it is.
+    pub fn set_background(&mut self, color: Option<Color>, row: usize, columns: Range<usize>) {
+        let columns: Range<usize> =
+            columns.start.min(self.size.columns)..columns.end.min(self.size.columns);
+        let styles: &mut Vec<Style> = match self.styles.get_mut(row) {
+            Some(styles) => styles,
+            None => return,
+        };
+
+        if styles.len() < columns.end {
+            styles.resize(columns.end, Style::default());
+        }
+        for written in &mut styles[columns] {
+            written.set_background(color);
+        }
+    }
+
+    /// Change the color of what is written in the range of the row, leaving everything else about
+    /// the way it is written as it is.
+    pub fn set_color(&mut self, color: Option<Color>, row: usize, columns: Range<usize>) {
+        let columns: Range<usize> =
+            columns.start.min(self.size.columns)..columns.end.min(self.size.columns);
+        let styles: &mut Vec<Style> = match self.styles.get_mut(row) {
+            Some(styles) => styles,
+            None => return,
+        };
+
+        if styles.len() < columns.end {
+            styles.resize(columns.end, Style::default());
+        }
+        for written in &mut styles[columns] {
+            written.set_color(color);
         }
     }
 

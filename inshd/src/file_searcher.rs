@@ -8,6 +8,7 @@ use phrase_searcher::PhraseSearcher;
 use phrase_searcher::Searched;
 
 use crossbeam::channel::Sender;
+use regex::Regex;
 use typed_builder::TypedBuilder;
 
 /// Searches files for a phrase.
@@ -25,6 +26,9 @@ impl FileSearcher {
         let started: Instant = Instant::now();
 
         let mut phrase_searcher = PhraseSearcher::new(&options.dir, &options.phrase);
+        if let Some(files) = options.files {
+            phrase_searcher = phrase_searcher.only(files);
+        }
 
         // The hits which have been found since the last time results were sent.
         let mut hits: Vec<FileHit> = Vec::new();
@@ -86,6 +90,9 @@ pub struct FileSearcherOptions {
     /// The phrase to search for.
     #[builder(setter(into))]
     pub phrase: String,
+    /// What the names of the files to search must match, which is anything when it is nothing.
+    #[builder(default)]
+    pub files: Option<Regex>,
     /// How often the hits which have been found (and the progress of searching for them) are
     /// reported.
     ///

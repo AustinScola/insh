@@ -12,6 +12,7 @@ use insh_api::{
 use insh_db::{search_history, DbConnPool};
 
 use crossbeam::channel::{self, Receiver, Sender};
+use regex::Regex;
 
 /// Handles a request to search the contents of files for a phrase.
 pub struct SearchPhrase {
@@ -47,9 +48,22 @@ impl SearchPhrase {
             channel::unbounded();
         let mut file_searcher: FileSearcher =
             FileSearcher::builder().results_tx(results_tx).build();
+        // NOTE: A pattern which is not a regex is complained about by the client before it is
+        // sent, so one which gets here anyway is taken as not narrowing anything down.
+        let files: Option<Regex> = params.files().and_then(|files| match Regex::new(files) {
+            Ok(files) => Some(files),
+            Err(error) => {
+                log::warn!(
+                    "Failed to parse the pattern of the files to search: {}",
+                    error
+                );
+                None
+            }
+        });
         let file_searcher_options: FileSearcherOptions = FileSearcherOptions::builder()
             .dir(params.dir())
             .phrase(params.phrase())
+            .files(files)
             .build();
         let file_searcher_handle: JoinHandle<()> = thread::Builder::new()
             .name("file-searcher".to_string())

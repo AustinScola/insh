@@ -4,6 +4,9 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
+# Used for matching the names of the files to search.
+regex = { workspace = true }
+
 # Used for walking directories.
 walkdir = { workspace = true }
 

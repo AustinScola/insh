@@ -1,3 +1,17 @@
+# 0.6.6
+- Fix forwarding of mouse events to terminal panes.
+- Fix returning to the searcher after viewing a line.
+- Fix the copy mode cursor sticking to it's location as more output streams in.
+- Add searching in copy mode.
+- Fix being able to stay in copy mode in one pane while focusing on another pane.
+- Fix accidentally nesting `insh`.
+- Add `e` to the browser for prompting what file to edit.
+- Fix `G` in the finder and searcher going right to a file.
+- Change copy mode to stick to the end of the line.
+- Add mouse support to all components.
+- Add file filtering in the searcher.
+- Add a find and replace component.
+
 # 0.6.5
 - Fix artifacting on terminal resize.
 - Add mouse scroll support in terminal panes.

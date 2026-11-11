@@ -38,6 +38,12 @@ mod contents {
             self.state.selected()
         }
 
+        /// Return whether the row is shown as being under the mouse when it is, which is when
+        /// there is a hit in it and it is not the one selected while the hits are focused.
+        pub fn hovers(&self, row: usize) -> bool {
+            self.state.shows(row) && !(self.state.focused() && self.state.selected() == Some(row))
+        }
+
         /// Return a parser for the keys which the contents responds to.
         fn command_parser() -> CommandParser<Action> {
             CommandParser::new()
@@ -137,12 +143,13 @@ mod contents {
                 Event::Find { phrase } => Action::Find { phrase },
                 Event::SetDir { dir } => Action::SetDir { dir },
                 Event::Unfocus => Action::Unfocus,
+                Event::Focus => Action::Focus,
                 Event::SetPaneFocus { focused } => Action::SetPaneFocus { focused },
                 Event::TermEvent(term_event) => match term_event {
                     TermEvent::Resize(size) => Action::Resize { size },
-                    // There is nothing to paste into a list of hits, and nothing here is done
-                    // with the mouse.
-                    TermEvent::Paste(_) | TermEvent::Mouse(_) => {
+                    TermEvent::Mouse(mouse_event) => Action::of_mouse(&mouse_event)?,
+                    // There is nothing to paste into a list of hits.
+                    TermEvent::Paste(_) => {
                         return None;
                     }
                     TermEvent::KeyEvent(key_event) => match self.command_parser.parse(key_event) {
@@ -277,6 +284,8 @@ mod event {
         },
         /// The events no longer go to the contents.
         Unfocus,
+        /// The events go to the contents.
+        Focus,
         /// Whether what is typed goes to the pane the contents are in has changed.
         SetPaneFocus {
             /// Whether it does.
@@ -548,6 +557,35 @@ mod state {
                 self.selected = Some(selected.saturating_sub(1));
             }
 
+            None
+        }
+
+        /// Select the hit in the given row of the ones which are shown, which is none at all
+        /// when there is no hit in it, or open it when it is selected and focused already.
+        fn select(&mut self, row: usize) -> Option<Effect> {
+            if !self.shows(row) {
+                return None;
+            }
+            if self.focused() && self.selected == Some(row) {
+                return self.edit();
+            }
+            self.selected = Some(row);
+            None
+        }
+
+        /// Return whether a hit is shown in the given row.
+        pub fn shows(&self, row: usize) -> bool {
+            row < self.size.rows && self.offset + row < self.entries.len()
+        }
+
+        /// Show the hits a turn of the mouse wheel up from the ones which are shown, or down.
+        fn wheel(&mut self, up: bool) -> Option<Effect> {
+            for _ in 0..Action::WHEELED_ROWS {
+                match up {
+                    true => self.scroll_up(),
+                    false => self.scroll_down(),
+                };
+            }
             None
         }
 
@@ -855,6 +893,12 @@ mod state {
                 Action::ReallyDown => self.really_down(),
                 Action::Up => self.up(),
                 Action::ScrollDown => self.scroll_down(),
+                Action::Focus => {
+                    self.focus();
+                    None
+                }
+                Action::Select { row } => self.select(row),
+                Action::Wheel { up } => self.wheel(up),
                 Action::ScrollUp => self.scroll_up(),
                 Action::ReallyUp => self.really_up(),
                 Action::Refresh => self.refresh(),
@@ -902,12 +946,25 @@ mod action {
 
     use insh_api::Response;
     use rend::Size;
+    use term::{MouseButton, MouseEvent, MouseEventKind};
 
     /// A contents action.
     #[derive(Clone)]
     pub enum Action {
         /// Stop sending the events to the contents.
         Unfocus,
+        /// Send the events to the contents.
+        Focus,
+        /// Select the hit in the given row of the ones which are shown.
+        Select {
+            /// The row.
+            row: usize,
+        },
+        /// Show the hits a turn of the mouse wheel up from the ones which are shown, or down.
+        Wheel {
+            /// Whether it was turned up.
+            up: bool,
+        },
         /// Take note of whether what is typed goes to the pane the contents are in.
         SetPaneFocus {
             /// Whether it does.
@@ -961,6 +1018,24 @@ mod action {
         },
         /// Handle a response from inshd.
         HandleResponse(Response),
+    }
+
+    impl Action {
+        /// How many rows one turn of the mouse wheel scrolls by.
+        pub const WHEELED_ROWS: usize = 3;
+
+        /// Return what was done with the mouse in the contents means, which is nothing at all for
+        /// most of what can be done with it.
+        pub fn of_mouse(mouse_event: &MouseEvent) -> Option<Self> {
+            match mouse_event.kind {
+                MouseEventKind::Press(MouseButton::Left) => Some(Self::Select {
+                    row: mouse_event.row,
+                }),
+                MouseEventKind::ScrollUp => Some(Self::Wheel { up: true }),
+                MouseEventKind::ScrollDown => Some(Self::Wheel { up: false }),
+                _ => None,
+            }
+        }
     }
 }
 use action::Action;

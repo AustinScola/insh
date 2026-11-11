@@ -49,6 +49,7 @@ impl Scheduler {
                 | RequestParams::SetDir(_)
                 | RequestParams::ScrollPane(_)
                 | RequestParams::CopyPane(_)
+                | RequestParams::SearchPane(_)
                 | RequestParams::SwapPane(_)
                 | RequestParams::NewWindow(_)
                 | RequestParams::SelectWindow(_)
@@ -98,5 +99,28 @@ impl Scheduler {
         }
 
         log::info!("Scheduler stopping...");
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    use insh_api::SearchPaneRequestParams;
+    use rend::Location;
+    use uuid::Uuid;
+
+    #[test]
+    fn test_looking_for_something_in_a_pane_goes_to_the_multiplexer() {
+        let params = RequestParams::SearchPane(
+            SearchPaneRequestParams::builder()
+                .pane(Uuid::from_u128(1))
+                .phrase(String::from("x"))
+                .from(Location::default())
+                .down(true)
+                .build(),
+        );
+
+        assert!(Scheduler::multiplexes(&params));
     }
 }

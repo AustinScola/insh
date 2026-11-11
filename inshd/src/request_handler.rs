@@ -7,8 +7,8 @@ use crate::contexted_response::ContextedResponse;
 use crate::log_subscription::LogSubscription;
 use crate::request_handlers::{
     AiStatus, Chat, CreateFile, DatabaseInfo, DeleteChat, FindFiles, GetChat, GetFileContents,
-    GetFiles, ListChats, RunCommand, SearchChats, SearchPhrase, StreamLogs, SuggestCommand,
-    SuggestDir, SuggestFindPattern, SuggestSearchPhrase, VisitDir,
+    GetFiles, ListChats, ReplacePhrase, RunCommand, SearchChats, SearchPhrase, StreamLogs,
+    SuggestCommand, SuggestDir, SuggestFile, SuggestFindPattern, SuggestSearchPhrase, VisitDir,
 };
 use crate::stop::Stop;
 
@@ -76,6 +76,12 @@ impl RequestHandler {
                                 .db_conn_pool(self.db_conn_pool.clone())
                                 .build())
                         }
+                        RequestParams::SuggestFile(params) => {
+                            Box::new(SuggestFile::builder()
+                                .dir(params.dir().to_path_buf())
+                                .partial(params.partial())
+                                .build())
+                        }
                         RequestParams::SuggestCommand(params) => {
                             Box::new(SuggestCommand::builder()
                                 .partial(params.partial())
@@ -97,6 +103,9 @@ impl RequestHandler {
                             Box::new(SuggestFindPattern::new(params, self.db_conn_pool.clone()))
                         }
                         RequestParams::CreateFile(params) => Box::new(CreateFile::new(params)),
+                        RequestParams::ReplacePhrase(params) => {
+                            Box::new(ReplacePhrase::new(params))
+                        }
                         RequestParams::SearchPhrase(params) => {
                             Box::new(SearchPhrase::run(params, self.config.clone(), &self.db_conn_pool))
                         }

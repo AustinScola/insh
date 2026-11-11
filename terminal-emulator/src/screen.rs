@@ -41,7 +41,7 @@ mod screen {
         ClearTabStops, ControlCharacter, ControlFunction, EraseInDisplay, EraseInLine, Mode,
         OperatingSystemCommand,
     };
-    use rend::{Cell, Fabric, Location, Size, Style};
+    use rend::{Cell, Fabric, Location, Seeking, Size, Style};
 
     use typed_builder::TypedBuilder;
 
@@ -95,6 +95,12 @@ mod screen {
         bells: usize,
         /// How many rows back through what has scrolled off the top is being looked.
         looking_back: usize,
+        /// Whether what is being looked at is held where it is while the program goes on writing,
+        /// rather than going back to the bottom.
+        held: bool,
+        /// How many of the rows at the end of what has scrolled off the top were pushed off by
+        /// the screen being made shorter, which are brought back as it is made taller again.
+        pushed_off: usize,
         /// What was last taken as having been sent, apart from the rows.
         sent: Status,
     }
@@ -126,6 +132,8 @@ mod screen {
                 forgotten: 0,
                 bells: 0,
                 looking_back: 0,
+                held: false,
+                pushed_off: 0,
             };
         }
     }
@@ -144,9 +152,10 @@ mod screen {
         /// Do the one thing which the bytes a program wrote say to do.
         ///
         /// Anything a program does brings the screen back from whatever was being looked back
-        /// through, the way a terminal does when something is written while you are scrolled up.
+        /// through, the way a terminal does when something is written while you are scrolled up,
+        /// unless what is being looked at is being held where it is.
         pub fn perform(&mut self, action: Action) {
-            if self.looking_back != 0 {
+            if self.looking_back != 0 && !self.held {
                 self.stop_looking_back();
             }
 
@@ -296,6 +305,53 @@ mod screen {
             return text;
         }
 
+        /// Return where the phrase is next written after the given spot, or before it when it is
+        /// being looked for upward, the rows of which are counted from the first row there ever
+        /// was.
+        ///
+        /// Looking goes round from the bottom to the top, or from the top to the bottom, the way
+        /// tmux does, so the spot itself is the last place it is looked for.
+        pub fn search(&self, seeking: &Seeking, from: Location, down: bool) -> Option<Location> {
+            let first: usize = self.forgotten;
+            let rows: usize = self.scrollback.len() + self.size.rows;
+            let from_row: usize = from.row.clamp(first, first + rows - 1) - first;
+
+            for along in 0..=rows {
+                let row: usize = match down {
+                    true => (from_row + along) % rows,
+                    false => (from_row + rows - along % rows) % rows,
+                };
+                let line: &Line = match self.counted_line(first + row) {
+                    Some(line) => line,
+                    None => continue,
+                };
+
+                // The row the spot is in is looked through twice, once for what is past the spot
+                // and once more at the end for what is not.
+                let columns: Vec<usize> = seeking.columns_in(line.cells());
+                let wanted = |column: &usize| match (along, down) {
+                    (0, true) => *column > from.column,
+                    (0, false) => *column < from.column,
+                    (along, true) if along == rows => *column <= from.column,
+                    (along, false) if along == rows => *column >= from.column,
+                    _ => true,
+                };
+                let found: Option<usize> = match down {
+                    true => columns.into_iter().find(wanted),
+                    false => columns.into_iter().rev().find(wanted),
+                };
+
+                if let Some(column) = found {
+                    return Some(Location {
+                        row: first + row,
+                        column,
+                    });
+                }
+            }
+
+            return None;
+        }
+
         /// Return the row which is the given number counted from the first row there ever was,
         /// which is nothing at all when it has been let go of or is past the bottom of the screen.
         fn counted_line(&self, row: usize) -> Option<&Line> {
@@ -327,6 +383,16 @@ mod screen {
             }
 
             return self.looking_back != was;
+        }
+
+        /// Hold what is being looked at where it is while the program goes on writing, or stop
+        /// holding it.
+        ///
+        /// A row which scrolls off the top while it is held is looked one row further back past,
+        /// so that the rows being looked at stay the same ones, the way tmux keeps them still in
+        /// copy mode.
+        pub fn hold(&mut self, held: bool) {
+            self.held = held;
         }
 
         /// Stop looking back through what has scrolled off the top.
@@ -373,10 +439,15 @@ mod screen {
                     for line in scrolled {
                         self.remember(line);
                     }
+                    self.pushed_off += scrolled_off;
 
                     // The cursor goes up along with the rows which scrolled off above it, so that
                     // it stays on the row it was writing in.
                     self.cursor.at.row = self.cursor.at.row.saturating_sub(scrolled_off);
+
+                    if size.rows > self.size.rows && self.other.is_none() {
+                        self.bring_back(size.rows - self.size.rows);
+                    }
                 }
                 false => self.reflow(size),
             }
@@ -388,6 +459,35 @@ mod screen {
             self.cursor.at.row = self.cursor.at.row.min(size.rows - 1);
             self.cursor.at.column = self.cursor.at.column.min(size.columns - 1);
             self.cursor.wrapping = false;
+        }
+
+        /// Bring back as many as the given number of the rows which were pushed off the top by the
+        /// screen being made shorter, now that it has that many more rows at the bottom.
+        ///
+        /// NOTE: Without this, making a screen shorter and then taller again leaves what was
+        /// written bunched up at the top with blank rows below it, rather than showing what it
+        /// showed before.
+        fn bring_back(&mut self, more: usize) {
+            let back: usize = more.min(self.pushed_off).min(self.scrollback.len());
+            if back == 0 {
+                return;
+            }
+
+            let columns: usize = self.size.columns.max(self.grid.size().columns);
+            let rows: usize = self.grid.size().rows;
+            let mut lines: Vec<Line> = self
+                .scrollback
+                .drain(self.scrollback.len() - back..)
+                .collect();
+            for line in &mut lines {
+                line.resize(columns, Style::default());
+            }
+            let grid: Grid = mem::replace(&mut self.grid, Grid::blank(Size::new(rows, columns)));
+            lines.extend(grid.into_lines().into_iter().take(rows - back));
+
+            self.grid = Grid::of(lines, columns);
+            self.cursor.at.row += back;
+            self.pushed_off -= back;
         }
 
         /// Wrap what was written on the screen and what has scrolled off the top of it again for
@@ -444,8 +544,13 @@ mod screen {
             let [cursor, was_top] = spots;
 
             // The row which was at the top stays there, unless that would leave the cursor below
-            // the bottom of the screen.
-            let from: usize = was_top.row.max((cursor.row + 1).saturating_sub(size.rows));
+            // the bottom of the screen. The rows which were pushed off the top by the screen
+            // being made shorter come back down again, though, as far as there is room for them.
+            let kept: usize = was_top.row.max((cursor.row + 1).saturating_sub(size.rows));
+            let room: usize = size.rows.saturating_sub(cursor.row + 1 - kept);
+            let back: usize = room.min(self.pushed_off).min(kept);
+            let from: usize = kept - back;
+            self.pushed_off = self.pushed_off - back + from.saturating_sub(was_top.row);
             let mut shown: Vec<Line> = rows.split_off(from);
             shown.truncate(size.rows);
             shown.resize(size.rows, Line::blank(size.columns, style));
@@ -671,10 +776,34 @@ mod screen {
                 return;
             }
 
+            let was: usize = self.looking_back;
             self.scrollback.push_back(line);
+            if self.held {
+                self.looking_back += 1;
+            }
+
             while self.scrollback.len() > self.scrollback_length {
-                self.scrollback.pop_front();
-                self.forgotten += 1;
+                // NOTE: The rows being looked at while they are held are never let go of, even
+                // once they are the oldest there are, since a program which writes a lot would
+                // otherwise have them gone in no time. The row below them goes instead, which
+                // leaves a gap in what is kept but none in what is being read.
+                let top: usize = self.scrollback.len() - self.looking_back;
+                let below: usize = top + self.size.rows;
+                match self.held && top == 0 && below < self.scrollback.len() {
+                    true => {
+                        self.scrollback.remove(below);
+                        self.looking_back -= 1;
+                    }
+                    false => {
+                        self.scrollback.pop_front();
+                        self.forgotten += 1;
+                    }
+                }
+            }
+            self.looking_back = self.looking_back.min(self.scrollback.len());
+
+            if self.looking_back != was {
+                self.grid.damage_all();
             }
         }
 
@@ -1101,6 +1230,14 @@ mod screen {
             let mut screen = screen();
             write(&mut screen, bytes);
             return rows(&screen);
+        }
+
+        /// Return what each row of what is being looked at has written in it, which is further
+        /// back than the screen while it is being looked back through.
+        fn looked_at(screen: &Screen) -> Vec<String> {
+            return (0..screen.size().rows)
+                .map(|row| line(screen.line(row)))
+                .collect();
         }
 
         /// Return what each row of the screen is showing.
@@ -1537,6 +1674,122 @@ mod screen {
             assert_eq!(rows(&screen)[0], "      ");
             assert_eq!(screen.cursor(), Location::default());
             assert_eq!(screen.is_cursor_shown(), true);
+        }
+
+        #[test_case(true, vec!["a     ", "b     ", "c     ", "d     "]; "held")]
+        #[test_case(false, vec!["c     ", "d     ", "e     ", "f     "]; "not held")]
+        fn test_what_is_looked_back_at_stays_put_while_written_on_only_when_held(
+            held: bool,
+            expected: Vec<&str>,
+        ) {
+            let mut screen = screen();
+            write(&mut screen, b"a\r\nb\r\nc\r\nd\r\ne");
+            screen.hold(held);
+            screen.look_back(1);
+
+            write(&mut screen, b"\r\nf");
+
+            assert_eq!(looked_at(&screen), expected);
+        }
+
+        #[test]
+        fn test_what_is_held_stays_put_once_it_is_the_oldest_row_kept() {
+            let mut screen = Screen::from(
+                Props::builder()
+                    .size(Size::new(ROWS, COLUMNS))
+                    .scrollback(6)
+                    .build(),
+            );
+            write(&mut screen, b"a\r\nb\r\nc\r\nd\r\ne");
+            screen.hold(true);
+            screen.look_back(1);
+            let top: usize = screen.first_shown_row();
+
+            write(
+                &mut screen,
+                b"\r\nf\r\ng\r\nh\r\ni\r\nj\r\nk\r\nl\r\nm\r\nn\r\no",
+            );
+
+            assert_eq!(
+                looked_at(&screen),
+                vec!["a     ", "b     ", "c     ", "d     "]
+            );
+            assert_eq!(screen.first_shown_row(), top);
+        }
+
+        #[test_case((2, 0), true, Some((4, 0)); "down to the next one")]
+        #[test_case((4, 0), true, Some((1, 3)); "down past the bottom, round to the top")]
+        #[test_case((2, 0), false, Some((1, 3)); "up to the one before")]
+        #[test_case((1, 3), false, Some((4, 0)); "up past the top, round to the bottom")]
+        #[test_case((1, 3), true, Some((4, 0)); "down from one of them")]
+        fn test_search(from: (usize, usize), down: bool, expected: Option<(usize, usize)>) {
+            let mut screen = screen();
+            // The first row scrolls off, and the phrase is in it, in the screen, and in neither.
+            write(&mut screen, b"a\r\nb  xy\r\nc\r\nd\r\nxy");
+
+            let found: Option<Location> = screen.search(
+                &Seeking::from("xy"),
+                Location::builder().row(from.0).column(from.1).build(),
+                down,
+            );
+
+            assert_eq!(found.map(|found| (found.row, found.column)), expected);
+        }
+
+        #[test]
+        fn test_search_finds_the_only_one_from_itself() {
+            let mut screen = screen();
+            write(&mut screen, b"a xy");
+
+            let at: Location = Location::builder().row(0).column(2).build();
+
+            assert_eq!(screen.search(&Seeking::from("xy"), at, true), Some(at));
+        }
+
+        #[test_case(Size::new(2, COLUMNS); "shorter")]
+        #[test_case(Size::new(2, 3); "shorter and narrower")]
+        #[test_case(Size::new(2, 4); "shorter and a little narrower")]
+        fn test_what_was_shown_is_shown_again_once_the_screen_is_its_old_size(smaller: Size) {
+            let mut screen = screen();
+            write(&mut screen, b"a\r\nb\r\nc\r\nd");
+
+            screen.resize(smaller);
+            screen.resize(Size::new(ROWS, COLUMNS));
+
+            assert_eq!(rows(&screen), vec!["a     ", "b     ", "c     ", "d     "]);
+            assert_eq!(
+                screen.cursor(),
+                Location::builder().row(3).column(1).build()
+            );
+        }
+
+        #[test]
+        fn test_making_the_screen_taller_brings_back_only_what_making_it_shorter_pushed_off() {
+            let mut screen = screen();
+            // The first row scrolls off because something was written past the bottom.
+            write(&mut screen, b"a\r\nb\r\nc\r\nd\r\ne");
+
+            screen.resize(Size::new(3, COLUMNS));
+            screen.resize(Size::new(6, COLUMNS));
+
+            assert_eq!(
+                rows(&screen),
+                vec!["b     ", "c     ", "d     ", "e     ", "      ", "      "]
+            );
+        }
+
+        #[test]
+        fn test_what_is_held_at_the_bottom_stays_put_while_written_on() {
+            let mut screen = screen();
+            write(&mut screen, b"a\r\nb\r\nc\r\nd");
+            screen.hold(true);
+
+            write(&mut screen, b"\r\ne");
+
+            assert_eq!(
+                looked_at(&screen),
+                vec!["a     ", "b     ", "c     ", "d     "]
+            );
         }
     }
 }

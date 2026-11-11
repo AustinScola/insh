@@ -8,5 +8,6 @@
   - [File Creator](file-creator.md)
   - [Finder](finder.md)
   - [Searcher](searcher.md)
+  - [Find And Replace](find-and-replace.md)
   - [Inshie](inshie.md)
 - [Configuration](configuration.md)

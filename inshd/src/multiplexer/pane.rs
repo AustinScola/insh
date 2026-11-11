@@ -1,21 +1,23 @@
 //! One of the rectangles a window is divided into, and the program running in it when it has one.
 
+use std::env;
 use std::ffi::{CString, OsString};
-use std::fs::File;
+use std::fs::{self, File};
 use std::io::Error as IoError;
-use std::os::unix::ffi::OsStringExt;
+use std::os::unix::ffi::{OsStrExt, OsStringExt};
+use std::os::unix::fs::PermissionsExt;
 use std::os::unix::io::{AsRawFd, FromRawFd, IntoRawFd, RawFd};
 use std::path::PathBuf;
 
 use insh_api::{PaneKind, PaneRow, PaneScreen};
-use rend::{Location, Size};
+use rend::{Location, Seeking, Size};
 use terminal_emulator::{Parser, Screen, ScreenProps};
 
-use nix::libc::{self, ioctl, setenv, winsize as WindowSize, TIOCSWINSZ};
+use nix::libc::{self, ioctl, winsize as WindowSize, TIOCSWINSZ};
 use nix::pty::{forkpty, ForkptyResult, Winsize};
 use nix::sys::signal::{killpg, Signal};
 use nix::sys::wait::{waitpid, WaitPidFlag};
-use nix::unistd::{chdir, execvp, Pid};
+use nix::unistd::{chdir, execve, Pid};
 
 use crossbeam::channel::{self, Receiver, Sender};
 use typed_builder::TypedBuilder;
@@ -83,6 +85,54 @@ impl Pane {
     /// for. Saying so is what stops one from asking for something which would not be understood.
     const TERM: &'static str = "xterm-256color";
 
+    /// The environment variable which bash takes a function from, and the function, which makes
+    /// running insh in a shell in a pane leave that shell rather than start insh inside of insh.
+    ///
+    /// NOTE: Whatever it was run with is ignored, since there is nothing to be done with it from
+    /// inside of a pane yet.
+    const NESTED_INSH: (&'static str, &'static str) = ("BASH_FUNC_insh%%", "() { exit; }");
+
+    /// Return where the program is, the way a shell finds it on the path, which is the program
+    /// itself when it is a path already or is not on the path at all.
+    fn find(program: &OsString) -> OsString {
+        if program.as_bytes().contains(&b'/') {
+            return program.clone();
+        }
+
+        let found: Option<PathBuf> = env::var_os("PATH").and_then(|paths| {
+            env::split_paths(&paths)
+                .map(|dir| dir.join(program))
+                .find(|path| {
+                    fs::metadata(path).is_ok_and(|metadata| {
+                        metadata.is_file() && metadata.permissions().mode() & 0o111 != 0
+                    })
+                })
+        });
+        return found.map_or_else(|| program.clone(), PathBuf::into_os_string);
+    }
+
+    /// Return the environment a program is run in, which is the daemon's own with the terminal
+    /// it is in and the function which keeps insh from being run inside of itself.
+    fn env() -> Result<Vec<CString>, IoError> {
+        let set: [(&str, &str); 2] = [("TERM", Self::TERM), Self::NESTED_INSH];
+
+        let mut env: Vec<CString> = Vec::new();
+        for (name, value) in env::vars_os() {
+            if set.iter().any(|(set_name, _)| name == *set_name) {
+                continue;
+            }
+            let mut variable: Vec<u8> = name.into_vec();
+            variable.push(b'=');
+            variable.extend(value.into_vec());
+            env.push(CString::new(variable)?);
+        }
+        for (name, value) in set {
+            env.push(CString::new(format!("{}={}", name, value))?);
+        }
+
+        return Ok(env);
+    }
+
     /// Return a pane of the given size with nothing running in it.
     pub fn empty(size: Size) -> Self {
         return Self {
@@ -140,14 +190,16 @@ impl Pane {
             ws_ypixel: 0,
         };
 
+        // NOTE: Everything the program is run with is worked out before forking, since the
+        // daemon has other threads and the fork of it may only do what is safe to do then, which
+        // is not allocating or looking anything up.
         let program: CString = CString::new(props.program.clone().into_vec())?;
-        let mut args: Vec<CString> = vec![program.clone()];
+        let path: CString = CString::new(Self::find(&props.program).into_vec())?;
+        let mut args: Vec<CString> = vec![program];
         for arg in props.args {
             args.push(CString::new(arg.into_vec())?);
         }
-
-        let term: CString = CString::new("TERM").unwrap();
-        let term_value: CString = CString::new(Self::TERM).unwrap();
+        let env: Vec<CString> = Self::env()?;
 
         let master: RawFd;
         let child: Pid;
@@ -164,12 +216,7 @@ impl Pane {
                     let _ = chdir(dir);
                 }
 
-                let overwrite = 1;
-                unsafe {
-                    setenv(term.as_ptr(), term_value.as_ptr(), overwrite);
-                }
-
-                let _ = execvp(&program, &args);
+                let _ = execve(&path, &args, &env);
                 // NOTE: Getting here means the program could not be run at all, and this is a fork
                 // of the daemon, so it has to go rather than carry on as a second one of it.
                 unsafe { libc::_exit(1) };
@@ -202,13 +249,16 @@ impl Pane {
         return Ok((read_from, write_to, typed_rx));
     }
 
-    /// Look the given number of rows further back through what has scrolled off the top, and
-    /// return whether it moved at all.
-    pub fn look_back(&mut self, rows: isize) -> bool {
-        return match &mut self.program {
-            Some(program) => program.screen.look_back(rows),
-            None => false,
+    /// Look the given number of rows further back through what has scrolled off the top, holding
+    /// what is being looked at where it is or letting it go, and return whether it moved at all.
+    pub fn look_back(&mut self, rows: isize, hold: bool) -> bool {
+        let program: &mut Program = match &mut self.program {
+            Some(program) => program,
+            None => return false,
         };
+
+        program.screen.hold(hold);
+        return program.screen.look_back(rows);
     }
 
     /// Return the text written from the one spot to the other, the rows of which are counted from
@@ -219,6 +269,16 @@ impl Pane {
             .program
             .as_ref()
             .map(|program| program.screen.text(from, to));
+    }
+
+    /// Return where the phrase is next written after the given spot, or before it when looking
+    /// up, the rows of which are counted from the first row the program ever wrote on.
+    pub fn search(&self, phrase: &str, from: Location, down: bool) -> Option<Location> {
+        return self
+            .program
+            .as_ref()?
+            .screen
+            .search(&Seeking::from(phrase), from, down);
     }
 
     /// Take the bytes the program wrote as having been written on the screen.
@@ -388,6 +448,8 @@ impl Pane {
 mod tests {
     use super::*;
 
+    use test_case::test_case;
+
     #[test]
     fn test_moving_the_cursor_without_writing_on_a_row_is_sent() {
         let mut pane: Pane = Pane::empty(Size::new(2, 8));
@@ -413,6 +475,55 @@ mod tests {
         );
         // It was only moved the once, so there is nothing more to say about it.
         assert!(pane.screen().is_none());
+
+        pane.close();
+    }
+
+    #[test_case("sh", true; "a program on the path")]
+    #[test_case("/bin/sh", true; "a path already")]
+    #[test_case("not-a-program-anywhere", false; "a program which is nowhere")]
+    fn test_find(program: &str, found: bool) {
+        let path: OsString = Pane::find(&OsString::from(program));
+
+        assert_eq!(PathBuf::from(&path).is_absolute(), found);
+    }
+
+    #[test]
+    fn test_the_terminal_is_set_once_in_the_environment() {
+        let env: Vec<CString> = Pane::env().unwrap();
+
+        let terms: Vec<&CString> = env
+            .iter()
+            .filter(|variable| variable.as_bytes().starts_with(b"TERM="))
+            .collect();
+        assert_eq!(terms.len(), 1);
+        assert_eq!(
+            terms[0].as_bytes(),
+            format!("TERM={}", Pane::TERM).as_bytes()
+        );
+    }
+
+    #[test]
+    fn test_running_insh_in_bash_in_a_pane_leaves_bash() {
+        let mut pane: Pane = Pane::empty(Size::new(2, 20));
+        let (mut read_from, _write_to, _typed_rx) = pane
+            .run(
+                Props::builder()
+                    .program(OsString::from("bash"))
+                    .args(vec![
+                        OsString::from("--norc"),
+                        OsString::from("-c"),
+                        OsString::from("insh browse; echo still here"),
+                    ])
+                    .buffer_size(0)
+                    .build(),
+            )
+            .unwrap();
+
+        let mut written: Vec<u8> = Vec::new();
+        let _ = std::io::Read::read_to_end(&mut read_from, &mut written);
+
+        assert!(!String::from_utf8_lossy(&written).contains("still here"));
 
         pane.close();
     }

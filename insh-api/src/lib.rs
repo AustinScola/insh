@@ -18,11 +18,12 @@ pub use multiplexer::{
     NewWindowRequestParams, PaneExitedResponseParams, PaneKind, PaneLayout, PaneRow, PaneScreen,
     PaneScreenResponseParams, PaneSummary, RenameSessionRequestParams, RenameWindowRequestParams,
     ResizeClientRequestParams, RunCommandRequestParams, RunCommandResponseParams,
-    RunInPaneRequestParams, ScrollPaneRequestParams, SelectPaneRequestParams,
-    SelectWindowRequestParams, SessionSummary, SessionsResponseParams, SetDirRequestParams, Split,
-    SplitPaneRequestParams, SuggestCommandRequestParams, SuggestCommandResponseParams,
-    SwapPaneRequestParams, SyncPanesRequestParams, Window, WindowSummary, WritePaneRequestParams,
-    ZoomPaneRequestParams, COMMAND_NAMES,
+    RunInPaneRequestParams, ScrollPaneRequestParams, SearchPaneRequestParams,
+    SearchPaneResponseParams, SelectPaneRequestParams, SelectWindowRequestParams, SessionSummary,
+    SessionsResponseParams, SetDirRequestParams, Split, SplitPaneRequestParams,
+    SuggestCommandRequestParams, SuggestCommandResponseParams, SwapPaneRequestParams,
+    SyncPanesRequestParams, Window, WindowSummary, WritePaneRequestParams, ZoomPaneRequestParams,
+    COMMAND_NAMES,
 };
 
 use file_info::FileInfo;
@@ -63,6 +64,8 @@ pub enum RequestParams {
     GetFiles(GetFilesRequestParams),
     /// Suggest a directory.
     SuggestDir(SuggestDirRequestParams),
+    /// Suggest a file in a directory.
+    SuggestFile(SuggestFileRequestParams),
     /// Take note that a directory was gone to.
     VisitDir(VisitDirRequestParams),
     /// Get the contents of a file.
@@ -73,6 +76,8 @@ pub enum RequestParams {
     SuggestFindPattern(SuggestFindPatternRequestParams),
     /// Create a file.
     CreateFile(CreateFileRequestParams),
+    /// Replace a phrase in some of the lines of some files.
+    ReplacePhrase(ReplacePhraseRequestParams),
     /// Search for a phrase.
     SearchPhrase(SearchPhraseRequestParams),
     /// Suggest a search phrase.
@@ -112,6 +117,8 @@ pub enum RequestParams {
     ScrollPane(ScrollPaneRequestParams),
     /// Take the text written in a pane from one spot to another.
     CopyPane(CopyPaneRequestParams),
+    /// Find where a phrase is next written in a pane.
+    SearchPane(SearchPaneRequestParams),
     /// Swap a pane with the one before or after it.
     SwapPane(SwapPaneRequestParams),
     /// Make a new window.
@@ -181,6 +188,27 @@ pub struct SuggestDirRequestParams {
 
 impl SuggestDirRequestParams {
     /// Return the path so far.
+    pub fn partial(&self) -> &str {
+        &self.partial
+    }
+}
+
+/// Request parameters for suggesting a file in a directory.
+#[derive(Debug, TypedBuilder, Serialize, Deserialize)]
+pub struct SuggestFileRequestParams {
+    /// The directory the path is in.
+    dir: PathBuf,
+    /// The path so far, from the directory.
+    partial: String,
+}
+
+impl SuggestFileRequestParams {
+    /// Return the directory the path is in.
+    pub fn dir(&self) -> &Path {
+        &self.dir
+    }
+
+    /// Return the path so far, from the directory.
     pub fn partial(&self) -> &str {
         &self.partial
     }
@@ -312,9 +340,18 @@ pub struct SearchPhraseRequestParams {
     dir: PathBuf,
     /// The phrase to search for.
     phrase: String,
+    /// The pattern the names of the files to search must match, which is every file when there is
+    /// none.
+    #[builder(default)]
+    files: Option<String>,
 }
 
 impl SearchPhraseRequestParams {
+    /// Return the pattern the names of the files to search must match.
+    pub fn files(&self) -> Option<&str> {
+        self.files.as_deref()
+    }
+
     /// Return the directory to search in.
     pub fn dir(&self) -> &Path {
         &self.dir
@@ -323,6 +360,84 @@ impl SearchPhraseRequestParams {
     /// Return the phrase to search for.
     pub fn phrase(&self) -> &str {
         &self.phrase
+    }
+}
+
+/// A line of a file to replace a phrase in.
+#[derive(Debug, Clone, PartialEq, Eq, TypedBuilder, Serialize, Deserialize)]
+pub struct ReplacedLine {
+    /// The file the line is in.
+    path: PathBuf,
+    /// Which line of the file it is, counted from one.
+    line_number: usize,
+    /// What the line was when the phrase was found in it, which it has to be still for anything
+    /// to be replaced in it.
+    line: String,
+}
+
+impl ReplacedLine {
+    /// Return the file the line is in.
+    pub fn path(&self) -> &Path {
+        &self.path
+    }
+
+    /// Return which line of the file it is, counted from one.
+    pub fn line_number(&self) -> usize {
+        self.line_number
+    }
+
+    /// Return what the line was when the phrase was found in it.
+    pub fn line(&self) -> &str {
+        &self.line
+    }
+}
+
+/// Request parameters for replacing a phrase in some of the lines of some files.
+#[derive(Debug, TypedBuilder, Serialize, Deserialize)]
+pub struct ReplacePhraseRequestParams {
+    /// The phrase to replace.
+    phrase: String,
+    /// What to replace it with.
+    replacement: String,
+    /// The lines to replace it in, every place it is in each of them.
+    lines: Vec<ReplacedLine>,
+}
+
+impl ReplacePhraseRequestParams {
+    /// Return the phrase to replace.
+    pub fn phrase(&self) -> &str {
+        &self.phrase
+    }
+
+    /// Return what to replace it with.
+    pub fn replacement(&self) -> &str {
+        &self.replacement
+    }
+
+    /// Return the lines to replace it in.
+    pub fn lines(&self) -> &[ReplacedLine] {
+        &self.lines
+    }
+}
+
+/// Response parameters for how replacing a phrase went.
+#[derive(Debug, Clone, TypedBuilder, Serialize, Deserialize)]
+pub struct ReplacePhraseResponseParams {
+    /// How many of the lines it was replaced in.
+    replaced: usize,
+    /// Why it could not be replaced in the rest of them.
+    failures: Vec<String>,
+}
+
+impl ReplacePhraseResponseParams {
+    /// Return how many of the lines it was replaced in.
+    pub fn replaced(&self) -> usize {
+        self.replaced
+    }
+
+    /// Return why it could not be replaced in the rest of them.
+    pub fn failures(&self) -> &[String] {
+        &self.failures
     }
 }
 
@@ -585,6 +700,8 @@ pub enum ResponseParams {
     GetFiles(GetFilesResponseParams),
     /// A suggested directory.
     SuggestDir(SuggestDirResponseParams),
+    /// A suggested file.
+    SuggestFile(SuggestFileResponseParams),
     /// A directory was taken note of.
     VisitDir(VisitDirResponseParams),
     /// The contents of a file.
@@ -595,6 +712,8 @@ pub enum ResponseParams {
     SuggestFindPattern(SuggestFindPatternResponseParams),
     /// Whether the file was created.
     CreateFile(CreateFileResponseParams),
+    /// How replacing a phrase went.
+    ReplacePhrase(ReplacePhraseResponseParams),
     /// The hits found.
     SearchPhrase(SearchPhraseResponseParams),
     /// A suggested search phrase.
@@ -616,6 +735,8 @@ pub enum ResponseParams {
     Sessions(SessionsResponseParams),
     /// The text taken from a pane.
     CopyPane(CopyPaneResponseParams),
+    /// Where a phrase was found in a pane.
+    SearchPane(SearchPaneResponseParams),
     /// A suggested command for the multiplexer.
     SuggestCommand(SuggestCommandResponseParams),
     /// A command was taken note of.
@@ -690,6 +811,20 @@ pub struct SuggestDirResponseParams {
 
 impl SuggestDirResponseParams {
     /// Return the suggested path.
+    pub fn suggestion(&self) -> &Option<String> {
+        &self.suggestion
+    }
+}
+
+/// Response parameters for suggesting a file in a directory.
+#[derive(Debug, Clone, TypedBuilder, Serialize, Deserialize)]
+pub struct SuggestFileResponseParams {
+    /// The suggested path, from the directory.
+    suggestion: Option<String>,
+}
+
+impl SuggestFileResponseParams {
+    /// Return the suggested path, from the directory.
     pub fn suggestion(&self) -> &Option<String> {
         &self.suggestion
     }

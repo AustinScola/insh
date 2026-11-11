@@ -5,7 +5,7 @@ use std::path::PathBuf;
 use crate::components::browser::{Browser, BrowserEffect, BrowserEvent, BrowserProps};
 use crate::components::chat::{Chat, ChatEffect, ChatProps};
 use crate::components::file_creator::{
-    FileCreator, FileCreatorEffect, FileCreatorEvent, FileCreatorProps,
+    FileCreator, FileCreatorEffect, FileCreatorEvent, FileCreatorProps, FileCreatorPurpose,
 };
 use crate::components::finder::{Finder, FinderEffect, FinderProps};
 use crate::components::history::{History, HistoryEffect, HistorySearcher, HistorySearcherEffect};
@@ -18,7 +18,6 @@ use crate::current_dir;
 use crate::programs::{Bash, Vim};
 use crate::stateful::Stateful;
 
-use file_type::FileType;
 use insh_api::{
     FileSortOptions, GetFilesRequestParams, Request, RequestParams, Response, ResponseParams,
     VisitDirRequestParams,
@@ -232,8 +231,8 @@ impl Component<Props, Event<Response>, SystemEffect<Request>> for Insh {
                 let browser = self.state.browser.as_mut().unwrap();
                 let browser_effect: Option<BrowserEffect> = browser.handle(event);
                 match browser_effect {
-                    Some(BrowserEffect::OpenFileCreator { dir, file_type }) => {
-                        action = Some(Action::CreateFile { dir, file_type });
+                    Some(BrowserEffect::OpenFileCreator { dir, purpose }) => {
+                        action = Some(Action::CreateFile { dir, purpose });
                     }
                     Some(BrowserEffect::OpenFinder { dir }) => {
                         action = Some(Action::Find { dir });
@@ -241,8 +240,8 @@ impl Component<Props, Event<Response>, SystemEffect<Request>> for Insh {
                     Some(BrowserEffect::OpenChat { dir }) => {
                         action = Some(Action::Chat { dir });
                     }
-                    Some(BrowserEffect::OpenSearcher { dir }) => {
-                        action = Some(Action::Search { dir });
+                    Some(BrowserEffect::OpenSearcher { dir, replacing }) => {
+                        action = Some(Action::Search { dir, replacing });
                     }
                     Some(BrowserEffect::OpenVim(vim_args)) => {
                         let program = Box::new(Vim::new(vim_args));
@@ -282,6 +281,11 @@ impl Component<Props, Event<Response>, SystemEffect<Request>> for Insh {
                     }
                     Some(FileCreatorEffect::Bell) => {
                         action = Some(Action::Bell);
+                    }
+                    Some(FileCreatorEffect::OpenVim(vim_args)) => {
+                        self.state.perform(Action::QuitFileCreator);
+                        let program = Box::new(Vim::new(vim_args));
+                        return Some(SystemEffect::RunProgram { program });
                     }
                     Some(FileCreatorEffect::Quit) => {
                         action = Some(Action::QuitFileCreator);
@@ -603,12 +607,16 @@ impl State {
         Some(SystemEffect::Requests(vec![visit_request, request]))
     }
 
-    /// Make a new file.
-    fn create_file(&mut self, dir: PathBuf, file_type: FileType) -> Option<SystemEffect<Request>> {
+    /// Make a new file, or name one to edit.
+    fn create_file(
+        &mut self,
+        dir: PathBuf,
+        purpose: FileCreatorPurpose,
+    ) -> Option<SystemEffect<Request>> {
         self.mode = Mode::FileCreator;
         let file_creator_props = FileCreatorProps::builder()
             .dir(dir)
-            .file_type(file_type)
+            .purpose(purpose)
             .build();
         self.file_creator = Some(FileCreator::new(file_creator_props));
         None
@@ -629,11 +637,14 @@ impl State {
     }
 
     /// Search files for a phrase.
-    fn search(&mut self, dir: PathBuf) -> Option<SystemEffect<Request>> {
+    fn search(&mut self, dir: PathBuf, replacing: bool) -> Option<SystemEffect<Request>> {
         self.mode = Mode::Searcher;
         let size: Size = Term::size().unwrap();
         let phrase = None;
-        let searcher_props = SearcherProps::new(self.config.clone(), dir, size, phrase, None);
+        let mut searcher_props = SearcherProps::new(self.config.clone(), dir, size, phrase, None);
+        if replacing {
+            searcher_props = searcher_props.replacing();
+        }
         self.searcher = Some(Searcher::new(searcher_props));
         None
     }
@@ -755,9 +766,9 @@ impl Stateful<Action, SystemEffect<Request>> for State {
     fn perform(&mut self, action: Action) -> Option<SystemEffect<Request>> {
         match action {
             Action::Browse { dir, file } => self.browse(dir, file),
-            Action::CreateFile { dir, file_type } => self.create_file(dir, file_type),
+            Action::CreateFile { dir, purpose } => self.create_file(dir, purpose),
             Action::Find { dir } => self.find(dir),
-            Action::Search { dir } => self.search(dir),
+            Action::Search { dir, replacing } => self.search(dir, replacing),
             Action::Chat { dir } => self.chat(dir),
             Action::QuitChat => self.quit_chat(),
             Action::History => self.history(),
@@ -806,22 +817,24 @@ enum Action {
         /// The file to select.
         file: Option<PathBuf>,
     },
-    /// Make a new file.
+    /// Make a new file, or name one to edit.
     CreateFile {
-        /// The directory to make it in.
+        /// The directory the file is in.
         dir: PathBuf,
-        /// The type of file to make.
-        file_type: FileType,
+        /// What the file is named for.
+        purpose: FileCreatorPurpose,
     },
     /// Find files by name.
     Find {
         /// The directory to look in.
         dir: PathBuf,
     },
-    /// Search files for a phrase.
+    /// Search files for a phrase, or replace one in them.
     Search {
         /// The directory to search in.
         dir: PathBuf,
+        /// Whether the phrase is being replaced rather than only looked for.
+        replacing: bool,
     },
     /// Chat about a directory.
     Chat {

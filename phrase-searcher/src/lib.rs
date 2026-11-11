@@ -8,6 +8,7 @@ use std::fs::File;
 use std::io::{BufRead, BufReader};
 use std::path::{Path, PathBuf};
 
+use regex::Regex;
 use serde::{Deserialize, Serialize};
 use walkdir::{
     DirEntry as Entry, Error as WalkerEntryError, IntoIter as Walker, WalkDir as WalkerBuilder,
@@ -17,6 +18,8 @@ use walkdir::{
 pub struct PhraseSearcher {
     /// The phrase to search for.
     phrase: String,
+    /// What the names of the files to search must match, which is anything when it is nothing.
+    files: Option<Regex>,
     /// A file walker.
     walker: Walker,
 }
@@ -26,7 +29,19 @@ impl PhraseSearcher {
     pub fn new(directory: &Path, phrase: &str) -> Self {
         let phrase: String = phrase.to_string();
         let walker: Walker = WalkerBuilder::new(directory).min_depth(1).into_iter();
-        Self { phrase, walker }
+        Self {
+            phrase,
+            files: None,
+            walker,
+        }
+    }
+
+    /// Return the same, but only searching the files whose names match.
+    ///
+    /// A file whose name does not match is not searched at all, so it is not reported either.
+    pub fn only(mut self, files: Regex) -> Self {
+        self.files = Some(files);
+        self
     }
 }
 
@@ -58,6 +73,11 @@ impl Iterator for PhraseSearcher {
                         let path = entry.path();
                         if path.is_dir() {
                             continue;
+                        }
+                        if let Some(files) = &self.files {
+                            if !files.is_match(&entry.file_name().to_string_lossy()) {
+                                continue;
+                            }
                         }
 
                         let file = match File::open(path) {
