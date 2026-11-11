@@ -8,6 +8,7 @@ use crate::clipboard::Clipboard;
 use crate::color::Color;
 use crate::command_message::CommandMessage;
 use crate::components::common::FooterInfo;
+use crate::components::file_creator::FileCreatorPurpose;
 use crate::config::Config;
 use crate::programs::{VimArgs, VimArgsBuilder};
 use crate::stateful::Stateful;
@@ -20,7 +21,7 @@ use insh_api::{
     Response, ResponseParams,
 };
 use rend::{Cell, Fabric, Size, Yarn};
-use term::{Key, KeyEvent, KeyMods, TermEvent};
+use term::{Key, KeyEvent, KeyMods, MouseButton, MouseEvent, MouseEventKind, TermEvent};
 use til::{CommandParser, Component, KeyPattern, Parsed};
 
 use typed_builder::TypedBuilder;
@@ -369,6 +370,9 @@ impl Component<Props, Event, Effect> for Contents {
             Event::Unfocus => Action::Unfocus,
             Event::SetDir { dir } => Action::SetDir { dir },
             Event::Resize { size } => Action::Resize { size },
+            Event::Term {
+                event: TermEvent::Mouse(mouse_event),
+            } => Action::of_mouse(&mouse_event)?,
             Event::Term { event } => {
                 let key_event = match event {
                     TermEvent::KeyEvent(key_event) => key_event,
@@ -541,6 +545,12 @@ impl Contents {
         self.state.selected
     }
 
+    /// Return whether the row is shown as being under the mouse when it is, which is when there is
+    /// an entry in it and it is not the one selected while the entries are focused.
+    pub fn hovers(&self, row: usize) -> bool {
+        self.state.shows(row) && !(self.state.focused && self.state.selected == Some(row))
+    }
+
     /// Return a parser for the keys which the contents responds to.
     fn command_parser() -> CommandParser<Action> {
         CommandParser::new()
@@ -607,17 +617,30 @@ impl Contents {
             .bind(
                 [KeyPattern::exact(Key::Char('c'), KeyMods::NONE)],
                 Action::OpenFileCreator {
-                    file_type: FileType::File,
+                    purpose: FileCreatorPurpose::Create(FileType::File),
+                },
+            )
+            .bind(
+                [KeyPattern::exact(Key::Char('e'), KeyMods::NONE)],
+                Action::OpenFileCreator {
+                    purpose: FileCreatorPurpose::Edit,
                 },
             )
             .bind(
                 [KeyPattern::exact(Key::Char('C'), KeyMods::SHIFT)],
                 Action::OpenFileCreator {
-                    file_type: FileType::Dir,
+                    purpose: FileCreatorPurpose::Create(FileType::Dir),
                 },
             )
             .bind([KeyPattern::any(Key::Char('f'))], Action::OpenFinder)
-            .bind([KeyPattern::any(Key::Char('s'))], Action::OpenSearcher)
+            .bind(
+                [KeyPattern::any(Key::Char('s'))],
+                Action::OpenSearcher { replacing: false },
+            )
+            .bind(
+                [KeyPattern::exact(Key::Char('R'), KeyMods::SHIFT)],
+                Action::OpenSearcher { replacing: true },
+            )
             .bind(
                 [KeyPattern::exact(Key::Char('a'), KeyMods::NONE)],
                 Action::OpenChat,
@@ -889,6 +912,36 @@ impl State {
         None
     }
 
+    /// Select the entry in the given row of the ones which are shown, which is none at all when
+    /// there is no entry in it, or open it when it is selected and focused already.
+    fn select(&mut self, row: usize) -> Option<Effect> {
+        if !self.shows(row) {
+            return None;
+        }
+        if self.focused && self.selected == Some(row) {
+            return self.push();
+        }
+        self.selected = Some(row);
+        None
+    }
+
+    /// Return whether an entry is shown in the given row.
+    pub fn shows(&self, row: usize) -> bool {
+        self.entry_count()
+            .is_some_and(|count| row < self.size.rows && self.offset + row < count)
+    }
+
+    /// Show the entries a turn of the mouse wheel up from the ones which are shown, or down.
+    fn wheel(&mut self, up: bool) -> Option<Effect> {
+        for _ in 0..Action::WHEELED_ROWS {
+            match up {
+                true => self.scroll_up(),
+                false => self.scroll_down(),
+            };
+        }
+        None
+    }
+
     /// Show the entries before the ones which are shown, without moving which one is selected
     /// unless it would go out of view.
     fn scroll_up(&mut self) -> Option<Effect> {
@@ -1154,11 +1207,11 @@ impl State {
         Some(Effect::Bell)
     }
 
-    /// Make a new file.
-    fn open_file_creator(&self, file_type: FileType) -> Option<Effect> {
+    /// Make a new file, or name one to edit.
+    fn open_file_creator(&self, purpose: FileCreatorPurpose) -> Option<Effect> {
         Some(Effect::OpenFileCreator {
             dir: self.dir.clone(),
-            file_type,
+            purpose,
         })
     }
 
@@ -1169,10 +1222,11 @@ impl State {
         })
     }
 
-    /// Search files for a phrase.
-    fn open_searcher(&self) -> Option<Effect> {
+    /// Search files for a phrase, or replace one in them.
+    fn open_searcher(&self, replacing: bool) -> Option<Effect> {
         Some(Effect::OpenSearcher {
             dir: self.dir.clone(),
+            replacing,
         })
     }
 
@@ -1349,6 +1403,8 @@ impl Stateful<Action, Effect> for State {
             Action::ReallyDown => self.really_down(),
             Action::Up => self.up(),
             Action::ScrollDown => self.scroll_down(),
+            Action::Select { row } => self.select(row),
+            Action::Wheel { up } => self.wheel(up),
             Action::ScrollUp => self.scroll_up(),
             Action::ReallyUp => self.really_up(),
             Action::Refresh => self.refresh(),
@@ -1357,9 +1413,9 @@ impl Stateful<Action, Effect> for State {
             Action::YankName => self.yank_name(),
             Action::YankPath => self.yank_path(),
             Action::YankContents => self.yank_contents(),
-            Action::OpenFileCreator { file_type } => self.open_file_creator(file_type),
+            Action::OpenFileCreator { purpose } => self.open_file_creator(purpose),
             Action::OpenFinder => self.open_finder(),
-            Action::OpenSearcher => self.open_searcher(),
+            Action::OpenSearcher { replacing } => self.open_searcher(replacing),
             Action::OpenChat => self.open_chat(),
             Action::RunBash => self.run_bash(),
             Action::ToggleMetadata => self.toggle_metadata(),
@@ -1396,6 +1452,16 @@ enum Action {
     ScrollDown,
     /// Show the files before the ones which are shown.
     ScrollUp,
+    /// Select the file in the given row of the ones which are shown.
+    Select {
+        /// The row.
+        row: usize,
+    },
+    /// Show the files a turn of the mouse wheel up from the ones which are shown, or down.
+    Wheel {
+        /// Whether it was turned up.
+        up: bool,
+    },
     /// Select the first file.
     ReallyUp,
     /// Get the files again.
@@ -1410,15 +1476,18 @@ enum Action {
     YankPath,
     /// Copy the contents of the selected file to the clipboard.
     YankContents,
-    /// Make a new file.
+    /// Make a new file, or name one to edit.
     OpenFileCreator {
-        /// The type of file to make.
-        file_type: FileType,
+        /// What the file is named for.
+        purpose: FileCreatorPurpose,
     },
     /// Find files by name.
     OpenFinder,
-    /// Search files for a phrase.
-    OpenSearcher,
+    /// Search files for a phrase, or replace one in them.
+    OpenSearcher {
+        /// Whether the phrase is being replaced rather than only looked for.
+        replacing: bool,
+    },
     /// Chat about the directory.
     OpenChat,
     /// Run a shell.
@@ -1432,6 +1501,24 @@ enum Action {
     },
     /// Handle a response from inshd.
     HandleResponse(Response),
+}
+
+impl Action {
+    /// How many rows one turn of the mouse wheel scrolls by.
+    const WHEELED_ROWS: usize = 3;
+
+    /// Return what was done with the mouse in the contents means, which is nothing at all for
+    /// most of what can be done with it.
+    fn of_mouse(mouse_event: &MouseEvent) -> Option<Self> {
+        match mouse_event.kind {
+            MouseEventKind::Press(MouseButton::Left) => Some(Self::Select {
+                row: mouse_event.row,
+            }),
+            MouseEventKind::ScrollUp => Some(Self::Wheel { up: true }),
+            MouseEventKind::ScrollDown => Some(Self::Wheel { up: false }),
+            _ => None,
+        }
+    }
 }
 
 /// A contents effect.
@@ -1454,22 +1541,24 @@ pub enum Effect {
         /// The request to get them with.
         get_files_request: Request,
     },
-    /// Make a new file.
+    /// Make a new file, or name one to edit.
     OpenFileCreator {
-        /// The directory to make it in.
+        /// The directory the file is in.
         dir: PathBuf,
-        /// The type of file to make.
-        file_type: FileType,
+        /// What the file is named for.
+        purpose: FileCreatorPurpose,
     },
     /// Find files by name.
     OpenFinder {
         /// The directory to look in.
         dir: PathBuf,
     },
-    /// Search files for a phrase.
+    /// Search files for a phrase, or replace one in them.
     OpenSearcher {
         /// The directory to search in.
         dir: PathBuf,
+        /// Whether the phrase is being replaced rather than only looked for.
+        replacing: bool,
     },
     /// Chat about the directory.
     OpenChat {

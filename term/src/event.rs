@@ -70,6 +70,73 @@ pub struct MouseEvent {
     pub mods: KeyMods,
 }
 
+impl MouseEvent {
+    /// The furthest row or column the older form of a report can say, since it says each of them
+    /// in a byte of its own after adding thirty three to it.
+    const FURTHEST_IN_A_BYTE: usize = 255 - 33;
+
+    /// Return the bytes a terminal reports this to the program in it with, which is a control
+    /// sequence when the program has asked for one (mode 1006) and the older form otherwise.
+    ///
+    /// Nothing is reported for a spot which the older form cannot say.
+    pub fn report(&self, control_sequence: bool) -> Option<Vec<u8>> {
+        let button = |button: &MouseButton| -> u16 {
+            match button {
+                MouseButton::Left => 0,
+                MouseButton::Middle => 1,
+                MouseButton::Right => 2,
+                MouseButton::Other(other) => *other,
+            }
+        };
+
+        let mut what: u16 = match &self.kind {
+            MouseEventKind::Press(pressed) => button(pressed),
+            // NOTE: The older form cannot say which button was let go of, so it says that one
+            // was with the bits which are past the ones there are.
+            MouseEventKind::Release(released) => match control_sequence {
+                true => button(released),
+                false => 3,
+            },
+            MouseEventKind::Drag(held) => ParsedTermEvent::MOUSE_MOVED | button(held),
+            MouseEventKind::Moved => ParsedTermEvent::MOUSE_MOVED | 3,
+            MouseEventKind::ScrollUp => ParsedTermEvent::MOUSE_WHEEL,
+            MouseEventKind::ScrollDown => ParsedTermEvent::MOUSE_WHEEL | 1,
+        };
+        if self.mods.contains(KeyMods::SHIFT) {
+            what |= ParsedTermEvent::MOUSE_SHIFT;
+        }
+        if self.mods.contains(KeyMods::ALT) {
+            what |= ParsedTermEvent::MOUSE_ALT;
+        }
+        if self.mods.contains(KeyMods::CONTROL) {
+            what |= ParsedTermEvent::MOUSE_CONTROL;
+        }
+
+        // A terminal counts its rows and columns from one.
+        if control_sequence {
+            let end: char = match self.kind {
+                MouseEventKind::Release(_) => 'm',
+                _ => 'M',
+            };
+            return Some(
+                format!("\x1b[<{};{};{}{}", what, self.column + 1, self.row + 1, end).into_bytes(),
+            );
+        }
+
+        if self.row > Self::FURTHEST_IN_A_BYTE || self.column > Self::FURTHEST_IN_A_BYTE {
+            return None;
+        }
+        return Some(vec![
+            0x1b,
+            b'[',
+            b'M',
+            u8::try_from(what + 32).ok()?,
+            u8::try_from(self.column + 33).ok()?,
+            u8::try_from(self.row + 33).ok()?,
+        ]);
+    }
+}
+
 /// A key event.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct KeyEvent {
@@ -174,19 +241,19 @@ impl ParsedTermEvent {
     }
 
     /// The bit of what a mouse report says which is set when shift was held.
-    const MOUSE_SHIFT: u16 = 0b0000_0100;
+    pub(crate) const MOUSE_SHIFT: u16 = 0b0000_0100;
 
     /// The bit which is set when alt was held.
-    const MOUSE_ALT: u16 = 0b0000_1000;
+    pub(crate) const MOUSE_ALT: u16 = 0b0000_1000;
 
     /// The bit which is set when control was held.
-    const MOUSE_CONTROL: u16 = 0b0001_0000;
+    pub(crate) const MOUSE_CONTROL: u16 = 0b0001_0000;
 
     /// The bit which is set when the mouse was moved rather than clicked.
-    const MOUSE_MOVED: u16 = 0b0010_0000;
+    pub(crate) const MOUSE_MOVED: u16 = 0b0010_0000;
 
     /// The bit which is set when the wheel was rolled rather than a button used.
-    const MOUSE_WHEEL: u16 = 0b0100_0000;
+    pub(crate) const MOUSE_WHEEL: u16 = 0b0100_0000;
 
     /// Which button it was, which is the bits below the ones above.
     const MOUSE_BUTTON: u16 = 0b0000_0011;
@@ -1299,6 +1366,46 @@ mod tests {
     use super::*;
 
     use test_case::test_case;
+
+    #[test_case(MouseEventKind::Press(MouseButton::Left), KeyMods::NONE, true, b"\x1b[<0;3;2M"; "a press")]
+    #[test_case(MouseEventKind::Release(MouseButton::Right), KeyMods::NONE, true, b"\x1b[<2;3;2m"; "a release")]
+    #[test_case(MouseEventKind::ScrollDown, KeyMods::CONTROL, true, b"\x1b[<81;3;2M"; "a scroll with control held")]
+    #[test_case(MouseEventKind::Drag(MouseButton::Left), KeyMods::NONE, true, b"\x1b[<32;3;2M"; "a drag")]
+    #[test_case(MouseEventKind::Press(MouseButton::Left), KeyMods::NONE, false, b"\x1b[M #\""; "a press the older way")]
+    #[test_case(MouseEventKind::Release(MouseButton::Left), KeyMods::NONE, false, b"\x1b[M##\""; "a release the older way")]
+    fn test_mouse_event_report(
+        kind: MouseEventKind,
+        mods: KeyMods,
+        control_sequence: bool,
+        expected: &[u8],
+    ) {
+        let event = MouseEvent {
+            kind,
+            row: 1,
+            column: 2,
+            mods,
+        };
+
+        assert_eq!(event.report(control_sequence).as_deref(), Some(expected));
+    }
+
+    #[test]
+    fn test_mouse_event_report_round_trips() {
+        let event = MouseEvent {
+            kind: MouseEventKind::Drag(MouseButton::Middle),
+            row: 7,
+            column: 300,
+            mods: KeyMods::SHIFT,
+        };
+
+        let bytes: Vec<u8> = event.report(true).unwrap();
+        let parsed: ParsedTermEvent = ParsedTermEvent::try_from(bytes.as_slice()).unwrap();
+
+        match parsed.event {
+            TermEvent::Mouse(parsed) => assert_eq!(parsed, event),
+            _ => panic!("Expected the mouse event back."),
+        }
+    }
 
     /// Return the key event which the bytes are parsed as, requiring that all of them are used.
     fn parse(bytes: &[u8]) -> KeyEvent {

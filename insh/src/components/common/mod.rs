@@ -6,6 +6,9 @@ pub use dir::{Dir, Effect as DirEffect, Event as DirEvent, Props as DirProps};
 mod footer;
 pub use footer::{Footer, Info as FooterInfo, Props as FooterProps};
 
+mod hover;
+pub use hover::Hover;
+
 mod pane_contents_event;
 pub use pane_contents_event::PaneContentsEvent;
 

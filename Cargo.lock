@@ -1732,7 +1732,7 @@ dependencies = [
 
 [[package]]
 name = "insh"
-version = "0.6.5"
+version = "0.6.6"
 dependencies = [
  "ansi",
  "bitflags",
@@ -1804,7 +1804,7 @@ dependencies = [
 
 [[package]]
 name = "inshd"
-version = "0.6.5"
+version = "0.6.6"
 dependencies = [
  "ai-client",
  "ansi",
@@ -1826,6 +1826,7 @@ dependencies = [
  "path-finder",
  "phrase-searcher",
  "postcard",
+ "regex",
  "rend",
  "serde",
  "serde_yaml_ng",
@@ -2463,6 +2464,7 @@ name = "phrase-searcher"
 version = "0.1.0"
 dependencies = [
  "log",
+ "regex",
  "serde",
  "walkdir",
 ]

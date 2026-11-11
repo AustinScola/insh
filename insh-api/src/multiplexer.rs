@@ -554,6 +554,8 @@ pub struct ScrollPaneRequestParams {
     pane: Uuid,
     /// How many rows further back to look, or fewer rows back when it is negative.
     rows: isize,
+    /// Whether what is being looked at is held where it is while the program goes on writing.
+    hold: bool,
 }
 
 impl ScrollPaneRequestParams {
@@ -565,6 +567,11 @@ impl ScrollPaneRequestParams {
     /// Return how many rows further back to look.
     pub fn rows(&self) -> isize {
         return self.rows;
+    }
+
+    /// Return whether what is being looked at is held where it is.
+    pub fn hold(&self) -> bool {
+        return self.hold;
     }
 }
 
@@ -596,6 +603,44 @@ impl CopyPaneRequestParams {
     /// Return the spot to take it up to.
     pub fn to(&self) -> Location {
         return self.to;
+    }
+}
+
+/// Request parameters for finding where a phrase is next written in a pane.
+///
+/// The rows are counted from the first row the program in the pane ever wrote on, the way they are
+/// for taking text from it.
+#[derive(Debug, TypedBuilder, Serialize, Deserialize)]
+pub struct SearchPaneRequestParams {
+    /// Which pane to look in.
+    pane: Uuid,
+    /// What to look for.
+    phrase: String,
+    /// The spot to look from, which is the last place looked.
+    from: Location,
+    /// Whether to look down from the spot rather than up.
+    down: bool,
+}
+
+impl SearchPaneRequestParams {
+    /// Return which pane to look in.
+    pub fn pane(&self) -> &Uuid {
+        return &self.pane;
+    }
+
+    /// Return what to look for.
+    pub fn phrase(&self) -> &str {
+        return &self.phrase;
+    }
+
+    /// Return the spot to look from.
+    pub fn from(&self) -> Location {
+        return self.from;
+    }
+
+    /// Return whether to look down from the spot rather than up.
+    pub fn down(&self) -> bool {
+        return self.down;
     }
 }
 
@@ -954,6 +999,21 @@ impl CopyPaneResponseParams {
     /// Return the text.
     pub fn text(&self) -> &str {
         return &self.text;
+    }
+}
+
+/// Response parameters for where a phrase was found in a pane.
+#[derive(Debug, Clone, TypedBuilder, Serialize, Deserialize)]
+pub struct SearchPaneResponseParams {
+    /// Where it was found, counted from the first row the program in the pane ever wrote on,
+    /// which is nowhere at all when it is not written in it.
+    found: Option<Location>,
+}
+
+impl SearchPaneResponseParams {
+    /// Return where it was found.
+    pub fn found(&self) -> Option<Location> {
+        return self.found;
     }
 }
 

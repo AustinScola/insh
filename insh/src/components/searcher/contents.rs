@@ -57,17 +57,50 @@ mod contents {
     use crate::Config;
     use crate::Stateful;
 
+    use ansi::Underline;
     use highlighter::{Highlighter, Language};
     use phrase_searcher::{FileHit, LineHit};
-    use rend::{Fabric, Size, Yarn};
+    use rend::{Fabric, Size, Style, Yarn};
     use term::{Key, KeyEvent, KeyMods, TermEvent};
     use til::{CommandParser, Component, KeyPattern, Parsed};
 
     impl Contents {
+        /// Return how many rows it has.
+        pub fn rows(&self) -> usize {
+            self.state.rows()
+        }
+
+        /// Return whether a hit is shown in the given row.
+        pub fn shows(&self, row: usize) -> bool {
+            self.state.shows(row)
+        }
+
+        /// Return whether the row is shown as being under the mouse when it is, which is when
+        /// there is a hit in it and it is not the one selected while the hits are focused.
+        pub fn hovers(&self, row: usize) -> bool {
+            self.state.shows(row) && !(self.state.focused() && self.selected_row() == Some(row))
+        }
+
         /// Return which of the shown rows is selected.
         pub fn selected_row(&self) -> Option<usize> {
             self.state.hit_number()?;
             Some(self.state.selected_row_number())
+        }
+
+        /// Return a line of a file with the phrase underlined where it is going to be replaced.
+        fn preview(line: &str, phrase: &str) -> Yarn {
+            let underlined: Style = Style::builder().underline(Underline::Single).build();
+            let mut yarn = Yarn::from("");
+            for (at, piece) in line.split(phrase).enumerate() {
+                if at > 0 {
+                    let mut found = Yarn::from(phrase);
+                    let columns: usize = found.len();
+                    found.style(underlined, 0..columns);
+                    yarn = yarn.concat(found);
+                }
+                yarn = yarn.concat(Yarn::from(piece));
+            }
+            yarn
         }
 
         /// Return a line of a file, colored the way an editor would color it.
@@ -200,15 +233,25 @@ mod contents {
 
         fn handle(&mut self, event: Event) -> Option<Effect> {
             let action: Action = match event {
-                Event::Search { phrase } => Action::Search { phrase },
+                Event::Search {
+                    phrase,
+                    files,
+                    replacement,
+                } => Action::Search {
+                    phrase,
+                    files,
+                    replacement,
+                },
+                Event::Decide { replace, rest } => Action::Decide { replace, rest },
                 Event::SetDir { dir } => Action::SetDir { dir },
                 Event::Unfocus => Action::Unfocus,
+                Event::Focus => Action::Focus,
                 Event::SetPaneFocus { focused } => Action::SetPaneFocus { focused },
                 Event::Response(response) => Action::HandleResponse(response),
                 Event::TermEvent(TermEvent::Resize(size)) => Action::Resize { size },
-                // There is nothing to paste into a list of hits, and nothing here is done with
-                // the mouse.
-                Event::TermEvent(TermEvent::Paste(_) | TermEvent::Mouse(_)) => {
+                Event::TermEvent(TermEvent::Mouse(mouse_event)) => Action::of_mouse(&mouse_event)?,
+                // There is nothing to paste into a list of hits.
+                Event::TermEvent(TermEvent::Paste(_)) => {
                     return None;
                 }
                 Event::TermEvent(TermEvent::KeyEvent(key_event)) => {
@@ -303,7 +346,26 @@ mod contents {
 
                                 let mut yarn = Yarn::from(number.as_str());
                                 yarn.color(Color::LightGrayedText.into());
-                                yarn = yarn.concat(self.highlight(&line, language));
+
+                                // NOTE: A line which the phrase is being replaced in is shown as it
+                                // is, with what is going to be replaced underlined, until it has
+                                // been decided about. One it was replaced in is shown as it is now,
+                                // and one it was not is grayed.
+                                let decision: Option<bool> =
+                                    self.state.decision(file_hit_number, line_hit_number);
+                                let text: Yarn = match (self.state.replacing(), decision) {
+                                    (None, _) => self.highlight(&line, language),
+                                    (Some((phrase, _)), None) => Self::preview(&line, phrase),
+                                    (Some((phrase, replacement)), Some(true)) => {
+                                        Yarn::from(line.replace(phrase, replacement))
+                                    }
+                                    (Some(_), Some(false)) => {
+                                        let mut text = Yarn::from(line.as_str());
+                                        text.color(Color::GrayedText.into());
+                                        text
+                                    }
+                                };
+                                yarn = yarn.concat(text);
 
                                 yarn.resize(columns);
                                 if file_hit_is_focused
@@ -395,6 +457,17 @@ mod event {
         Search {
             /// The phrase to search for.
             phrase: String,
+            /// The pattern the names of the files to search must match.
+            files: Option<String>,
+            /// What to replace the phrase with, when it is being replaced.
+            replacement: Option<String>,
+        },
+        /// Decide whether to replace the phrase in the selected line.
+        Decide {
+            /// Whether to replace it.
+            replace: bool,
+            /// Whether to decide the same for every line after it as well.
+            rest: bool,
         },
         /// Search a different directory.
         SetDir {
@@ -403,6 +476,8 @@ mod event {
         },
         /// The events no longer go to the contents.
         Unfocus,
+        /// The events go to the contents.
+        Focus,
         /// Whether what is typed goes to the pane the contents are in has changed.
         SetPaneFocus {
             /// Whether it does.
@@ -417,6 +492,7 @@ pub use event::Event;
 /// Contains the [`State`] struct.
 mod state {
     use std::cmp::{self, Ordering};
+    use std::collections::HashMap;
     use std::path::{Path, PathBuf};
     use std::time::Duration;
 
@@ -427,8 +503,9 @@ mod state {
     use crate::Stateful;
 
     use insh_api::{
-        GetFileContentsRequestParams, GetFileContentsResponseParams, Request, RequestParams,
-        Response, ResponseParams, SearchPhraseRequestParams, SearchPhraseResponseParams,
+        GetFileContentsRequestParams, GetFileContentsResponseParams, ReplacePhraseRequestParams,
+        ReplacedLine, Request, RequestParams, Response, ResponseParams, SearchPhraseRequestParams,
+        SearchPhraseResponseParams,
     };
     use phrase_searcher::{FileHit, LineHit};
     use rend::Size;
@@ -444,6 +521,8 @@ mod state {
         dir: PathBuf,
         /// The phrase being searched for.
         phrase: Option<String>,
+        /// The pattern the names of the files being searched match.
+        files: Option<String>,
         /// Whether the events go to the contents.
         focused: bool,
         /// Whether what is typed goes to some pane other than the one the contents are in.
@@ -470,6 +549,11 @@ mod state {
         files_searched: usize,
         /// The duration of the search so far.
         duration: Duration,
+        /// What the phrase is being replaced with, when it is.
+        replacement: Option<String>,
+        /// Whether the phrase has been replaced in each line which it has been decided about, by
+        /// which file hit and which line hit of it the line is.
+        decided: HashMap<(usize, usize), bool>,
     }
 
     impl From<&Props> for State {
@@ -480,6 +564,9 @@ mod state {
                 // of using From &Props?
                 dir: props.dir.clone(),
                 phrase: props.phrase.clone(),
+                files: None,
+                replacement: None,
+                decided: HashMap::new(),
                 focused: props.pending_request.is_some(),
                 pane_unfocused: false,
                 searched: props.pending_request.is_some(),
@@ -562,6 +649,59 @@ mod state {
         /// Return whether the events go to the contents.
         pub fn focused(&self) -> bool {
             self.focused && !self.pane_unfocused
+        }
+
+        /// Return how many rows it has.
+        pub fn rows(&self) -> usize {
+            self.size.rows
+        }
+
+        /// Return whether a hit is shown in the given row, rather than the row between two files or
+        /// nothing at all.
+        pub fn shows(&self, row: usize) -> bool {
+            if !self.searched || row >= self.size.rows {
+                return false;
+            }
+
+            let mut top: usize = 0;
+            for (file_hit_number, file_hit) in self.hits.iter().enumerate().skip(self.file_offset) {
+                // The first file shown may have been scrolled past its path and some of its lines.
+                let (path, skipped): (usize, usize) =
+                    match (file_hit_number == self.file_offset, self.line_offset) {
+                        (true, Some(line_offset)) => (0, line_offset),
+                        _ => (1, 0),
+                    };
+                let rows: usize = path + file_hit.line_hits().len().saturating_sub(skipped);
+                if row < top + rows {
+                    return true;
+                }
+                top += rows + 1;
+                if row < top {
+                    return false;
+                }
+            }
+
+            false
+        }
+
+        /// Return how many rows the hits take from the top of the ones which are shown down to
+        /// the last of them.
+        fn rows_from_the_top(&self) -> usize {
+            let mut rows: usize = 0;
+            for (file_hit_number, file_hit) in self.hits.iter().enumerate().skip(self.file_offset) {
+                // The first file shown may have been scrolled past its path and some of its lines,
+                // and there is a row between each file and the next.
+                let (path, skipped): (usize, usize) =
+                    match (file_hit_number == self.file_offset, self.line_offset) {
+                        (true, Some(line_offset)) => (0, line_offset),
+                        _ => (1, 0),
+                    };
+                if file_hit_number > self.file_offset {
+                    rows += 1;
+                }
+                rows += path + file_hit.line_hits().len().saturating_sub(skipped);
+            }
+            rows
         }
 
         /// Return whether anything has been searched for yet.
@@ -716,9 +856,17 @@ mod state {
         }
 
         /// Ask inshd for the files containing a phrase.
-        fn search(&mut self, phrase: &str) -> Option<Effect> {
+        fn search(
+            &mut self,
+            phrase: &str,
+            files: Option<String>,
+            replacement: Option<String>,
+        ) -> Option<Effect> {
             self.focus();
             self.phrase = Some(phrase.to_string());
+            self.files = files;
+            self.replacement = replacement;
+            self.decided.clear();
             self.searched = true;
 
             // Clear the previous search's hits immediately rather than leaving them displayed
@@ -736,12 +884,151 @@ mod state {
                     SearchPhraseRequestParams::builder()
                         .dir(self.dir.clone())
                         .phrase(phrase.to_string())
+                        .files(self.files.clone())
                         .build(),
                 ))
                 .build();
             self.pending_request = Some(*request.uuid());
 
             Some(Effect::Request(request))
+        }
+
+        /// Return the phrase and what it is being replaced with, when it is being replaced.
+        pub fn replacing(&self) -> Option<(&str, &str)> {
+            Some((self.phrase.as_deref()?, self.replacement.as_deref()?))
+        }
+
+        /// Return whether the phrase was replaced in the line hit of the file hit, which is
+        /// nothing at all when that has not been decided yet.
+        pub fn decision(&self, file_hit: usize, line_hit: usize) -> Option<bool> {
+            self.decided.get(&(file_hit, line_hit)).copied()
+        }
+
+        /// Decide whether to replace the phrase in the selected line, or in it and every line
+        /// after it which has not been decided about yet, and go to the next line still to be
+        /// decided about.
+        ///
+        /// A line which has been decided about already is not decided about again, so deciding
+        /// on one decides on the next one which has not been instead.
+        fn decide(&mut self, replace: bool, rest: bool) -> Option<Effect> {
+            let (phrase, replacement): (String, String) = self
+                .replacing()
+                .map(|(phrase, replacement)| (phrase.to_string(), replacement.to_string()))?;
+            let file_hit: usize = self.hit_number()?;
+            // A file which is selected rather than one of its lines starts at its first line.
+            let line_hit: usize = self.line_hit_number().unwrap_or(0);
+
+            let mut chosen: Vec<(usize, usize)> = Vec::new();
+            'files: for (file, hit) in self.hits.iter().enumerate().skip(file_hit) {
+                for line in 0..hit.line_hits().len() {
+                    if (file, line) < (file_hit, line_hit)
+                        || self.decided.contains_key(&(file, line))
+                    {
+                        continue;
+                    }
+                    chosen.push((file, line));
+                    if !rest {
+                        break 'files;
+                    }
+                }
+            }
+            for at in &chosen {
+                self.decided.insert(*at, replace);
+            }
+            self.next_undecided();
+
+            if !replace || chosen.is_empty() {
+                return None;
+            }
+            let lines: Vec<ReplacedLine> = chosen
+                .iter()
+                .map(|(file, line)| {
+                    let hit: &FileHit = &self.hits[*file];
+                    let line_hit: &LineHit = &hit.line_hits()[*line];
+                    ReplacedLine::builder()
+                        .path(hit.path().to_path_buf())
+                        .line_number(line_hit.line_number())
+                        .line(line_hit.line().to_string())
+                        .build()
+                })
+                .collect();
+
+            Some(Effect::Request(
+                Request::builder()
+                    .params(RequestParams::ReplacePhrase(
+                        ReplacePhraseRequestParams::builder()
+                            .phrase(phrase)
+                            .replacement(replacement)
+                            .lines(lines)
+                            .build(),
+                    ))
+                    .build(),
+            ))
+        }
+
+        /// Go down to the next line which has not been decided about yet, staying put when there
+        /// is none.
+        fn next_undecided(&mut self) {
+            let start = (
+                self.file_offset,
+                self.line_offset,
+                self.file_selected,
+                self.line_selected,
+            );
+            for _ in 0..self.line_hits() + self.hits.len() {
+                let at = (self.hit_number(), self.line_hit_number());
+                if let (Some(file), Some(line)) = at {
+                    if !self.decided.contains_key(&(file, line)) {
+                        return;
+                    }
+                }
+                self.down();
+                if (self.hit_number(), self.line_hit_number()) == at {
+                    break;
+                }
+            }
+
+            // Everything after it has been decided about, so it goes back to where it was.
+            (
+                self.file_offset,
+                self.line_offset,
+                self.file_selected,
+                self.line_selected,
+            ) = start;
+        }
+
+        /// Select the hit in the given row of the ones which are shown, which is none at all when
+        /// the row is between two files or past the last one, or open it when it is selected and
+        /// focused already.
+        ///
+        /// NOTE: A file takes a row for its path and one for each of its lines, with a row
+        /// between it and the next, so the hit in a row is gone to the way the keys go to it
+        /// rather than worked out afresh.
+        fn select(&mut self, row: usize) -> Option<Effect> {
+            if !self.shows(row) {
+                return None;
+            }
+            if self.focused() && self.selected_row_number() == row {
+                return self.edit();
+            }
+
+            for _ in 0..self.size.rows {
+                self.hit_number()?;
+                let at: usize = self.selected_row_number();
+                match at.cmp(&row) {
+                    cmp::Ordering::Equal => break,
+                    cmp::Ordering::Less => self.down(),
+                    cmp::Ordering::Greater => self.up(),
+                };
+
+                // Going past it is as near as it gets, and not moving at all is the end of them.
+                let now: usize = self.selected_row_number();
+                if now == at || (at < row) != (now < row) {
+                    break;
+                }
+            }
+
+            None
         }
 
         /// Select the next hit.
@@ -797,6 +1084,12 @@ mod state {
         /// Scroll down the given number of rows.
         fn scroll_down(&mut self, rows: usize) -> Option<Effect> {
             for _ in 0..rows {
+                // NOTE: It stops once the last hit is at the bottom, rather than going on until
+                // there is nothing left to show.
+                if self.rows_from_the_top() <= self.size.rows {
+                    break;
+                }
+
                 match self.line_offset {
                     None => {
                         self.line_offset = Some(0);
@@ -957,7 +1250,7 @@ mod state {
         /// Search for the phrase again.
         fn refresh(&mut self) -> Option<Effect> {
             if let Some(phrase) = self.phrase.clone() {
-                return self.search(&phrase);
+                return self.search(&phrase, self.files.clone(), self.replacement.clone());
             }
             None
         }
@@ -1195,11 +1488,25 @@ mod state {
                     self.pane_unfocused = !focused;
                     None
                 }
-                Action::Search { phrase } => self.search(&phrase),
+                Action::Search {
+                    phrase,
+                    files,
+                    replacement,
+                } => self.search(&phrase, files, replacement),
+                Action::Decide { replace, rest } => self.decide(replace, rest),
                 Action::SetDir { dir } => self.set_dir(dir),
                 Action::Down => self.down(),
                 Action::ReallyDown => self.really_down(),
                 Action::ScrollDown => self.scroll_down(1),
+                Action::Focus => {
+                    self.focus();
+                    None
+                }
+                Action::Select { row } => self.select(row),
+                Action::Wheel { up } => match up {
+                    true => self.scroll_up(Action::WHEELED_ROWS),
+                    false => self.scroll_down(Action::WHEELED_ROWS),
+                },
                 Action::Up => self.up(),
                 Action::ReallyUp => self.really_up(),
                 Action::ScrollUp => self.scroll_up(1),
@@ -1282,6 +1589,29 @@ mod state {
 
             assert_eq!(*state, expected_state);
         }
+
+        #[test_case(5, 0; "everything fits")]
+        #[test_case(3, 2; "only the last two rows do not fit")]
+        fn test_scrolling_down_stops_once_the_last_hit_is_at_the_bottom(
+            rows: usize,
+            expected: usize,
+        ) {
+            // The rows are a path, a line, the row between, a path, and a line.
+            let mut state = State {
+                size: Size { rows, columns: 5 },
+                hits: vec![
+                    FileHit::new(Path::new(""), vec![LineHit::new(0, "")]),
+                    FileHit::new(Path::new(""), vec![LineHit::new(0, "")]),
+                ],
+                searched: true,
+                ..Default::default()
+            };
+            let before: usize = state.rows_from_the_top();
+
+            state.scroll_down(10);
+
+            assert_eq!(before - state.rows_from_the_top(), expected);
+        }
     }
 }
 use state::State;
@@ -1292,6 +1622,7 @@ mod action {
 
     use insh_api::Response;
     use rend::Size;
+    use term::{MouseButton, MouseEvent, MouseEventKind};
 
     /// A contents action.
     #[derive(Clone)]
@@ -1303,6 +1634,18 @@ mod action {
         },
         /// Stop sending the events to the contents.
         Unfocus,
+        /// Send the events to the contents.
+        Focus,
+        /// Select the hit in the given row of the ones which are shown.
+        Select {
+            /// The row.
+            row: usize,
+        },
+        /// Show the hits a turn of the mouse wheel up from the ones which are shown, or down.
+        Wheel {
+            /// Whether it was turned up.
+            up: bool,
+        },
         /// Take note of whether what is typed goes to the pane the contents are in.
         SetPaneFocus {
             /// Whether it does.
@@ -1312,6 +1655,17 @@ mod action {
         Search {
             /// The phrase to search for.
             phrase: String,
+            /// The pattern the names of the files to search must match.
+            files: Option<String>,
+            /// What to replace the phrase with, when it is being replaced.
+            replacement: Option<String>,
+        },
+        /// Decide whether to replace the phrase in the selected line.
+        Decide {
+            /// Whether to replace it.
+            replace: bool,
+            /// Whether to decide the same for every line after it as well.
+            rest: bool,
         },
         /// Search a different directory.
         SetDir {
@@ -1351,6 +1705,24 @@ mod action {
         },
         /// Handle a response from inshd.
         HandleResponse(Response),
+    }
+
+    impl Action {
+        /// How many rows one turn of the mouse wheel scrolls by.
+        pub const WHEELED_ROWS: usize = 3;
+
+        /// Return what was done with the mouse in the contents means, which is nothing at all for
+        /// most of what can be done with it.
+        pub fn of_mouse(mouse_event: &MouseEvent) -> Option<Self> {
+            match mouse_event.kind {
+                MouseEventKind::Press(MouseButton::Left) => Some(Self::Select {
+                    row: mouse_event.row,
+                }),
+                MouseEventKind::ScrollUp => Some(Self::Wheel { up: true }),
+                MouseEventKind::ScrollDown => Some(Self::Wheel { up: false }),
+                _ => None,
+            }
+        }
     }
 }
 use action::Action;

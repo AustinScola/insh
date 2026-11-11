@@ -1,31 +1,46 @@
 //! Contains the [`FileCreator`] component.
 
+/// Contains the [`Purpose`] enum.
+mod purpose {
+    use file_type::FileType;
+
+    /// What a file is being named for.
+    #[derive(Clone, Copy, Debug, PartialEq)]
+    pub enum Purpose {
+        /// Making a new file of the given type.
+        Create(FileType),
+        /// Editing the file, whether or not there is one by that name yet.
+        Edit,
+    }
+}
+pub use purpose::Purpose;
+
 /// Contains the [`Props`] struct.
 mod props {
     use std::path::PathBuf;
 
-    use file_type::FileType;
+    use super::Purpose;
 
     use typed_builder::TypedBuilder;
 
     /// The properties of the file creator.
     #[derive(TypedBuilder)]
     pub struct Props {
-        /// The directory to make the file in.
+        /// The directory the file is in.
         dir: PathBuf,
-        /// The type of file to make.
-        file_type: FileType,
+        /// What the file is being named for.
+        purpose: Purpose,
     }
 
     impl Props {
-        /// Return the directory to make the file in.
+        /// Return the directory the file is in.
         pub fn dir(&self) -> &PathBuf {
             &self.dir
         }
 
-        /// Return the type of file to make.
-        pub fn file_type(&self) -> FileType {
-            self.file_type
+        /// Return what the file is being named for.
+        pub fn purpose(&self) -> Purpose {
+            self.purpose
         }
     }
 }
@@ -33,18 +48,21 @@ pub use props::Props;
 
 /// Contains the [`FileCreator`] component.
 mod file_creator {
+    use std::path::Path;
+
     use super::Event;
     use super::{Action, Effect, Focus, Props, State};
     use crate::components::common::{
-        DirEffect, DirEvent, Footer, FooterProps, PhraseEffect, PhraseEvent,
+        DirEffect, DirEvent, Footer, FooterProps, Hover, PhraseEffect, PhraseEvent,
     };
     use crate::Stateful;
 
     use insh_api::{
-        Request, RequestParams, ResponseParams, SuggestDirRequestParams, VisitDirRequestParams,
+        Request, RequestParams, ResponseParams, SuggestDirRequestParams, SuggestFileRequestParams,
+        VisitDirRequestParams,
     };
     use rend::{Fabric, Location, Size};
-    use term::{Key, KeyEvent, KeyMods, TermEvent};
+    use term::{Key, KeyEvent, KeyMods, MouseButton, MouseEventKind, TermEvent};
     use til::Component;
 
     /// A file creator.
@@ -76,6 +94,14 @@ mod file_creator {
                     let dir_effect = self.state.dir_component.handle(dir_event);
                     return self.handle_dir_effect(dir_effect);
                 }
+                if let ResponseParams::SuggestFile(params) = response.params() {
+                    let phrase_event = PhraseEvent::Completion {
+                        uuid: *response.uuid(),
+                        completion: params.suggestion().clone(),
+                    };
+                    self.state.phrase.handle(phrase_event);
+                    return None;
+                }
             }
 
             // The key is not bound in the directory bar itself, so that pressing it again does not
@@ -88,6 +114,24 @@ mod file_creator {
                 {
                     return self.state.perform(Action::FocusDir);
                 }
+            }
+
+            // NOTE: Pressing on the directory bar or the name makes it what the keys go to, giving up
+            // on whatever was being typed in the directory bar.
+            if let Event::TermEvent(TermEvent::Mouse(mouse_event)) = &event {
+                let pressed: bool = mouse_event.kind == MouseEventKind::Press(MouseButton::Left);
+                return match (pressed, mouse_event.row, self.state.focus()) {
+                    (true, 0, Focus::Phrase) => {
+                        self.state.phrase.handle(PhraseEvent::Unfocus);
+                        self.state.perform(Action::FocusDir)
+                    }
+                    (true, 1, Focus::Dir) => {
+                        self.state.dir_component.handle(DirEvent::Unfocus);
+                        self.state.phrase.handle(PhraseEvent::Focus);
+                        self.state.perform(Action::FocusPhrase)
+                    }
+                    _ => None,
+                };
             }
 
             let mut action: Option<Action> = None;
@@ -119,12 +163,17 @@ mod file_creator {
                             Some(PhraseEffect::Bell) => {
                                 action = Some(Action::Bell);
                             }
-                            // The phrase here is never completable, so this is never emitted.
-                            Some(PhraseEffect::RequestCompletion { .. }) => {
-                                #[cfg(feature = "logging")]
-                                log::warn!(
-                                    "The phrase is not completable but a completion was requested."
+                            // NOTE: Only the name of a file to edit is completed, since one which is
+                            // being made does not exist yet.
+                            Some(PhraseEffect::RequestCompletion { uuid, partial }) => {
+                                let params = RequestParams::SuggestFile(
+                                    SuggestFileRequestParams::builder()
+                                        .dir(self.state.dir().to_path_buf())
+                                        .partial(partial)
+                                        .build(),
                                 );
+                                let request = Request::builder().uuid(uuid).params(params).build();
+                                return Some(Effect::Request(request));
                             }
                             Some(PhraseEffect::Quit) => {
                                 action = Some(Action::Quit);
@@ -185,6 +234,24 @@ mod file_creator {
     }
 
     impl FileCreator {
+        /// Return whether the row is shown as being under the mouse when it is, which is only when
+        /// it is not what the keys go to already.
+        ///
+        /// The directory bar is the top row and the name is the one below it.
+        pub fn hovers(&self, row: usize) -> Option<Hover> {
+            let hovers: bool = match row {
+                0 => !matches!(self.state.focus(), Focus::Dir),
+                1 => !matches!(self.state.focus(), Focus::Phrase),
+                _ => false,
+            };
+            hovers.then_some(Hover::Row)
+        }
+
+        /// Return the directory the file is in.
+        pub fn dir(&self) -> &Path {
+            self.state.dir()
+        }
+
         /// Return where in it looking back through it starts, which is the end of what is being
         /// typed.
         pub fn copy_start(&self) -> Option<Location> {
@@ -251,10 +318,14 @@ pub use event::Event;
 
 /// Contains the [`State`] struct.
 mod state {
-    use std::path::PathBuf;
+    use std::path::{Path, PathBuf, MAIN_SEPARATOR as PATH_SEPARATOR};
 
-    use super::{Action, Effect, Focus, Props};
-    use crate::components::common::{Dir, DirEvent, DirProps, FooterInfo, Phrase, PhraseEvent};
+    use super::{Action, Effect, Focus, Props, Purpose};
+    use crate::args::FileLineColumn;
+    use crate::components::common::{
+        Dir, DirEvent, DirProps, FooterInfo, Phrase, PhraseEvent, PhraseProps,
+    };
+    use crate::programs::{VimArgs, VimArgsBuilder};
     use crate::Stateful;
 
     use file_type::FileType;
@@ -274,8 +345,8 @@ mod state {
         pub dir_component: Dir,
         /// The name typed in.
         pub phrase: Phrase,
-        /// The type of file to make.
-        file_type: FileType,
+        /// What the file is being named for.
+        purpose: Purpose,
         /// What is focused on.
         focus: Focus,
 
@@ -296,8 +367,13 @@ mod state {
             Self {
                 dir: props.dir().to_path_buf(),
                 dir_component,
-                phrase: Phrase::default(),
-                file_type: props.file_type(),
+                phrase: Phrase::new(
+                    PhraseProps::builder()
+                        .completable(matches!(props.purpose(), Purpose::Edit))
+                        .part_separator(PATH_SEPARATOR)
+                        .build(),
+                ),
+                purpose: props.purpose(),
                 focus: Focus::default(),
                 pending_request: None,
                 pending_file: None,
@@ -329,6 +405,11 @@ mod state {
             &self.focus
         }
 
+        /// Return the directory the file is in.
+        pub fn dir(&self) -> &Path {
+            &self.dir
+        }
+
         /// Make the file in a different directory.
         fn set_dir(&mut self, dir: PathBuf) -> Option<Effect> {
             self.dir = dir;
@@ -357,22 +438,30 @@ mod state {
 
         /// Return the name of what is being created shown in the footer.
         pub fn name(&self) -> &str {
-            match self.file_type {
-                FileType::Dir => "directory creator",
-                _ => "file creator",
+            match self.purpose {
+                Purpose::Create(FileType::Dir) => "directory creator",
+                Purpose::Create(_) => "file creator",
+                Purpose::Edit => "file editor",
             }
         }
 
-        /// Ask inshd to make the file.
+        /// Ask inshd to make the file, or edit it.
         fn create_file(&mut self, filename: &str) -> Option<Effect> {
             let mut path = self.dir.clone();
             path.push(filename);
+
+            let file_type: FileType = match self.purpose {
+                Purpose::Create(file_type) => file_type,
+                // NOTE: Nothing is made for a file which is to be edited, since vim makes it once
+                // it is written and leaving without writing it should leave nothing behind.
+                Purpose::Edit => return Some(Effect::OpenVim(self.vim_args(filename))),
+            };
 
             let request = Request::builder()
                 .params(RequestParams::CreateFile(
                     CreateFileRequestParams::builder()
                         .path(path.clone())
-                        .file_type(self.file_type)
+                        .file_type(file_type)
                         .build(),
                 ))
                 .build();
@@ -380,6 +469,27 @@ mod state {
             self.pending_file = Some(path);
 
             Some(Effect::Request(request))
+        }
+
+        /// Return what vim is run with to edit the file, which may be followed by the line and
+        /// column to start at the way it can be on the command line.
+        fn vim_args(&self, filename: &str) -> VimArgs {
+            let file_line_column: FileLineColumn = match filename.parse() {
+                Ok(file_line_column) => file_line_column,
+                Err(_) => FileLineColumn::new(Some(PathBuf::from(filename)), None, None),
+            };
+
+            let mut vim_args_builder = VimArgsBuilder::new();
+            if let Some(file) = file_line_column.file() {
+                vim_args_builder = vim_args_builder.path(&self.dir.join(file));
+            }
+            if let Some(line) = file_line_column.line() {
+                vim_args_builder = vim_args_builder.line(line);
+            }
+            if let Some(column) = file_line_column.column() {
+                vim_args_builder = vim_args_builder.column(column);
+            }
+            vim_args_builder.build()
         }
 
         /// Browse the new file, or show why it could not be made.
@@ -454,6 +564,8 @@ use focus::Focus;
 mod effect {
     use std::path::PathBuf;
 
+    use crate::programs::VimArgs;
+
     use insh_api::Request;
 
     /// A file creator effect.
@@ -467,6 +579,8 @@ mod effect {
             /// The file to select.
             file: Option<PathBuf>,
         },
+        /// Edit a file.
+        OpenVim(VimArgs),
         /// Ring the bell.
         Bell,
         /// Quit.

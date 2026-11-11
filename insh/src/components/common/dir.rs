@@ -82,6 +82,7 @@ mod dir {
                 Event::SetDir { dir } => Some(Action::SetDir { dir }),
                 Event::PopDir => Some(Action::PopDir),
                 Event::Focus => Some(Action::Focus),
+                Event::Unfocus => Some(Action::Unfocus),
                 Event::SetPaneFocus { focused } => Some(Action::SetPaneFocus { focused }),
                 Event::TermEvent(event) => Some(Action::HandleTermEvent { event }),
                 Event::Completion { uuid, completion } => {
@@ -119,6 +120,8 @@ mod event {
         PopDir,
         /// The directory is being typed in.
         Focus,
+        /// The directory is no longer being typed in, and what was typed is given up on.
+        Unfocus,
         /// Whether what is typed goes to the pane the directory is in has changed.
         SetPaneFocus {
             /// Whether it does.
@@ -326,6 +329,10 @@ mod state {
                 Action::SetDir { dir } => self.set_dir(dir),
                 Action::PopDir => self.pop_dir(),
                 Action::Focus => self.focus(),
+                Action::Unfocus => {
+                    self.phrase = None;
+                    None
+                }
                 Action::SetPaneFocus { focused } => {
                     // Only what is being typed is ever colored as being typed in.
                     if let Some(phrase) = self.phrase.as_mut() {
@@ -401,6 +408,8 @@ mod action {
         PopDir,
         /// Start typing in the directory.
         Focus,
+        /// Stop typing in the directory, giving up on what was typed.
+        Unfocus,
         /// Take note of whether what is typed goes to the pane the directory is in.
         SetPaneFocus {
             /// Whether it does.

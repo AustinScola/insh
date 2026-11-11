@@ -16,9 +16,9 @@ use crate::stop::Stop;
 use insh_api::{
     CopyPaneResponseParams, DetachedResponseParams, DirScope, LayoutResponseParams,
     PaneExitedResponseParams, PaneScreen, PaneScreenResponseParams, RequestParams, Response,
-    ResponseParams, SessionSummary, SessionsResponseParams, Split,
+    ResponseParams, SearchPaneResponseParams, SessionSummary, SessionsResponseParams, Split,
 };
-use rend::Size;
+use rend::{Location, Size};
 
 use crossbeam::channel::{select, Receiver, Sender};
 use nix::unistd::Pid;
@@ -122,7 +122,7 @@ impl Multiplexer {
                 recv(self.disconnected_clients_rx) -> client => {
                     match client {
                         Ok(client) => {
-                            self.attachments.remove(&client.client_uuid);
+                            self.leave(&client.client_uuid);
                         }
                         Err(error) => {
                             log::error!("Error receiving info about a disconnected client: {}", error);
@@ -196,7 +196,7 @@ impl Multiplexer {
                 self.tell_all_about_layout(session, screens);
             }
             RequestParams::ScrollPane(params) => {
-                let (pane, rows) = (*params.pane(), params.rows());
+                let (pane, rows, hold) = (*params.pane(), params.rows(), params.hold());
                 let session: Uuid = match self.attachments.get(&client) {
                     Some(attachment) => attachment.session,
                     None => return,
@@ -206,7 +206,7 @@ impl Multiplexer {
                     .sessions
                     .get_mut(&session)
                     .and_then(|session| session.pane_mut(&pane))
-                    .is_some_and(|pane| pane.look_back(rows));
+                    .is_some_and(|pane| pane.look_back(rows, hold));
                 if !moved {
                     return;
                 }
@@ -230,6 +230,22 @@ impl Multiplexer {
                         true,
                     );
                 }
+            }
+            RequestParams::SearchPane(params) => {
+                let found: Option<Location> = self.session_of(&client).and_then(|session| {
+                    session
+                        .pane(params.pane())
+                        .and_then(|pane| pane.search(params.phrase(), params.from(), params.down()))
+                });
+
+                self.send(
+                    client,
+                    uuid,
+                    ResponseParams::SearchPane(
+                        SearchPaneResponseParams::builder().found(found).build(),
+                    ),
+                    true,
+                );
             }
             RequestParams::SwapPane(params) => {
                 let (pane, after) = (*params.pane(), params.after());
@@ -439,6 +455,9 @@ impl Multiplexer {
             },
         };
 
+        // NOTE: Whatever it was showing before is left first, so that a client which comes back
+        // to a session is not shown it held by whichever client was showing it before.
+        self.leave(&client);
         self.attachments.insert(
             client,
             Attachment {
@@ -461,7 +480,7 @@ impl Multiplexer {
 
     /// Stop showing the client a session.
     fn detach(&mut self, client: Uuid, request: Uuid) {
-        self.attachments.remove(&client);
+        self.leave(&client);
 
         self.send(
             client,
@@ -469,6 +488,27 @@ impl Multiplexer {
             ResponseParams::Detached(DetachedResponseParams::builder().build()),
             true,
         );
+    }
+
+    /// Stop the client showing whichever session it was showing, and return how it was showing it.
+    ///
+    /// What is held on the screens of the session is let go of once no client is showing it any
+    /// more, since a client which was looking back through one of them can no longer let go of it
+    /// itself.
+    fn leave(&mut self, client: &Uuid) -> Option<Attachment> {
+        let attachment: Attachment = self.attachments.remove(client)?;
+        let shown: bool = self
+            .attachments
+            .values()
+            .any(|other| other.session == attachment.session);
+        if !shown {
+            if let Some(session) = self.sessions.get_mut(&attachment.session) {
+                for pane in session.panes_mut() {
+                    pane.look_back(isize::MIN, false);
+                }
+            }
+        }
+        Some(attachment)
     }
 
     /// Make a session with one window and one pane in it, and return which one it is.
@@ -787,7 +827,7 @@ impl Multiplexer {
             // The clients which were showing it have nothing to show any more.
             let showing: Vec<Uuid> = self.showing(session);
             for client in showing {
-                if let Some(attachment) = self.attachments.remove(&client) {
+                if let Some(attachment) = self.leave(&client) {
                     self.send(
                         client,
                         attachment.request,

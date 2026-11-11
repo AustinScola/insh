@@ -83,7 +83,7 @@ mod copying {
     use super::{Class, Moving};
     use crate::color::Color;
 
-    use rend::{Cell, Fabric, Location, Size, Style};
+    use rend::{Cell, Fabric, Location, Seeking, Size, Style};
 
     /// Where in a pane is being looked at, and what of it is being taken.
     ///
@@ -102,6 +102,16 @@ mod copying {
         size: Size,
         /// Where in the pane is being looked at.
         at: Location,
+        /// Whether it is at the end of whichever row it is in, which it stays at going up and down
+        /// once it has gone there, until it is moved along the row.
+        ///
+        /// NOTE: The end of the row it goes to is only known once that row is drawn, which is
+        /// later than going up or down past the top or the bottom of the pane, so the column is
+        /// worked out from what is drawn whenever it is needed rather than when it is moved.
+        sticking: bool,
+        /// Whether it started past the end of what is written in its row, which it stays where it
+        /// is for but goes up and down from along the ends of the rows.
+        past_the_end: bool,
         /// Where taking from the pane was begun, counted from the first row there ever was in it,
         /// which is nowhere until it is begun.
         from: Option<Location>,
@@ -124,6 +134,8 @@ mod copying {
             let mut copying = Self {
                 size,
                 at,
+                sticking: false,
+                past_the_end: false,
                 from: None,
                 waiting: false,
                 leaving_at_bottom: false,
@@ -131,6 +143,18 @@ mod copying {
             copying.at = copying.inside(at);
 
             return copying;
+        }
+
+        /// Return the same, but going up and down along the ends of the rows when it starts past
+        /// the end of what is written in its row, the way it would after going to the end, in a
+        /// pane which is drawn as given. Looking back from the end of a prompt then goes up along
+        /// the ends of the rows. A row with nothing written in it has no end to stick to.
+        pub fn sticking_past_the_end(mut self, fabric: &Fabric) -> Self {
+            let row: usize = self.at.row;
+            let written: bool = (0..fabric.size().columns.min(self.at.column))
+                .any(|column| *fabric.spot(row, column).cell() != Cell::BLANK);
+            self.past_the_end = written && self.at.column > Self::end(fabric, row);
+            return self;
         }
 
         /// Return the same, but stopping once the bottom of the pane is scrolled back to, the way
@@ -185,13 +209,80 @@ mod copying {
             };
         }
 
-        /// Begin taking from where it is now, in a pane whose top row is the given one counted
-        /// from the first row there ever was in it.
-        pub fn mark(&mut self, top: usize) {
-            self.from = Some(Location {
-                row: top + self.at.row,
-                column: self.at.column,
-            });
+        /// Return where in the pane, which is drawn as given, is being looked at.
+        fn spot(&self, fabric: &Fabric) -> Location {
+            return match self.sticking {
+                true => Location {
+                    row: self.at.row,
+                    column: Self::end(fabric, self.at.row).min(self.size.columns.saturating_sub(1)),
+                },
+                false => self.at,
+            };
+        }
+
+        /// Return where in the pane, which is drawn as given, is being looked at, counted from the
+        /// first row there ever was in a pane whose top row is the given one.
+        pub fn at(&self, fabric: &Fabric, top: usize) -> Location {
+            let spot: Location = self.spot(fabric);
+            return Location {
+                row: top + spot.row,
+                column: spot.column,
+            };
+        }
+
+        /// Go to the given spot in the pane.
+        pub fn go_to(&mut self, at: Location) {
+            self.sticking = false;
+            self.past_the_end = false;
+            self.at = self.inside(at);
+        }
+
+        /// Return where the phrase is next written in the pane, which is drawn as given, going
+        /// down from where is being looked at or up from it, and round from the bottom to the top
+        /// or the top to the bottom.
+        ///
+        /// This is only for a pane which has nothing which has scrolled off the top of it, since
+        /// the daemon is what has those rows.
+        pub fn search(&self, seeking: &Seeking, fabric: &Fabric, down: bool) -> Option<Location> {
+            let rows: usize = fabric.size().rows;
+            if rows == 0 {
+                return None;
+            }
+            let from: Location = self.spot(fabric);
+
+            for along in 0..=rows {
+                let row: usize = match down {
+                    true => (from.row + along) % rows,
+                    false => (from.row + rows - along % rows) % rows,
+                };
+
+                // The row it is in is looked through twice, once for what is past it and once
+                // more at the end for what is not.
+                let columns: Vec<usize> = seeking.columns_in(&fabric.cells()[row]);
+                let wanted = |column: &usize| match (along, down) {
+                    (0, true) => *column > from.column,
+                    (0, false) => *column < from.column,
+                    (along, true) if along == rows => *column <= from.column,
+                    (along, false) if along == rows => *column >= from.column,
+                    _ => true,
+                };
+                let found: Option<usize> = match down {
+                    true => columns.into_iter().find(wanted),
+                    false => columns.into_iter().rev().find(wanted),
+                };
+
+                if let Some(column) = found {
+                    return Some(Location { row, column });
+                }
+            }
+
+            return None;
+        }
+
+        /// Begin taking from where it is now, in a pane which is drawn as given and whose top row
+        /// is the given one counted from the first row there ever was in it.
+        pub fn mark(&mut self, fabric: &Fabric, top: usize) {
+            self.from = Some(self.at(fabric, top));
         }
 
         /// Stop taking anything at all, leaving where in the pane is being looked at where it is.
@@ -211,11 +302,23 @@ mod copying {
                 column: self.size.columns.saturating_sub(1),
             };
 
+            if std::mem::take(&mut self.past_the_end) && matches!(moving, Moving::Up | Moving::Down)
+            {
+                self.sticking = true;
+            }
+
+            // NOTE: Going up and down stays at the end of the row, and going along it goes from
+            // wherever the end of the row it is in is.
+            if self.sticking && !matches!(moving, Moving::Up | Moving::Down) {
+                self.at = self.spot(fabric);
+                self.sticking = false;
+            }
+
             match moving {
                 Moving::Left => self.at.column = self.at.column.saturating_sub(1),
                 Moving::Right => self.at.column = (self.at.column + 1).min(last.column),
                 Moving::Start => self.at.column = 0,
-                Moving::End => self.at.column = Self::end(fabric, self.at.row).min(last.column),
+                Moving::End => self.sticking = true,
                 Moving::NextWord
                 | Moving::NextBigWord
                 | Moving::PreviousWord
@@ -380,13 +483,15 @@ mod copying {
         /// row is the given one counted from the first row there ever was in it.
         ///
         /// The spot is marked whether or not anything is being taken from it, since it is the one
-        /// thing which says where going along the pane goes from.
-        pub fn show(&self, fabric: &mut Fabric, top: usize) {
+        /// thing which says where going along the pane goes from. It is grayed in a pane which
+        /// what is typed does not go to, so that only one thing on the screen is ever yellow.
+        pub fn show(&self, fabric: &mut Fabric, top: usize, focused: bool) {
             let mut style = Style::default();
-            style.set_background(Some(Color::Highlight.into()));
+            style.set_background(Some(Color::row_highlight(focused).into()));
             style.set_color(Some(Color::InvertedText.into()));
 
-            for (row, columns) in self.taken(top) {
+            let taken: Vec<(usize, std::ops::Range<usize>)> = self.taken(fabric, top).collect();
+            for (row, columns) in taken {
                 fabric.style(style, row, columns);
             }
         }
@@ -397,12 +502,9 @@ mod copying {
         /// Nothing is taken until a spot has been marked, and what is taken then is everything
         /// from that spot to this one however they are ordered, so that going back on yourself
         /// takes less rather than nothing.
-        pub fn selection(&self, top: usize) -> Option<(Location, Location)> {
+        pub fn selection(&self, fabric: &Fabric, top: usize) -> Option<(Location, Location)> {
             let from: Location = self.from?;
-            let at: Location = Location {
-                row: top + self.at.row,
-                column: self.at.column,
-            };
+            let at: Location = self.at(fabric, top);
 
             return match (from.row, from.column) <= (at.row, at.column) {
                 true => Some((from, at)),
@@ -422,7 +524,7 @@ mod copying {
             // row out to its full width with blanks, so keeping them would put a run of spaces
             // after every line of what was taken.
             let taken: Vec<String> = self
-                .taken(top)
+                .taken(fabric, top)
                 .map(|(row, columns)| fabric.text(row, columns).trim_end().to_string())
                 .collect();
 
@@ -435,12 +537,14 @@ mod copying {
         /// A row between the first and the last is taken whole, and the ones at either end are
         /// taken from or up to the spot which is in them, which is how a terminal takes a run of
         /// text rather than a block of it.
-        fn taken(&self, top: usize) -> impl Iterator<Item = (usize, std::ops::Range<usize>)> + '_ {
-            let at: Location = Location {
-                row: top + self.at.row,
-                column: self.at.column,
-            };
-            let (first, last): (Location, Location) = self.selection(top).unwrap_or((at, at));
+        fn taken(
+            &self,
+            fabric: &Fabric,
+            top: usize,
+        ) -> impl Iterator<Item = (usize, std::ops::Range<usize>)> + '_ {
+            let at: Location = self.at(fabric, top);
+            let (first, last): (Location, Location) =
+                self.selection(fabric, top).unwrap_or((at, at));
 
             let columns: usize = self.size.columns;
             let shown: std::ops::Range<usize> = top..top + self.size.rows;
@@ -486,7 +590,7 @@ mod copying {
             // Taking is begun a column in, so that going back on yourself can be told from not
             // having moved at all.
             copying.move_toward(Moving::Right, &fabric);
-            copying.mark(0);
+            copying.mark(&fabric, 0);
             for moving in moves {
                 copying.move_toward(*moving, &fabric);
             }
@@ -500,7 +604,7 @@ mod copying {
             let fabric = Fabric::from(vec!["abcd", "efgh", "ijkl"]);
             let mut copying = Copying::of(fabric.size(), at);
 
-            copying.mark(0);
+            copying.mark(&fabric, 0);
             copying.move_toward(Moving::End, &fabric);
 
             assert_eq!(copying.text(&fabric, 0).as_deref(), Some(expected));
@@ -543,7 +647,7 @@ mod copying {
             let fabric = Fabric::from(vec!["abcd", "efgh"]);
             let mut copying = Copying::of(fabric.size(), TOP_LEFT);
 
-            copying.mark(0);
+            copying.mark(&fabric, 0);
             copying.unmark();
 
             assert_eq!(copying.text(&fabric, 0), None);
@@ -576,10 +680,10 @@ mod copying {
             let mut copying = Copying::of(Size::new(3, 6), at);
 
             copying.move_toward(Moving::End, &fabric);
-            copying.mark(0);
+            copying.mark(&fabric, 0);
 
             assert_eq!(
-                copying.selection(0).map(|(_, to)| to.column),
+                copying.selection(&fabric, 0).map(|(_, to)| to.column),
                 Some(expected)
             );
         }
@@ -594,9 +698,9 @@ mod copying {
             let mut copying = Copying::of(fabric.size(), Location { row: 0, column: 1 });
 
             copying.move_toward(moving, &fabric);
-            copying.mark(0);
+            copying.mark(&fabric, 0);
 
-            let at: Location = copying.selection(0).unwrap().0;
+            let at: Location = copying.selection(&fabric, 0).unwrap().0;
             assert_eq!((at.row, at.column), expected);
         }
 
@@ -606,16 +710,16 @@ mod copying {
             let mut copying = Copying::of(fabric.size(), Location { row: 0, column: 9 });
 
             copying.move_toward(Moving::NextWord, &fabric);
-            copying.mark(0);
+            copying.mark(&fabric, 0);
             assert_eq!(
-                copying.selection(0).unwrap().0,
+                copying.selection(&fabric, 0).unwrap().0,
                 Location { row: 1, column: 0 }
             );
 
             copying.move_toward(Moving::PreviousBigWord, &fabric);
-            copying.mark(0);
+            copying.mark(&fabric, 0);
             assert_eq!(
-                copying.selection(0).unwrap().0,
+                copying.selection(&fabric, 0).unwrap().0,
                 Location { row: 0, column: 8 }
             );
         }
@@ -626,10 +730,10 @@ mod copying {
             let mut copying = Copying::of(fabric.size(), Location { row: 0, column: 1 });
 
             copying.move_toward(Moving::NextWord, &fabric);
-            copying.mark(0);
+            copying.mark(&fabric, 0);
 
             assert_eq!(
-                copying.selection(0).unwrap().0,
+                copying.selection(&fabric, 0).unwrap().0,
                 Location { row: 0, column: 1 }
             );
         }
@@ -641,14 +745,77 @@ mod copying {
 
             copying.move_toward(Moving::Down, &fabric);
             copying.move_toward(Moving::End, &fabric);
-            copying.mark(0);
+            copying.mark(&fabric, 0);
             copying.resize(Size::new(1, 2));
 
             // Where it is is brought back inside the pane, and what was being taken is let go of,
             // since what is in the pane has been wrapped again for its new width.
             assert_eq!(copying.text(&fabric, 0), None);
-            copying.mark(0);
+            copying.mark(&fabric, 0);
             assert_eq!(copying.text(&fabric, 0).as_deref(), Some("b"));
+        }
+
+        #[test_case(&[Moving::End, Moving::Up], (0, 1); "up from the end, which is the end of the shorter row")]
+        #[test_case(&[Moving::End, Moving::Up, Moving::Down], (1, 5); "back down, which is the end of the longer row")]
+        #[test_case(&[Moving::End, Moving::Up, Moving::Left], (0, 0); "along from the end of the row it went up to")]
+        #[test_case(&[Moving::End, Moving::Left, Moving::Up], (0, 4); "up after going along, which keeps the column")]
+        fn test_the_end_of_the_row_sticks_going_up_and_down(
+            moves: &[Moving],
+            expected: (usize, usize),
+        ) {
+            let fabric = Fabric::from(vec!["ab", "abcdef"]);
+            let mut copying = Copying::of(fabric.size(), Location { row: 1, column: 0 });
+
+            for moving in moves {
+                copying.move_toward(*moving, &fabric);
+            }
+
+            let at: Location = copying.at(&fabric, 0);
+            assert_eq!((at.row, at.column), expected);
+        }
+
+        #[test_case(4, (0, 5); "past the end of the row")]
+        #[test_case(0, (0, 0); "on what is written in the row")]
+        fn test_starting_past_the_end_of_the_row_sticks_to_the_end(
+            column: usize,
+            expected: (usize, usize),
+        ) {
+            let fabric = Fabric::from(vec!["abcdef      ", "$           "]);
+            let mut copying = Copying::of(fabric.size(), Location { row: 1, column })
+                .sticking_past_the_end(&fabric);
+            let start: Location = copying.at(&fabric, 0);
+            assert_eq!((start.row, start.column), (1, column));
+
+            copying.move_toward(Moving::Up, &fabric);
+
+            let at: Location = copying.at(&fabric, 0);
+            assert_eq!((at.row, at.column), expected);
+        }
+
+        #[test]
+        fn test_the_end_of_the_row_is_the_end_of_what_is_drawn_there_now() {
+            let mut copying = Copying::of(Size::new(2, 6), Location { row: 0, column: 0 });
+
+            // Going up past the top looks further back, and the row it is in is drawn again.
+            copying.move_toward(Moving::End, &Fabric::from(vec!["ab", "abcdef"]));
+            copying.move_toward(Moving::Up, &Fabric::from(vec!["ab", "abcdef"]));
+
+            let at: Location = copying.at(&Fabric::from(vec!["abcd", "ab"]), 0);
+            assert_eq!((at.row, at.column), (0, 3));
+        }
+
+        #[test_case(Location { row: 0, column: 0 }, true, Some((0, 3)); "down to the next one")]
+        #[test_case(Location { row: 0, column: 3 }, true, Some((2, 1)); "down onto another row")]
+        #[test_case(Location { row: 2, column: 1 }, true, Some((0, 3)); "down past the bottom, round to the top")]
+        #[test_case(Location { row: 2, column: 1 }, false, Some((0, 3)); "up to the one before")]
+        #[test_case(Location { row: 0, column: 3 }, false, Some((2, 1)); "up past the top, round to the bottom")]
+        fn test_search(from: Location, down: bool, expected: Option<(usize, usize)>) {
+            let fabric = Fabric::from(vec!["ab xy", "", "axy"]);
+            let copying = Copying::of(fabric.size(), from);
+
+            let found: Option<Location> = copying.search(&Seeking::from("xy"), &fabric, down);
+
+            assert_eq!(found.map(|found| (found.row, found.column)), expected);
         }
 
         #[test]
@@ -658,12 +825,12 @@ mod copying {
 
             // Taking is begun on the bottom row of a pane whose top row is the tenth there was.
             copying.move_toward(Moving::Down, &fabric);
-            copying.mark(10);
+            copying.mark(&fabric, 10);
             // Looking two rows further back moves the pane, not where in it is being looked at.
             copying.move_toward(Moving::Up, &fabric);
 
             assert_eq!(
-                copying.selection(8),
+                copying.selection(&fabric, 8),
                 Some((
                     Location { row: 8, column: 0 },
                     Location { row: 11, column: 0 }

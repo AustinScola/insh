@@ -794,8 +794,8 @@ impl App {
     /// Return the control function which asks the terminal to report what is done with the mouse,
     /// or to stop reporting it.
     ///
-    /// Moving the mouse with a button held is asked for as well as clicking, so that a line
-    /// between two panes can be dragged.
+    /// Moving the mouse at all is asked for as well as clicking, so that a line between two panes
+    /// can be dragged and so that what is under the mouse can be shown as being under it.
     ///
     /// The reports are asked for in the form which says where the mouse is as numbers, because
     /// the older form puts the row and the column in single bytes and so cannot say where the
@@ -805,6 +805,7 @@ impl App {
             modes: vec![
                 Mode::ReportMouseClicks,
                 Mode::ReportMouseDrags,
+                Mode::ReportMouseMotion,
                 Mode::ControlSequenceMouseReports,
             ],
             set,

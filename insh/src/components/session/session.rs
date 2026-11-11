@@ -99,6 +99,7 @@ use action::Action;
 /// Contains the [`Session`] component.
 mod session {
     use std::collections::HashMap;
+    use std::ops::Range;
     use std::path::PathBuf;
 
     use super::super::borders::Borders;
@@ -109,21 +110,21 @@ mod session {
     use super::{Action, Effect, Event, Props, Toward};
     use crate::clipboard::Clipboard;
     use crate::color::Color;
-    use crate::components::common::{Footer, FooterInfo, FooterProps};
+    use crate::components::common::{Footer, FooterInfo, FooterProps, Hover};
     use crate::config::Config;
     use crate::typed_path::TypedPath;
 
     use insh_api::{
         AttachRequestParams, CopyPaneRequestParams, DirScope, DragPaneRequestParams,
         KillPaneRequestParams, ListSessionsRequestParams, NewSessionRequestParams,
-        NewWindowRequestParams, PaneLayout, RenameSessionRequestParams, RenameWindowRequestParams,
-        Request, RequestParams, ResizeClientRequestParams, Response, ResponseParams,
-        RunCommandRequestParams, RunInPaneRequestParams, ScrollPaneRequestParams,
-        SelectPaneRequestParams, SelectWindowRequestParams, SetDirRequestParams, Split,
-        SplitPaneRequestParams, SwapPaneRequestParams, SyncPanesRequestParams,
-        WritePaneRequestParams, ZoomPaneRequestParams,
+        NewWindowRequestParams, PaneKind, PaneLayout, RenameSessionRequestParams,
+        RenameWindowRequestParams, Request, RequestParams, ResizeClientRequestParams, Response,
+        ResponseParams, RunCommandRequestParams, RunInPaneRequestParams, ScrollPaneRequestParams,
+        SearchPaneRequestParams, SelectPaneRequestParams, SelectWindowRequestParams,
+        SetDirRequestParams, Split, SplitPaneRequestParams, SwapPaneRequestParams,
+        SyncPanesRequestParams, WritePaneRequestParams, ZoomPaneRequestParams,
     };
-    use rend::{Fabric, Location, Size};
+    use rend::{Cell, Fabric, Location, Seeking, Size};
     use term::{Key, KeyEvent, KeyMods, MouseButton, MouseEvent, MouseEventKind, TermEvent};
     use terminal_emulator::Modes;
     use til::{CommandParser, Component, KeyPattern, Parsed};
@@ -166,6 +167,12 @@ mod session {
         }
 
         fn handle(&mut self, event: Event) -> Option<Effect> {
+            // NOTE: A terminal says nothing about hiding the mouse, but most hide it while what
+            // is typed is being typed, so nothing is grayed again until it moves.
+            if let Event::TermEvent(TermEvent::KeyEvent(_) | TermEvent::Paste(_)) = &event {
+                self.state.hovering = None;
+            }
+
             match event {
                 Event::TermEvent(term_event) => self.handle_term_event(term_event),
                 Event::Response(response) => self.handle_response(response),
@@ -188,7 +195,7 @@ mod session {
             if self.state.prompt.is_some() {
                 return self.handle_prompt_event(term_event);
             }
-            if self.state.copying.is_some() {
+            if self.state.is_copying() {
                 return self.handle_copying(term_event);
             }
 
@@ -316,12 +323,15 @@ mod session {
                 // multiplexer work while looking back the way they do in tmux. Without that the
                 // only way out is the one key which takes it, and anyone who reaches for the
                 // prefix instead finds that nothing at all answers.
+                //
+                // The pane goes on being looked back through while they are done, the way it does in
+                // tmux, so that going to another pane and back again finds it where it was left.
                 TermEvent::KeyEvent(key_event) => match self.state.parse(key_event) {
                     Parsed::Pending => return None,
-                    Parsed::Command(action) => return self.state.stop_copying(action),
+                    Parsed::Command(action) => return self.state.perform(action),
                     Parsed::Unknown(mut keys) => keys.drain(..).next()?,
                 },
-                TermEvent::Mouse(mouse_event) => return self.state.scroll_copying(mouse_event),
+                TermEvent::Mouse(mouse_event) => return self.handle_mouse_event(mouse_event),
                 TermEvent::Resize(size) => {
                     self.state.size = size;
                     return Some(Effect::Request(
@@ -336,29 +346,32 @@ mod session {
             };
 
             if key_event.key != Key::Char('g') {
-                self.state.copying.as_mut()?.other_key();
+                self.state.active_copying()?.other_key();
             }
 
             // Going about the pane and taking from it, which is the rest of what the keys mean.
             let moving: Moving = match key_event.key {
-                Key::Char('q') => {
-                    self.state.leave_copying();
-                    // Looking back no further is what puts the pane back to what is on it now.
-                    return self.state.look_back(isize::MIN);
-                }
+                Key::Char('q') => return self.state.leave_copying(),
                 // NOTE: Giving up on what is being taken is not giving up on looking back through
                 // the pane, which is how tmux has it with vi keys: escape clears the selection and
                 // q is what leaves.
                 Key::Escape => {
-                    self.state.copying.as_mut()?.unmark();
+                    self.state.active_copying()?.unmark();
                     return None;
                 }
                 Key::Char(' ' | 'v') => {
                     let top: usize = self.state.first_shown_row();
-                    self.state.copying.as_mut()?.mark(top);
+                    let drawn: Fabric = self.state.drawn_active()?;
+                    self.state.active_copying()?.mark(&drawn, top);
                     return None;
                 }
                 Key::CarriageReturn | Key::Char('y') => return self.state.copy(),
+                // NOTE: A slash looks down and a question mark looks up, the way they do in vim,
+                // and n and p look again the same way and the other way.
+                Key::Char('/') => return self.state.ask_search(true),
+                Key::Char('?') => return self.state.ask_search(false),
+                Key::Char('n') => return self.state.search_again(false),
+                Key::Char('p') => return self.state.search_again(true),
                 Key::Char('h') | Key::Left => Moving::Left,
                 Key::Char('j') | Key::Down => Moving::Down,
                 Key::Char('k') | Key::Up => Moving::Up,
@@ -374,7 +387,7 @@ mod session {
                 // NOTE: These move the pane itself rather than where in it is being looked at,
                 // since there is no going the whole way in a pane which is one screen big.
                 Key::Char('g') => {
-                    return match self.state.copying.as_mut()?.go_back() {
+                    return match self.state.active_copying()?.go_back() {
                         true => self.state.look_back(isize::MAX),
                         // The first of the two was pressed, so nothing moves until the other does.
                         false => None,
@@ -387,7 +400,7 @@ mod session {
             // Going past the top or the bottom of the pane is what looks further back through what
             // has scrolled off it, since there is nowhere left in the pane to go that way.
             let drawn: Fabric = self.state.drawn_active()?;
-            let rows: isize = self.state.copying.as_mut()?.move_toward(moving, &drawn);
+            let rows: isize = self.state.active_copying()?.move_toward(moving, &drawn);
             match rows {
                 0 => None,
                 rows => self.state.look_back(rows),
@@ -447,7 +460,11 @@ mod session {
                 }
                 PromptEffect::Name { what, name } => {
                     self.state.prompt = None;
-                    self.state.name(what, name)
+                    match what {
+                        Asking::SearchDown => self.state.search(name, true),
+                        Asking::SearchUp => self.state.search(name, false),
+                        _ => self.state.name(what, name),
+                    }
                 }
             }
         }
@@ -456,12 +473,34 @@ mod session {
         ///
         /// Pressing in a pane sends what is typed there, and pressing on one of the lines between
         /// two panes takes hold of it so that moving the mouse drags it, and scrolling looks back
-        /// through what has scrolled off the top of a pane, the way it does in tmux. What is done
-        /// with the mouse otherwise is left alone, since a program in a pane which has asked for
-        /// the reports itself should be getting them, and passing them on is something to do once
-        /// a pane can say it wants them.
+        /// through what has scrolled off the top of a pane, the way it does in tmux. A program in
+        /// a pane which has asked to be told about the mouse is told instead, the way tmux tells
+        /// it, apart from while it is being looked back through.
         fn handle_mouse_event(&mut self, mouse_event: MouseEvent) -> Option<Effect> {
             let (row, column) = (mouse_event.row, mouse_event.column);
+            self.state.hovering = Some(Location { row, column });
+
+            if let Some((pane, bytes)) = self.state.mouse_report(&mouse_event) {
+                match mouse_event.kind {
+                    MouseEventKind::Press(_) => self.state.pressed_in = Some(pane),
+                    MouseEventKind::Release(_) => self.state.pressed_in = None,
+                    _ => {}
+                }
+                let report: Option<Effect> = self.state.write_to(pane, bytes).map(Effect::Request);
+
+                // NOTE: Pressing in a pane which what is typed does not go to makes it the one it
+                // goes to first, so that the report goes to it rather than to the pane before.
+                let pressed: bool = matches!(mouse_event.kind, MouseEventKind::Press(_));
+                return match pressed && Some(pane) != self.state.active() {
+                    false => report,
+                    true => State::after(
+                        Some(Effect::Request(
+                            Request::builder().params(State::focus(pane)).build(),
+                        )),
+                        report,
+                    ),
+                };
+            }
 
             match mouse_event.kind {
                 MouseEventKind::Press(MouseButton::Left) => {
@@ -470,16 +509,34 @@ mod session {
                         return None;
                     }
 
-                    let pane: Uuid = self.state.pane_at(row, column)?;
-                    Some(Effect::Request(
-                        Request::builder()
-                            .params(RequestParams::SelectPane(
-                                SelectPaneRequestParams::builder().pane(pane).build(),
-                            ))
-                            .build(),
-                    ))
+                    // The footer is where the prompt is typed, so pressing on it opens the prompt.
+                    if row + 1 == self.state.size.rows {
+                        return self.state.change_mode(Mode::Prompt);
+                    }
+
+                    // NOTE: Pressing in a pane which what is typed does not go to makes it the one
+                    // it goes to, and one of insh's own components is told where it was pressed
+                    // as well, so that pressing on a row of it does what pressing there means.
+                    let focus: Option<Effect> = self.state.pane_at(row, column).map(|pane| {
+                        Effect::Request(
+                            Request::builder()
+                                .params(RequestParams::SelectPane(
+                                    SelectPaneRequestParams::builder().pane(pane).build(),
+                                ))
+                                .build(),
+                        )
+                    });
+                    let told: Option<Effect> = self.state.tell_component(&mouse_event);
+                    State::after(focus, told)
                 }
                 MouseEventKind::Drag(MouseButton::Left) => self.state.dragged(row, column),
+                // NOTE: The mouse wheel scrolls one of insh's own components which what is typed
+                // goes to itself, and anywhere else it is what the multiplexer does with it.
+                MouseEventKind::ScrollUp | MouseEventKind::ScrollDown
+                    if self.state.is_active_component(row, column) =>
+                {
+                    self.state.tell_component(&mouse_event)
+                }
                 MouseEventKind::ScrollUp => self.state.scroll(row, column, State::SCROLLED_ROWS),
                 MouseEventKind::ScrollDown => self.state.scroll(row, column, -State::SCROLLED_ROWS),
                 MouseEventKind::Release(_) => {
@@ -509,6 +566,11 @@ mod session {
                 let mut clipboard = Clipboard::new();
                 clipboard.copy(params.text().to_string());
                 return None;
+            }
+
+            // NOTE: The same goes for where something being looked for in a pane was found.
+            if let ResponseParams::SearchPane(params) = response.params() {
+                return self.state.found(response.uuid(), params.found());
             }
 
             // NOTE: The same goes for what the daemon suggests the rest of what is being typed at
@@ -601,8 +663,19 @@ mod session {
         tree: Option<Tree>,
         /// Where a command for the multiplexer is typed, while it is being typed.
         prompt: Option<Prompt>,
-        /// Whether what has scrolled off the top of a pane is being looked back through.
-        copying: Option<Copying>,
+        /// Where in each pane which is being looked back through is being looked at.
+        copying: HashMap<Uuid, Copying>,
+        /// The request which asked where something being looked for is, and the pane it is being
+        /// looked for in, while it is being waited for.
+        searching: Option<(Uuid, Uuid)>,
+        /// What was last looked for, and whether it was looked for going down, which is what is
+        /// looked for again.
+        last_search: Option<(String, bool)>,
+        /// Where the mouse last was, which is nowhere until it has been moved.
+        hovering: Option<Location>,
+        /// The pane of a program which was last told the mouse was pressed in it, which is told
+        /// what is done with the mouse after that even before it is the one what is typed goes to.
+        pressed_in: Option<Uuid>,
         /// Whether the bell is sounded.
         bell: bool,
         /// How big the terminal the client is in is.
@@ -625,7 +698,11 @@ mod session {
                 dragging: None,
                 tree: None,
                 prompt: None,
-                copying: None,
+                copying: HashMap::new(),
+                searching: None,
+                last_search: None,
+                hovering: None,
+                pressed_in: None,
                 bell: props.config.general().bell(),
                 // NOTE: How big the client is has to be known from the start rather than waited
                 // for, because nothing says so until the terminal changes size and showing
@@ -823,7 +900,7 @@ mod session {
         }
 
         /// Return which pane what is typed goes to.
-        fn active(&self) -> Option<Uuid> {
+        pub fn active(&self) -> Option<Uuid> {
             self.layout.as_ref().map(|layout| *layout.pane())
         }
 
@@ -997,7 +1074,7 @@ mod session {
         }
 
         /// Return what asking for what is typed to go to the pane asks for.
-        fn focus(pane: Uuid) -> RequestParams {
+        pub fn focus(pane: Uuid) -> RequestParams {
             return RequestParams::SelectPane(
                 SelectPaneRequestParams::builder().pane(pane).build(),
             );
@@ -1025,7 +1102,7 @@ mod session {
         }
 
         /// Show something other than the panes, which nothing is asked of the daemon for.
-        fn change_mode(&mut self, mode: Mode) -> Option<Effect> {
+        pub fn change_mode(&mut self, mode: Mode) -> Option<Effect> {
             match mode {
                 Mode::Prompt => {
                     self.prompt = Some(
@@ -1040,17 +1117,152 @@ mod session {
                     // scrolled off the top of it, so there is nothing in it to look back through,
                     // but what is drawn in it is there to be read and taken all the same.
                     let pane: Uuid = self.active()?;
+                    if self.copying.contains_key(&pane) {
+                        return None;
+                    }
                     let at: Location = self
                         .panes
                         .get(&pane)
                         .and_then(Pane::copy_start)
                         .unwrap_or(Location { row: 0, column: 0 });
-                    self.copying = Some(Copying::of(self.pane_size(&pane)?, at));
+                    let mut copying: Copying = Copying::of(self.pane_size(&pane)?, at);
+                    // NOTE: Looking back from the end of a prompt goes up along the ends of the
+                    // rows, the way it does after going to the end of one.
+                    if self.is_program(&pane) {
+                        copying = copying.sticking_past_the_end(&self.drawn_active()?);
+                    }
+                    self.copying.insert(pane, copying);
                     self.tell_panes_about_focus();
+
+                    // NOTE: What is on the screen of a program is held where it is while it is
+                    // looked back through, rather than going on scrolling away as the program goes
+                    // on writing, the way tmux holds it.
+                    return match self.is_program(&pane) {
+                        true => self.look_back(0),
+                        false => None,
+                    };
                 }
             }
 
             None
+        }
+
+        /// Return whether the pane what is typed goes to is being looked back through.
+        pub fn is_copying(&self) -> bool {
+            return self
+                .active()
+                .is_some_and(|pane| self.copying.contains_key(&pane));
+        }
+
+        /// Return where in the pane what is typed goes to is being looked at, while it is being
+        /// looked back through.
+        pub fn active_copying(&mut self) -> Option<&mut Copying> {
+            let pane: Uuid = self.active()?;
+            return self.copying.get_mut(&pane);
+        }
+
+        /// Ask what to look for in the pane being looked back through, going down or up.
+        pub fn ask_search(&mut self, down: bool) -> Option<Effect> {
+            self.prompt = Some(
+                Prompt::builder()
+                    .asking(match down {
+                        true => Asking::SearchDown,
+                        false => Asking::SearchUp,
+                    })
+                    .paths(self.typed_paths())
+                    .build(),
+            );
+            return None;
+        }
+
+        /// Look for the phrase in the pane being looked back through, going down or up, and take
+        /// note of it as what is looked for again.
+        pub fn search(&mut self, phrase: String, down: bool) -> Option<Effect> {
+            let found: Option<Effect> = self.find(&phrase, down);
+            self.last_search = Some((phrase, down));
+            return found;
+        }
+
+        /// Look again for what was last looked for, the same way as before or the other way.
+        pub fn search_again(&mut self, reverse: bool) -> Option<Effect> {
+            let (phrase, down): (String, bool) = self.last_search.clone()?;
+            return self.find(&phrase, down != reverse);
+        }
+
+        /// Look for the phrase from where in the pane being looked back through is being looked
+        /// at.
+        ///
+        /// A program has rows which have scrolled off the top of it, and only the daemon has
+        /// those, so it is asked where the phrase is. One of insh's own components has nothing
+        /// which has scrolled off, so it is looked for in what is drawn.
+        fn find(&mut self, phrase: &str, down: bool) -> Option<Effect> {
+            let pane: Uuid = self.active()?;
+            let top: usize = self.first_shown_row();
+            let drawn: Fabric = self.drawn_active()?;
+            let copying: &mut Copying = self.copying.get_mut(&pane)?;
+
+            if !self.panes.get(&pane).is_some_and(Pane::is_program) {
+                return match copying.search(&Seeking::from(phrase), &drawn, down) {
+                    Some(at) => {
+                        copying.go_to(at);
+                        None
+                    }
+                    None => self.bell.then_some(Effect::Bell),
+                };
+            }
+
+            let request = Request::builder()
+                .params(RequestParams::SearchPane(
+                    SearchPaneRequestParams::builder()
+                        .pane(pane)
+                        .phrase(phrase.to_string())
+                        .from(copying.at(&drawn, top))
+                        .down(down)
+                        .build(),
+                ))
+                .build();
+            self.searching = Some((*request.uuid(), pane));
+
+            return Some(Effect::Request(request));
+        }
+
+        /// Go to where the daemon found what was being looked for, which is counted from the
+        /// first row the program in the pane ever wrote on, and look back through the pane as far
+        /// as it takes for that to be on the screen.
+        ///
+        /// It is looked back through no further than that, so that the row it is on is the top or
+        /// the bottom one, which is never past either end of what there is to look at.
+        pub fn found(&mut self, request: &Uuid, found: Option<Location>) -> Option<Effect> {
+            let (asked, pane): (Uuid, Uuid) = self.searching?;
+            if asked != *request {
+                return None;
+            }
+            self.searching = None;
+
+            let found: Location = match found {
+                Some(found) => found,
+                None => return self.bell.then_some(Effect::Bell),
+            };
+            let rows: usize = self.pane_size(&pane)?.rows;
+            let top: usize = self.panes.get(&pane)?.first_shown_row();
+            let bottom: usize = top + rows.saturating_sub(1);
+
+            let (row, back): (usize, isize) = match found.row {
+                row if row < top => (0, isize::try_from(top - row).ok()?),
+                row if row > bottom => {
+                    (rows.saturating_sub(1), -isize::try_from(row - bottom).ok()?)
+                }
+                row => (row - top, 0),
+            };
+            self.copying.get_mut(&pane)?.go_to(Location {
+                row,
+                column: found.column,
+            });
+
+            return match back {
+                0 => None,
+                back => self.look_back_in(pane, back),
+            };
         }
 
         /// Take hold of the lines which are drawn in the spot, which is nothing at all when no line
@@ -1337,14 +1549,15 @@ mod session {
         pub fn copy(&mut self) -> Option<Effect> {
             let pane: Uuid = self.active()?;
             let top: usize = self.first_shown_row();
-            let copying: &Copying = self.copying.as_ref()?;
+            let drawn: Fabric = self.drawn_active()?;
+            let copying: &Copying = self.copying.get(&pane)?;
 
             // NOTE: What is being taken from a program may be more than fits on the screen, and
             // only the daemon has the rows which have scrolled off, so it is asked for the text.
             // One of insh's own components has nothing which has scrolled off, so all of what is
             // being taken from it is what is drawn.
             let taken: Option<Effect> = match self.is_program(&pane) {
-                true => copying.selection(top).map(|(from, to)| {
+                true => copying.selection(&drawn, top).map(|(from, to)| {
                     Effect::Request(
                         Request::builder()
                             .params(RequestParams::CopyPane(
@@ -1358,7 +1571,6 @@ mod session {
                     )
                 }),
                 false => {
-                    let drawn: Fabric = self.drawn_active()?;
                     if let Some(text) = copying.text(&drawn, top) {
                         let mut clipboard = Clipboard::new();
                         clipboard.copy(text);
@@ -1367,8 +1579,7 @@ mod session {
                 }
             };
 
-            self.leave_copying();
-            let stop: Option<Effect> = self.look_back(isize::MIN);
+            let stop: Option<Effect> = self.leave_copying();
             return Self::after(taken, stop);
         }
 
@@ -1404,6 +1615,9 @@ mod session {
                     Request::builder().params(Self::focus(pane)).build(),
                 ));
             }
+            if self.copying.contains_key(&pane) {
+                return self.scroll_copying(rows);
+            }
             if !self.is_program(&pane) {
                 return None;
             }
@@ -1433,19 +1647,15 @@ mod session {
             }
 
             self.change_mode(Mode::Copy);
-            self.copying = self.copying.take().map(Copying::leaving_at_bottom);
+            if let Some(copying) = self.copying.remove(&pane) {
+                self.copying.insert(pane, copying.leaving_at_bottom());
+            }
             return self.look_back(rows);
         }
 
-        /// Do what was done with the mouse while the pane is being looked back through, which is
-        /// only scrolling it.
-        pub fn scroll_copying(&mut self, mouse_event: MouseEvent) -> Option<Effect> {
-            let rows: isize = match mouse_event.kind {
-                MouseEventKind::ScrollUp => Self::SCROLLED_ROWS,
-                MouseEventKind::ScrollDown => -Self::SCROLLED_ROWS,
-                _ => return None,
-            };
-
+        /// Scroll the pane which is being looked back through the given number of rows up, or
+        /// down when that is negative.
+        fn scroll_copying(&mut self, rows: isize) -> Option<Effect> {
             // NOTE: Looking back through it stops once it is scrolled back to the bottom, when it
             // was scrolling which began it, since that is the only way there is to have come.
             let looking_back: usize = self
@@ -1453,12 +1663,94 @@ mod session {
                 .and_then(|pane| self.panes.get(&pane))
                 .map_or(0, Pane::looking_back);
             let bottom: bool = rows < 0 && looking_back <= rows.unsigned_abs();
-            if bottom && self.copying.as_ref()?.leaves_at_bottom() {
-                self.leave_copying();
-                return self.look_back(isize::MIN);
+            if bottom && self.active_copying()?.leaves_at_bottom() {
+                return self.leave_copying();
             }
 
             return self.look_back(rows);
+        }
+
+        /// Return what was done with the mouse, but where in the pane it was done rather than where
+        /// on the whole screen.
+        fn inside(&self, pane: &Uuid, mouse_event: &MouseEvent) -> Option<MouseEvent> {
+            let at: Location = self
+                .layout
+                .as_ref()?
+                .panes()
+                .iter()
+                .find(|shown| shown.pane() == pane)?
+                .at();
+
+            Some(MouseEvent {
+                row: mouse_event.row.checked_sub(at.row)?,
+                column: mouse_event.column.checked_sub(at.column)?,
+                ..mouse_event.clone()
+            })
+        }
+
+        /// Return whether the spot is in one of insh's own components which what is typed goes to
+        /// and which is not being looked back through.
+        pub fn is_active_component(&self, row: usize, column: usize) -> bool {
+            return self.pane_under(row, column).is_some_and(|pane| {
+                Some(pane) == self.active()
+                    && !self.is_program(&pane)
+                    && !self.copying.contains_key(&pane)
+            });
+        }
+
+        /// Tell the one of insh's own components which is in the spot what was done with the
+        /// mouse there, which nothing is told about in a program or a pane which is being looked
+        /// back through.
+        pub fn tell_component(&mut self, mouse_event: &MouseEvent) -> Option<Effect> {
+            let pane: Uuid = self.pane_under(mouse_event.row, mouse_event.column)?;
+            if self.is_program(&pane) || self.copying.contains_key(&pane) {
+                return None;
+            }
+
+            let inside: MouseEvent = self.inside(&pane, mouse_event)?;
+            return self.tell_pane(&pane, vec![PaneEvent::TermEvent(TermEvent::Mouse(inside))]);
+        }
+
+        /// Return the pane which a program has asked to be told about what was done with the
+        /// mouse in it, and the bytes to tell it with, which is nothing at all when none has.
+        ///
+        /// Only pressing in a pane tells a pane which what is typed does not go to yet, since that
+        /// is what makes it the one it goes to. A line between two panes which is being dragged is
+        /// not a pane's business, nor is a pane which is being looked back through.
+        pub fn mouse_report(&self, mouse_event: &MouseEvent) -> Option<(Uuid, Vec<u8>)> {
+            if self.dragging.is_some() {
+                return None;
+            }
+
+            let pane: Uuid = self.pane_under(mouse_event.row, mouse_event.column)?;
+            // NOTE: Letting go of the mouse in a pane which was just pressed in to go to it is
+            // its business, even though the daemon has not said that it is the one gone to yet.
+            let pressed: bool = matches!(mouse_event.kind, MouseEventKind::Press(_));
+            let ours: bool = Some(pane) == self.active() || Some(pane) == self.pressed_in;
+            if self.copying.contains_key(&pane) || (!pressed && !ours) {
+                return None;
+            }
+            let shown: &Pane = self.panes.get(&pane).filter(|shown| shown.is_program())?;
+
+            let modes: Modes = shown.modes();
+            let wanted: Modes = match mouse_event.kind {
+                MouseEventKind::Moved => Modes::REPORT_MOUSE_MOTION,
+                MouseEventKind::Drag(_) => Modes::REPORT_MOUSE_DRAGS | Modes::REPORT_MOUSE_MOTION,
+                _ => {
+                    Modes::REPORT_MOUSE_CLICKS
+                        | Modes::REPORT_MOUSE_DRAGS
+                        | Modes::REPORT_MOUSE_MOTION
+                }
+            };
+            if !modes.intersects(wanted) {
+                return None;
+            }
+
+            // The program is told where in its own pane the mouse is.
+            let inside: MouseEvent = self.inside(&pane, mouse_event)?;
+            let bytes: Vec<u8> =
+                inside.report(modes.contains(Modes::CONTROL_SEQUENCE_MOUSE_REPORTS))?;
+            return Some((pane, bytes));
         }
 
         /// Return how big the pane is, which is nothing at all when it is not one of the panes
@@ -1476,41 +1768,36 @@ mod session {
                 .map(|shown| shown.size());
         }
 
-        /// Put the pane back to what is on it now and then do the command.
+        /// Stop looking back through the pane what is typed goes to.
         ///
-        /// Both are asked for at once because a component only ever gives back the one effect, and
-        /// the pane has to be put back first or else it is left showing what has scrolled off
-        /// while the command has already moved on to another pane.
-        pub fn stop_copying(&mut self, action: Action) -> Option<Effect> {
-            self.leave_copying();
-
-            let stop: Option<Effect> = self.look_back(isize::MIN);
-            let done: Option<Effect> = self.perform(action);
-
-            return Self::after(stop, done);
-        }
-
-        /// Stop looking back through the pane.
-        pub fn leave_copying(&mut self) {
-            self.copying = None;
+        /// Looking back no further is what puts the pane back to what is on it now, and what lets
+        /// go of what was being held on the screen of the program in it.
+        pub fn leave_copying(&mut self) -> Option<Effect> {
+            let pane: Uuid = self.active()?;
+            self.copying.remove(&pane);
             self.tell_panes_about_focus();
+
+            return self.look_back(isize::MIN);
         }
 
         /// Tell every pane whether what is typed is going to it, so that only the ones it is going
         /// to show which of their rows is selected.
         ///
         /// Every pane of a window which is being typed in together is one of them, and none of them
-        /// are while a pane is being looked back through, since the keys go to that instead.
+        /// are while the pane what is typed goes to is being looked back through, since the keys
+        /// go to that instead. Nor is a pane which is being looked back through.
         fn tell_panes_about_focus(&mut self) {
             let layout = match &self.layout {
                 Some(layout) => layout,
                 None => return,
             };
 
-            let copying: bool = self.copying.is_some();
+            let copying: bool = self.copying.contains_key(layout.pane());
             for (id, pane) in &mut self.panes {
                 pane.handle(PaneEvent::SetFocus {
-                    focused: !copying && (layout.synchronized() || id == layout.pane()),
+                    focused: !copying
+                        && !self.copying.contains_key(id)
+                        && (layout.synchronized() || id == layout.pane()),
                 });
             }
         }
@@ -1540,18 +1827,31 @@ mod session {
         /// Look the given number of rows further back through what has scrolled off the top of
         /// the pane what is typed goes to.
         pub fn look_back(&self, rows: isize) -> Option<Effect> {
-            let pane: Uuid = self.active()?;
+            return self.look_back_in(self.active()?, rows);
+        }
 
-            Some(Effect::Request(
-                Request::builder()
-                    .params(RequestParams::ScrollPane(
-                        ScrollPaneRequestParams::builder()
-                            .pane(pane)
-                            .rows(rows)
-                            .build(),
-                    ))
-                    .build(),
-            ))
+        /// Look the given number of rows further back through what has scrolled off the top of
+        /// the pane, which is held where it is for as long as it is being looked back through.
+        fn look_back_in(&self, pane: Uuid, rows: isize) -> Option<Effect> {
+            Some(Effect::Request(Self::scroll_request(
+                pane,
+                rows,
+                self.copying.contains_key(&pane),
+            )))
+        }
+
+        /// Return the request which looks the given number of rows further back through the pane,
+        /// holding what is on the screen of it where it is or letting it go.
+        fn scroll_request(pane: Uuid, rows: isize, hold: bool) -> Request {
+            return Request::builder()
+                .params(RequestParams::ScrollPane(
+                    ScrollPaneRequestParams::builder()
+                        .pane(pane)
+                        .rows(rows)
+                        .hold(hold)
+                        .build(),
+                ))
+                .build();
         }
 
         /// Return whether there is a program running in the pane.
@@ -1606,10 +1906,14 @@ mod session {
         /// The daemon is what sends it on to every pane of a window which is being typed in
         /// together, so only the one pane is named here however many of them there are.
         pub fn write(&self, bytes: Vec<u8>) -> Option<Request> {
+            return self.write_to(self.active()?, bytes);
+        }
+
+        /// Return the request which sends the bytes to the given pane.
+        pub fn write_to(&self, pane: Uuid, bytes: Vec<u8>) -> Option<Request> {
             if bytes.is_empty() {
                 return None;
             }
-            let pane: Uuid = self.active()?;
 
             Some(
                 Request::builder()
@@ -1646,41 +1950,32 @@ mod session {
         /// Take note of where everything is now, and return what the panes need asked of the
         /// daemon in order to have anything to show.
         pub fn relayout(&mut self, layout: insh_api::Layout) -> Vec<Request> {
-            // NOTE: What was being looked back through is gone when what is typed goes somewhere
-            // else now or the pane holds something else, so where in it was being read from no
-            // longer means anything.
-            let was_active: Option<PaneLayout> = self.layout.as_ref().and_then(|old| {
-                old.panes()
-                    .iter()
-                    .find(|shown| shown.pane() == old.pane())
-                    .cloned()
-            });
-            let still_there: bool = was_active.as_ref().is_some_and(|was_active| {
-                layout.pane() == was_active.pane()
-                    && layout.panes().iter().any(|shown| {
-                        shown.pane() == was_active.pane() && shown.kind() == was_active.kind()
-                    })
-            });
-            let mut put_back: Option<Request> = None;
-            if self.copying.is_some() && !still_there {
-                self.copying = None;
-                put_back = was_active
-                    .filter(|was_active| {
-                        layout
-                            .panes()
-                            .iter()
-                            .any(|shown| shown.pane() == was_active.pane())
-                    })
-                    .map(|was_active| {
-                        Request::builder()
-                            .params(RequestParams::ScrollPane(
-                                ScrollPaneRequestParams::builder()
-                                    .pane(*was_active.pane())
-                                    .rows(isize::MIN)
-                                    .build(),
-                            ))
-                            .build()
+            // NOTE: A pane is looked back through for as long as it is shown and holds what it
+            // held when that began, whichever pane what is typed goes to, the way tmux has it. One
+            // whose program has finished has nothing left to look back through, and one in a
+            // window which is no longer being looked at is let go of, since nothing would be left
+            // to let go of what is held on its screen.
+            let held: Vec<Uuid> = self.copying.keys().copied().collect();
+            let mut put_back: Vec<Request> = Vec::new();
+            for pane in held {
+                let was: Option<PaneKind> =
+                    self.panes.get(&pane).map(|shown| match shown.is_program() {
+                        true => PaneKind::Program,
+                        false => PaneKind::Component,
                     });
+                let now: Option<PaneKind> = layout
+                    .panes()
+                    .iter()
+                    .find(|shown| *shown.pane() == pane)
+                    .map(PaneLayout::kind);
+                if now.is_some() && now == was {
+                    continue;
+                }
+
+                self.copying.remove(&pane);
+                if was == Some(PaneKind::Program) && now.is_none() {
+                    put_back.push(Self::scroll_request(pane, isize::MIN, false));
+                }
             }
 
             // The panes of a window which is no longer being looked at are not drawn any more.
@@ -1703,20 +1998,18 @@ mod session {
                 }
             }
 
-            // NOTE: How big the pane being looked back through is, taken before the layout is
-            // put away, since only the pane what is typed goes to is the one being read from.
-            let active_size: Option<Size> = Self::size_of(&layout, layout.pane());
+            // NOTE: A line between two panes being moved, or the terminal changing size, changes
+            // how big a pane being looked back through is, and this is where being told so
+            // arrives. Where in the pane is being read from is kept inside it so that it never
+            // points past the end of what is drawn.
+            for (pane, copying) in self.copying.iter_mut() {
+                if let Some(size) = Self::size_of(&layout, pane) {
+                    copying.resize(size);
+                }
+            }
 
             self.layout = Some(layout);
             self.tell_panes_about_focus();
-
-            // NOTE: A line between two panes being moved, or the terminal changing size, changes
-            // how big the pane being looked back through is, and this is where being told so
-            // arrives. Where in the pane is being read from is kept inside it so that it never
-            // points past the end of what is drawn.
-            if let (Some(copying), Some(size)) = (self.copying.as_mut(), active_size) {
-                copying.resize(size);
-            }
 
             let mut asked: Vec<Request> =
                 self.panes.values_mut().flat_map(Pane::take_asked).collect();
@@ -1770,13 +2063,49 @@ mod session {
 
                 // What is being taken out of the pane is marked over what the program wrote, so
                 // that it is plain where in it is being read from and how far along it has got.
-                if shown.pane() == layout.pane() {
-                    if let Some(copying) = &self.copying {
-                        copying.show(&mut drawn, pane.first_shown_row());
-                    }
+                if let Some(copying) = self.copying.get(shown.pane()) {
+                    let focused: bool = shown.pane() == layout.pane();
+                    copying.show(&mut drawn, pane.first_shown_row(), focused);
                 }
 
                 fabric.blit(&drawn, shown.at());
+            }
+
+            // Whatever pressing on would go to is grayed while the mouse is over it, and written in
+            // black so that it can be read on the gray. Only what is written in a row of a list is
+            // grayed, though the whole row is what the mouse is over.
+            if let Some(hovering) = self.hovering {
+                for shown in layout.panes() {
+                    let (at, pane_size) = (shown.at(), shown.size());
+                    let inside: bool = hovering.row >= at.row
+                        && hovering.row < at.row + pane_size.rows
+                        && hovering.column >= at.column
+                        && hovering.column < at.column + pane_size.columns;
+                    if !inside || self.copying.contains_key(shown.pane()) {
+                        continue;
+                    }
+                    let hover: Hover = match self
+                        .panes
+                        .get(shown.pane())
+                        .and_then(|pane| pane.hovers(hovering.row - at.row))
+                    {
+                        Some(hover) => hover,
+                        None => continue,
+                    };
+
+                    let row: Range<usize> = at.column..at.column + pane_size.columns;
+                    let columns: Range<usize> = match hover {
+                        Hover::Row => row,
+                        Hover::Text => match row.clone().rev().find(|column| {
+                            *fabric.spot(hovering.row, *column).cell() != Cell::BLANK
+                        }) {
+                            Some(last) => at.column..last + 1,
+                            None => continue,
+                        },
+                    };
+                    fabric.set_background(Some(Color::Hover.into()), hovering.row, columns.clone());
+                    fabric.set_color(Some(Color::InvertedText.into()), hovering.row, columns);
+                }
             }
 
             // NOTE: The lines are drawn once all of the panes are, and all together rather than a
@@ -1789,9 +2118,9 @@ mod session {
             // it is where the program which is being typed at has it. Nothing is typed at while
             // the pane is being looked back through, and where in it is being read from is marked
             // rather than shown with the cursor, so there is none to show then.
-            fabric.set_cursor(match self.copying {
-                Some(_) => None,
-                None => self.panes.get(layout.pane()).and_then(Pane::cursor_at),
+            fabric.set_cursor(match self.copying.contains_key(layout.pane()) {
+                true => None,
+                false => self.panes.get(layout.pane()).and_then(Pane::cursor_at),
             });
 
             // The list of sessions is drawn over the panes rather than beside them, so that it
@@ -1804,7 +2133,14 @@ mod session {
             // The prompt is typed in where the footer usually is, which is what tmux does.
             let along_the_bottom: Fabric = match &self.prompt {
                 Some(prompt) => prompt.render(Size::new(1, size.columns)),
-                None => self.footer(size.columns),
+                None => {
+                    let mut footer: Fabric = self.footer(size.columns);
+                    if self.hovering.is_some_and(|hovering| hovering.row == rows) {
+                        footer.set_background(Some(Color::Hover.into()), 0, 0..size.columns);
+                        footer.set_color(Some(Color::InvertedText.into()), 0, 0..size.columns);
+                    }
+                    footer
+                }
             };
 
             fabric.quilt_bottom(along_the_bottom)
@@ -1885,7 +2221,8 @@ mod tests {
     use file_type::FileType;
     use insh_api::{
         DirScope, GetFilesResponseParams, Layout, LayoutResponseParams, PaneKind, PaneLayout,
-        PaneScreen, Request, RequestParams, Response, ResponseParams, Split, Window,
+        PaneScreen, Request, RequestParams, Response, ResponseParams, SearchPaneResponseParams,
+        Split, Window,
     };
     use rend::{Fabric, Location, Size};
     use term::{Key, KeyEvent, KeyMods, MouseButton, MouseEvent, MouseEventKind, TermEvent};
@@ -2331,31 +2668,216 @@ mod tests {
     }
 
     #[test]
-    fn test_copy_mode_is_left_when_what_is_typed_goes_to_another_pane() {
+    fn test_copy_mode_stays_with_its_pane_when_what_is_typed_goes_to_another() {
         let mut session: Session = browsing();
         enter_copy_mode(&mut session);
+        let panes = || {
+            vec![
+                shown(1, (0, 0), (23, 40), PaneKind::Component),
+                shown(2, (0, 41), (23, 39), PaneKind::Component),
+            ]
+        };
 
-        let panes: Vec<PaneLayout> = vec![
-            shown(1, (0, 0), (23, 40), PaneKind::Component),
-            shown(2, (0, 41), (23, 39), PaneKind::Component),
-        ];
-        let effect: Option<Effect> = session.handle(layout_response(panes, 1, Vec::new()));
+        let effect: Option<Effect> = session.handle(layout_response(panes(), 1, Vec::new()));
         let fabric: Fabric = session.render(Size::new(24, 80));
 
-        // The pane which was being looked back through is put back to what is on it now.
-        let requests: Vec<Request> = match effect {
-            Some(Effect::Requests(requests)) => requests,
-            _ => panic!("Expected the pane to be put back."),
-        };
-        assert!(requests.iter().any(|request| matches!(
-            request.params(),
-            RequestParams::ScrollPane(params) if *params.pane() == pane(2)
-        )));
+        // Nothing is put back, and the pane which is being looked back through is still marked
+        // where it is being looked at while the other one has what is typed, in gray.
+        assert!(effect.is_none());
         assert_eq!(background(&fabric, 1, 1), Some(Color::Highlight.into()));
         assert_eq!(
             background(&fabric, 1, 41),
             Some(Color::UnfocusedHighlight.into())
         );
+        assert_eq!(
+            background(&fabric, 1, 42),
+            Some(Color::UnfocusedHighlight.into())
+        );
+
+        // Coming back to it, the keys go to moving about in it again.
+        session.handle(layout_response(panes(), 2, Vec::new()));
+        let effect: Option<Effect> = press(&mut session, Key::Char('q'), KeyMods::NONE);
+        assert_eq!(scrolled(&effect), Some(isize::MIN));
+    }
+
+    #[test]
+    fn test_clicking_another_pane_while_looking_back_goes_to_it() {
+        let mut session: Session = browsing();
+        enter_copy_mode(&mut session);
+
+        let effect: Option<Effect> =
+            mouse(&mut session, MouseEventKind::Press(MouseButton::Left), 5, 5);
+
+        assert!(matches!(
+            effect,
+            Some(Effect::Request(request))
+                if matches!(request.params(), RequestParams::SelectPane(params) if *params.pane() == pane(1))
+        ));
+    }
+
+    /// Return whether the effect asks for what is on the screen of a pane to be held, which is
+    /// nothing at all when it does not ask about that.
+    fn held(effect: &Option<Effect>) -> Option<bool> {
+        let requests: Vec<&Request> = match effect {
+            Some(Effect::Request(request)) => vec![request],
+            Some(Effect::Requests(requests)) => requests.iter().collect(),
+            _ => Vec::new(),
+        };
+
+        requests.iter().find_map(|request| match request.params() {
+            RequestParams::ScrollPane(params) => Some(params.hold()),
+            _ => None,
+        })
+    }
+
+    #[test]
+    fn test_the_screen_of_a_program_is_held_while_it_is_looked_back_through() {
+        let mut session: Session = program(Modes::default(), 0);
+
+        press(&mut session, Key::Char('b'), KeyMods::CONTROL);
+        let entered: Option<Effect> = press(&mut session, Key::Char('['), KeyMods::NONE);
+        let moved: Option<Effect> = press(&mut session, Key::Char('G'), KeyMods::NONE);
+        let left: Option<Effect> = press(&mut session, Key::Char('q'), KeyMods::NONE);
+
+        assert_eq!(held(&entered), Some(true));
+        assert_eq!(held(&moved), Some(true));
+        assert_eq!(held(&left), Some(false));
+    }
+
+    /// Look for the phrase going down through the pane being looked back through.
+    fn search(session: &mut Session, phrase: &str) -> Option<Effect> {
+        press(session, Key::Char('/'), KeyMods::NONE);
+        for character in phrase.chars() {
+            press(session, Key::Char(character), KeyMods::NONE);
+        }
+        press(session, Key::CarriageReturn, KeyMods::NONE)
+    }
+
+    #[test]
+    fn test_searching_a_program_asks_the_daemon_and_goes_where_it_was_found() {
+        let mut session: Session = program(Modes::default(), 0);
+        enter_copy_mode(&mut session);
+
+        let request: Request = match search(&mut session, "a b") {
+            Some(Effect::Request(request)) => request,
+            _ => panic!("Expected the daemon to be asked where it is."),
+        };
+        match request.params() {
+            RequestParams::SearchPane(params) => {
+                assert_eq!(params.phrase(), "a b");
+                assert!(params.down());
+            }
+            _ => panic!("Expected the daemon to be asked where it is."),
+        }
+
+        // It was found above the top of the pane, so the pane is looked back through as far as
+        // it takes to bring it onto the top row.
+        let effect: Option<Effect> = session.handle(Event::Response(
+            Response::builder()
+                .uuid(*request.uuid())
+                .params(ResponseParams::SearchPane(
+                    SearchPaneResponseParams::builder()
+                        .found(Some(Location::builder().row(0).column(4).build()))
+                        .build(),
+                ))
+                .build(),
+        ));
+        assert_eq!(scrolled(&effect), None);
+        let fabric: Fabric = session.render(Size::new(24, 80));
+        assert_eq!(background(&fabric, 0, 4), Some(Color::Highlight.into()));
+
+        // Looking again the other way asks again, the other way.
+        match press(&mut session, Key::Char('p'), KeyMods::NONE) {
+            Some(Effect::Request(request)) => match request.params() {
+                RequestParams::SearchPane(params) => assert!(!params.down()),
+                _ => panic!("Expected the daemon to be asked again."),
+            },
+            _ => panic!("Expected the daemon to be asked again."),
+        }
+    }
+
+    #[test]
+    fn test_searching_a_component_goes_where_it_is_drawn() {
+        let mut session: Session = browsing();
+        enter_copy_mode(&mut session);
+
+        let effect: Option<Effect> = search(&mut session, "file");
+        let fabric: Fabric = session.render(Size::new(24, 80));
+
+        // The footer names the browser and the file is the selected row, so the first one after
+        // the start of that row is the name of the file in it, a column in.
+        assert!(effect.is_none());
+        let found: usize = (41..80)
+            .find(|column| background(&fabric, 1, *column) == Some(Color::Highlight.into()))
+            .unwrap();
+        assert_eq!(fabric.text(1, found..found + 4), "file");
+    }
+
+    #[test_case::test_case(MouseEventKind::Press(MouseButton::Left), b"\x1b[<0;3;2M"; "a press")]
+    #[test_case::test_case(MouseEventKind::ScrollUp, b"\x1b[<64;3;2M"; "a scroll, which does not look back")]
+    fn test_the_mouse_is_reported_to_a_program_which_asked(kind: MouseEventKind, expected: &[u8]) {
+        let mut session: Session = program(
+            Modes::default() | Modes::REPORT_MOUSE_CLICKS | Modes::CONTROL_SEQUENCE_MOUSE_REPORTS,
+            0,
+        );
+
+        let effect: Option<Effect> = mouse(&mut session, kind, 1, 2);
+
+        let written: Vec<u8> = match effect {
+            Some(Effect::Request(request)) => match request.params() {
+                RequestParams::WritePane(params) => params.bytes().to_vec(),
+                _ => panic!("Expected the mouse to be reported."),
+            },
+            _ => panic!("Expected the mouse to be reported."),
+        };
+        assert_eq!(written, expected);
+        assert!(!copying(&session));
+    }
+
+    #[test]
+    fn test_pressing_in_another_program_which_asked_goes_to_it_and_reports_it() {
+        let screen: PaneScreen = PaneScreen::builder()
+            .pane(pane(1))
+            .rows(Vec::new())
+            .cursor(None)
+            .modes(Modes::default() | Modes::REPORT_MOUSE_CLICKS)
+            .build();
+        let (mut session, _): (Session, Effect) = session(
+            vec![
+                shown(1, (0, 0), (23, 40), PaneKind::Program),
+                shown(2, (0, 41), (23, 39), PaneKind::Program),
+            ],
+            2,
+            vec![screen],
+        );
+
+        let effect: Option<Effect> =
+            mouse(&mut session, MouseEventKind::Press(MouseButton::Left), 0, 0);
+
+        let requests: Vec<Request> = match effect {
+            Some(Effect::Requests(requests)) => requests,
+            _ => panic!("Expected the pane to be gone to and the press reported."),
+        };
+        assert!(matches!(requests[0].params(), RequestParams::SelectPane(_)));
+        assert!(matches!(
+            requests[1].params(),
+            RequestParams::WritePane(params) if params.bytes() == b"\x1b[M !!"
+        ));
+
+        // Letting go is reported to it as well, before the daemon has said it was gone to.
+        let effect: Option<Effect> = mouse(
+            &mut session,
+            MouseEventKind::Release(MouseButton::Left),
+            0,
+            0,
+        );
+        assert!(matches!(
+            effect,
+            Some(Effect::Request(request)) if matches!(
+                request.params(),
+                RequestParams::WritePane(params) if params.bytes() == b"\x1b[M#!!"
+            )
+        ));
     }
 
     #[test]
@@ -2393,6 +2915,90 @@ mod tests {
             background(&fabric, 1, 32),
             Some(Color::UnfocusedHighlight.into())
         );
+    }
+
+    #[test]
+    fn test_pressing_on_the_footer_opens_the_prompt() {
+        let mut session: Session = browsing();
+
+        mouse(
+            &mut session,
+            MouseEventKind::Press(MouseButton::Left),
+            23,
+            5,
+        );
+        let fabric: Fabric = session.render(Size::new(24, 80));
+
+        assert!(fabric.text(23, 0..80).starts_with(':'));
+    }
+
+    #[test]
+    fn test_nothing_is_gray_once_something_is_typed() {
+        let mut session: Session = browsing();
+
+        mouse(&mut session, MouseEventKind::Moved, 23, 5);
+        press(&mut session, Key::Char('j'), KeyMods::NONE);
+        let fabric: Fabric = session.render(Size::new(24, 80));
+
+        assert_ne!(background(&fabric, 23, 0), Some(Color::Hover.into()));
+    }
+
+    #[test]
+    fn test_the_footer_is_gray_while_the_mouse_is_over_it() {
+        let mut session: Session = browsing();
+
+        mouse(&mut session, MouseEventKind::Moved, 23, 5);
+        let fabric: Fabric = session.render(Size::new(24, 80));
+
+        assert_eq!(background(&fabric, 23, 0), Some(Color::Hover.into()));
+    }
+
+    #[test_case::test_case(1, 41, false; "the selected file of the browser which the keys go to")]
+    #[test_case::test_case(0, 41, true; "the directory bar of the browser which the keys go to")]
+    #[test_case::test_case(0, 1, true; "the directory bar of the browser which the keys do not go to")]
+    #[test_case::test_case(5, 1, false; "a row with no file in it")]
+    #[test_case::test_case(22, 1, false; "the footer of a pane")]
+    fn test_what_the_mouse_is_over_is_gray(row: usize, column: usize, expected: bool) {
+        let mut session: Session = browsing();
+        let before: Fabric = session.render(Size::new(24, 80));
+
+        mouse(&mut session, MouseEventKind::Moved, row, column);
+        let fabric: Fabric = session.render(Size::new(24, 80));
+
+        let grayed: bool = background(&before, row, column + 10) != Some(Color::Hover.into())
+            && background(&fabric, row, column + 10) == Some(Color::Hover.into());
+        assert_eq!(grayed, expected);
+    }
+
+    #[test]
+    fn test_pressing_on_the_directory_bar_starts_typing_in_it() {
+        let mut session: Session = browsing();
+
+        mouse(
+            &mut session,
+            MouseEventKind::Press(MouseButton::Left),
+            0,
+            50,
+        );
+        let fabric: Fabric = session.render(Size::new(24, 80));
+
+        // The directory bar is yellow once it is being typed in, and the file no longer is.
+        assert_eq!(background(&fabric, 0, 50), Some(Color::Highlight.into()));
+        assert_ne!(background(&fabric, 1, 42), Some(Color::Highlight.into()));
+    }
+
+    #[test]
+    fn test_pressing_in_a_browser_which_the_keys_do_not_go_to_goes_to_it_and_selects() {
+        let mut session: Session = browsing();
+
+        let effect: Option<Effect> =
+            mouse(&mut session, MouseEventKind::Press(MouseButton::Left), 1, 1);
+
+        assert!(matches!(
+            effect,
+            Some(Effect::Request(request))
+                if matches!(request.params(), RequestParams::SelectPane(params) if *params.pane() == pane(1))
+        ));
     }
 
     #[test]

@@ -16,6 +16,9 @@ mod props {
         /// The character which the parts of the phrase are separated by, if it has parts.
         #[builder(default, setter(into))]
         pub part_separator: Option<char>,
+        /// What is shown before what is typed, which says what it is for.
+        #[builder(default, setter(into))]
+        pub label: Option<String>,
     }
 }
 pub use props::Props;
@@ -44,6 +47,7 @@ mod phrase {
                     .value(props.value.unwrap_or_default())
                     .completable(props.completable)
                     .part_separator(props.part_separator)
+                    .label(props.label)
                     .build(),
             }
         }
@@ -102,7 +106,7 @@ mod phrase {
 
         fn render(&self, size: Size) -> Fabric {
             let string = self.state.value();
-            let mut yarn = Yarn::from(string);
+            let mut yarn = Yarn::from(format!("{}{}", self.state.label(), string));
             yarn.color(Color::InvertedText.into());
 
             // NOTE: Of a phrase which has parts, tab only takes the next part of the completion,
@@ -136,7 +140,7 @@ mod phrase {
     impl Phrase {
         /// Return the column which what has been typed in ends at.
         pub fn end(&self) -> usize {
-            Cell::columns(self.state.value())
+            Cell::columns(self.state.label()) + Cell::columns(self.state.value())
         }
 
         /// Return what has been typed in.
@@ -238,6 +242,9 @@ mod state {
         /// The pending request for a completion.
         #[builder(default)]
         pending_completion_request: Option<Uuid>,
+        /// What is shown before what is typed.
+        #[builder(default)]
+        label: Option<String>,
     }
 
     impl Default for State {
@@ -250,6 +257,7 @@ mod state {
                 completable: false,
                 part_separator: None,
                 pending_completion_request: None,
+                label: None,
             }
         }
     }
@@ -258,6 +266,11 @@ mod state {
         /// Return what has been typed in.
         pub fn value(&self) -> &str {
             &self.value
+        }
+
+        /// Return what is shown before what is typed, which is nothing when there is nothing.
+        pub fn label(&self) -> &str {
+            self.label.as_deref().unwrap_or_default()
         }
 
         /// Return the completion.

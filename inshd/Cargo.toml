@@ -1,6 +1,6 @@
 [package]
 name = "inshd"
-version = "0.6.5"
+version = "0.6.6"
 edition = "2021"
 description = "A daemon for insh."
 
@@ -61,6 +61,9 @@ uuid = { workspace = true }
 
 # Used for concurrent programming.
 crossbeam = { workspace = true }
+
+# Used for matching the names of the files to search.
+regex = { workspace = true }
 
 # Used to handle signals.
 signal-hook = { workspace = true }

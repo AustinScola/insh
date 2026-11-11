@@ -3,18 +3,18 @@
 use std::path::{Path, PathBuf};
 
 use super::{Contents, ContentsEffect, ContentsEvent, ContentsProps};
-use crate::components::common::{Dir, DirEffect, DirEvent, DirProps, Footer, FooterProps};
+use crate::components::common::{Dir, DirEffect, DirEvent, DirProps, Footer, FooterProps, Hover};
 use crate::config::Config;
 use crate::programs::VimArgs;
 use crate::stateful::Stateful;
 
-use file_type::FileType;
+use crate::components::file_creator::FileCreatorPurpose;
 use insh_api::{
     Request, RequestParams, Response, ResponseParams, SuggestDirRequestParams,
     VisitDirRequestParams,
 };
 use rend::{Fabric, Location, Size};
-use term::{Key, KeyEvent, KeyMods, TermEvent};
+use term::{Key, KeyEvent, KeyMods, MouseButton, MouseEvent, MouseEventKind, TermEvent};
 use til::Component;
 
 use typed_builder::TypedBuilder;
@@ -111,6 +111,7 @@ impl Component<Props, Event, Effect> for Browser {
                 key: Key::Char('d'),
                 mods: KeyMods::CONTROL,
             })) if !matches!(self.state.focus, Focus::Dir) => self.state.perform(Action::FocusDir),
+            Event::TermEvent(TermEvent::Mouse(mouse_event)) => self.handle_mouse(mouse_event),
             Event::TermEvent(term_event) => match self.state.focus {
                 Focus::Dir => {
                     let dir_effect: Option<DirEffect> =
@@ -158,6 +159,61 @@ impl Browser {
     /// Return the directory it is showing.
     pub fn dir(&self) -> &Path {
         self.state.dir.dir()
+    }
+
+    /// Return whether the row is shown as being under the mouse when it is, which is only when
+    /// pressing on it would do something.
+    ///
+    /// The directory bar is the top row, and the files are below it, above the footer.
+    pub fn hovers(&self, row: usize) -> Option<Hover> {
+        match row {
+            0 => (!matches!(self.state.focus, Focus::Dir)).then_some(Hover::Row),
+            row => self.state.contents.hovers(row - 1).then_some(Hover::Text),
+        }
+    }
+
+    /// Do what was done with the mouse.
+    ///
+    /// Pressing on the directory bar starts typing in it, and pressing on a file selects it, or
+    /// opens it when it is selected already, giving up on whatever was being typed in the
+    /// directory bar. The mouse wheel only scrolls
+    /// the files while they are what the keys go to.
+    fn handle_mouse(&mut self, mouse_event: MouseEvent) -> Option<Effect> {
+        // The directory bar is the row above the files.
+        let in_contents = MouseEvent {
+            row: mouse_event.row.saturating_sub(1),
+            ..mouse_event.clone()
+        };
+
+        match (mouse_event.kind, mouse_event.row) {
+            (MouseEventKind::Press(MouseButton::Left), 0) => match self.state.focus {
+                Focus::Dir => None,
+                Focus::Contents => self.state.perform(Action::FocusDir),
+            },
+            // NOTE: The files are told before they become what the keys go to, since pressing on
+            // the one which is selected and focused already opens it.
+            (MouseEventKind::Press(MouseButton::Left), _) => {
+                let contents_effect: Option<ContentsEffect> =
+                    self.state.contents.handle(ContentsEvent::Term {
+                        event: TermEvent::Mouse(in_contents),
+                    });
+                if matches!(self.state.focus, Focus::Dir) {
+                    self.state.dir.handle(DirEvent::Unfocus);
+                    self.state.perform(Action::UnfocusDir);
+                }
+                self.handle_contents_effect(contents_effect)
+            }
+            (MouseEventKind::ScrollUp | MouseEventKind::ScrollDown, _)
+                if matches!(self.state.focus, Focus::Contents) =>
+            {
+                let contents_effect: Option<ContentsEffect> =
+                    self.state.contents.handle(ContentsEvent::Term {
+                        event: TermEvent::Mouse(in_contents),
+                    });
+                self.handle_contents_effect(contents_effect)
+            }
+            _ => None,
+        }
     }
 
     /// Return where in it looking back through it starts, which is the end of what is being typed
@@ -234,11 +290,13 @@ impl Browser {
                 self.state.dir.handle(DirEvent::PopDir);
                 Some(Effect::Requests(vec![visit_request, get_files_request]))
             }
-            Some(ContentsEffect::OpenFileCreator { dir, file_type }) => {
-                Some(Effect::OpenFileCreator { dir, file_type })
+            Some(ContentsEffect::OpenFileCreator { dir, purpose }) => {
+                Some(Effect::OpenFileCreator { dir, purpose })
             }
             Some(ContentsEffect::OpenFinder { dir }) => Some(Effect::OpenFinder { dir }),
-            Some(ContentsEffect::OpenSearcher { dir }) => Some(Effect::OpenSearcher { dir }),
+            Some(ContentsEffect::OpenSearcher { dir, replacing }) => {
+                Some(Effect::OpenSearcher { dir, replacing })
+            }
             Some(ContentsEffect::OpenChat { dir }) => Some(Effect::OpenChat { dir }),
             Some(ContentsEffect::OpenVim(vim_args)) => Some(Effect::OpenVim(vim_args)),
             Some(ContentsEffect::RunBash { dir }) => Some(Effect::RunBash { dir }),
@@ -344,22 +402,24 @@ enum Action {
 
 /// A browser effect.
 pub enum Effect {
-    /// Make a new file.
+    /// Make a new file, or name one to edit.
     OpenFileCreator {
-        /// The directory to make it in.
+        /// The directory the file is in.
         dir: PathBuf,
-        /// The type of file to make.
-        file_type: FileType,
+        /// What the file is named for.
+        purpose: FileCreatorPurpose,
     },
     /// Find files by name.
     OpenFinder {
         /// The directory to look in.
         dir: PathBuf,
     },
-    /// Search files for a phrase.
+    /// Search files for a phrase, or replace one in them.
     OpenSearcher {
         /// The directory to search in.
         dir: PathBuf,
+        /// Whether the phrase is being replaced rather than only looked for.
+        replacing: bool,
     },
     /// Chat about the directory.
     OpenChat {

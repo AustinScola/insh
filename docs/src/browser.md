@@ -14,10 +14,12 @@ below. The currently selected entry is highlighted in yellow when focused.
 | `<Ctrl>-e`           | Scroll down without changing the selection.                                                                                                                                        |
 | `<Ctrl>-y`           | Scroll up without changing the selection.                                                                                                                                          |
 | `b`                  | Run bash with the working directory set to the current directory.                                                                                                                  |
+| `e`                  | Open the file goto prompt.                                                                                                                                                         |
 | `c`                  | Open the file creator for creating a file.                                                                                                                                         |
 | `C`                  | Open the file creator for creating a directory.                                                                                                                                    |
 | `f`                  | Open the file finder.                                                                                                                                                              |
 | `s`                  | Open the file contents searcher.                                                                                                                                                   |
+| `R`                  | Open find and replace.                                                                                                                                                             |
 | `a`                  | Open the the ai chat.                                                                                                                                                              |
 | `m`                  | Toggle showing the metadata of the entries.                                                                                                                                        |
 | `yE`                 | Yank the selected entry filename to the clipboard.                                                                                                                                 |

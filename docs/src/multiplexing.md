@@ -51,4 +51,12 @@ are all borrowed. As is the usage of a prefix.
 | `v` \| `<Space>`   | Start selecting at the current cursor position. |
 | `y` \| `<Enter>`   | Copy the selection to the clipboard.            |
 | `<Escape>`         | Unselect.                                       |
+| `/`                | Search.                                         |
+| `?`                | Search backwards.                               |
 | `q`                | Exit out of copy mode.                          |
+
+## Search mode
+| Command | Description             |
+|---------|-------------------------|
+| `n`     | Go to the next hit.     |
+| `p`     | Go to the previous hit. |

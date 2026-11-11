@@ -28,7 +28,8 @@ mod finder {
     use super::super::{ContentsEffect, ContentsEvent};
     use super::{Action, Effect, Focus, Props, State};
     use crate::components::common::{
-        DirEffect, DirEvent, Footer, FooterProps, PaneContentsEvent, PhraseEffect, PhraseEvent,
+        DirEffect, DirEvent, Footer, FooterProps, Hover, PaneContentsEvent, PhraseEffect,
+        PhraseEvent,
     };
     use crate::stateful::Stateful;
 
@@ -37,7 +38,7 @@ mod finder {
         SuggestFindPatternRequestParams, VisitDirRequestParams,
     };
     use rend::{Fabric, Location, Size};
-    use term::{Key, KeyEvent, KeyMods, TermEvent};
+    use term::{Key, KeyEvent, KeyMods, MouseButton, MouseEvent, MouseEventKind, TermEvent};
     use til::{Component, Event};
 
     /// A file finder.
@@ -132,9 +133,65 @@ mod finder {
             Some(Location::builder().row(row).column(column).build())
         }
 
+        /// Return whether the row is shown as being under the mouse when it is, which is only when
+        /// pressing on it would do something.
+        ///
+        /// The directory bar is the top row and the pattern the one below it, and the files found
+        /// are below those, above the footer.
+        pub fn hovers(&self, row: usize) -> Option<Hover> {
+            match row {
+                0 => (*self.state.focus() != Focus::Dir).then_some(Hover::Row),
+                1 => (*self.state.focus() != Focus::Phrase).then_some(Hover::Row),
+                row => self.state.contents.hovers(row - 2).then_some(Hover::Text),
+            }
+        }
+
+        /// Do what was done with the mouse.
+        ///
+        /// Pressing on the directory bar, the pattern, or a file found makes it what the keys go
+        /// to, and selects the file, or opens it when it is selected already. The mouse wheel only
+        /// scrolls the files while they are what the keys go to.
+        fn handle_mouse(&mut self, mouse_event: MouseEvent) -> Option<Effect> {
+            let in_contents = MouseEvent {
+                row: mouse_event.row.saturating_sub(2),
+                ..mouse_event.clone()
+            };
+
+            match (mouse_event.kind, mouse_event.row) {
+                (MouseEventKind::Press(MouseButton::Left), 0) => {
+                    self.state.perform(Action::TakeFocus(Focus::Dir))
+                }
+                (MouseEventKind::Press(MouseButton::Left), 1) => {
+                    self.state.perform(Action::TakeFocus(Focus::Phrase))
+                }
+                // NOTE: There is nothing to go to before anything has been found. The files found
+                // are told before they become what the keys go to, since pressing on the one which
+                // is selected and focused already opens it.
+                (MouseEventKind::Press(MouseButton::Left), _) => {
+                    self.state.contents.selected_row()?;
+                    let contents_effect: Option<ContentsEffect> = self
+                        .state
+                        .contents
+                        .handle(ContentsEvent::TermEvent(TermEvent::Mouse(in_contents)));
+                    self.state.perform(Action::TakeFocus(Focus::Contents));
+                    self.handle_contents_effect(contents_effect)
+                }
+                (MouseEventKind::ScrollUp | MouseEventKind::ScrollDown, row)
+                    if row >= 2 && *self.state.focus() == Focus::Contents =>
+                {
+                    self.state
+                        .contents
+                        .handle(ContentsEvent::TermEvent(TermEvent::Mouse(in_contents)));
+                    None
+                }
+                _ => None,
+            }
+        }
+
         /// Do what the terminal event or the response says.
         fn handle_event(&mut self, event: Event<Response>) -> Option<Effect> {
             match event {
+                Event::TermEvent(TermEvent::Mouse(mouse_event)) => self.handle_mouse(mouse_event),
                 Event::TermEvent(TermEvent::Resize(size)) => {
                     let contents_size = Size::new(size.rows.saturating_sub(3), size.columns);
                     self.state
@@ -253,26 +310,28 @@ mod finder {
                             Event::TermEvent(term_event) => ContentsEvent::TermEvent(term_event),
                         };
                         let contents_effect = self.state.contents.handle(contents_event);
-                        match contents_effect {
-                            Some(ContentsEffect::Unfocus) => {
-                                self.state.perform(Action::FocusPhrase);
-                                self.state.phrase.handle(PhraseEvent::Focus);
-                                None
-                            }
-                            Some(ContentsEffect::Request(request)) => {
-                                Some(Effect::Request(request))
-                            }
-                            Some(ContentsEffect::Goto { dir, file }) => {
-                                Some(Effect::Browse { dir, file })
-                            }
-                            Some(ContentsEffect::OpenVim(vim_args)) => {
-                                Some(Effect::OpenVim(vim_args))
-                            }
-                            Some(ContentsEffect::Bell) => Some(Effect::Bell),
-                            None => None,
-                        }
+                        self.handle_contents_effect(contents_effect)
                     }
                 },
+            }
+        }
+
+        /// Return the effect of what the files found did.
+        fn handle_contents_effect(
+            &mut self,
+            contents_effect: Option<ContentsEffect>,
+        ) -> Option<Effect> {
+            match contents_effect {
+                Some(ContentsEffect::Unfocus) => {
+                    self.state.perform(Action::FocusPhrase);
+                    self.state.phrase.handle(PhraseEvent::Focus);
+                    None
+                }
+                Some(ContentsEffect::Request(request)) => Some(Effect::Request(request)),
+                Some(ContentsEffect::Goto { dir, file }) => Some(Effect::Browse { dir, file }),
+                Some(ContentsEffect::OpenVim(vim_args)) => Some(Effect::OpenVim(vim_args)),
+                Some(ContentsEffect::Bell) => Some(Effect::Bell),
+                None => None,
             }
         }
 
@@ -340,6 +399,7 @@ mod state {
                 PhraseProps::builder()
                     .completable(true)
                     .value(props.phrase)
+                    .label(String::from("Find: "))
                     .build(),
             );
 
@@ -396,6 +456,28 @@ mod state {
             None
         }
 
+        /// Send the events to whatever was pressed on, giving up on what was being typed in the
+        /// directory bar if that is what they went to before.
+        fn take_focus(&mut self, focus: Focus) -> Option<Effect> {
+            if focus == self.focus {
+                return None;
+            }
+
+            match self.focus {
+                Focus::Dir => self.dir.handle(DirEvent::Unfocus),
+                Focus::Phrase => self.phrase.handle(PhraseEvent::Unfocus).and(None),
+                Focus::Contents => self.contents.handle(ContentsEvent::Unfocus).and(None),
+            };
+            match focus {
+                Focus::Dir => self.dir.handle(DirEvent::Focus),
+                Focus::Phrase => self.phrase.handle(PhraseEvent::Focus).and(None),
+                Focus::Contents => self.contents.handle(ContentsEvent::Focus).and(None),
+            };
+            self.focus = focus;
+
+            None
+        }
+
         /// Quit.
         fn quit(&mut self) -> Option<Effect> {
             Some(Effect::Quit {
@@ -407,6 +489,7 @@ mod state {
     impl Stateful<Action, Effect> for State {
         fn perform(&mut self, action: Action) -> Option<Effect> {
             match action {
+                Action::TakeFocus(focus) => self.take_focus(focus),
                 Action::FocusContents => self.focus_contents(),
                 Action::FocusPhrase => self.focus_phrase(),
                 Action::FocusDir => self.focus_dir(),
@@ -420,7 +503,7 @@ use state::State;
 /// Contains the [`Focus`] enum.
 mod focus {
     /// What the finder is focused on.
-    #[derive(Default)]
+    #[derive(Default, Clone, Copy, PartialEq, Eq)]
     pub enum Focus {
         /// The pattern typed in.
         #[default]
@@ -435,8 +518,12 @@ use focus::Focus;
 
 /// Contains the [`Action`] enum.
 mod action {
+    use super::Focus;
+
     /// A finder action.
     pub enum Action {
+        /// Send the events to whatever was pressed on.
+        TakeFocus(Focus),
         /// Send the events to the files.
         FocusContents,
         /// Send the events to the pattern.

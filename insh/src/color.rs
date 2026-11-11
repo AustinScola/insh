@@ -72,6 +72,9 @@ pub enum Color {
     BadRegex,
     /// A regex not searched for yet.
     NotCompiledRegex,
+    /// The background of whatever the mouse is over which pressing on would go to, which is the
+    /// gray a selection is left when it is not focused.
+    Hover,
 }
 
 impl From<Color> for AnsiColor {
@@ -101,6 +104,7 @@ impl From<Color> for AnsiColor {
             Color::PreProc => AnsiColor::Blue,
             Color::BadRegex => AnsiColor::BrightRed,
             Color::NotCompiledRegex => DARK_GRAY,
+            Color::Hover => MEDIUM_BACKGROUND,
         }
     }
 }
