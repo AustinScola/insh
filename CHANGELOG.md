@@ -1,3 +1,6 @@
+# 0.6.8
+- Fix inshie on MacOS.
+
 # 0.6.7
 - Fix pasting into the text input. 
 

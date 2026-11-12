@@ -138,7 +138,7 @@ pgvector = { version = "0.4.2", default-features = false, features = ["diesel"] 
 
 # Used for HTTP requests to AI inference engines. This is blocking all the way down, unlike
 # `reqwest`, which would run an asynchronous runtime inside inshd's threads.
-ureq = { version = "3.4.1", features = ["json"] }
+ureq = { version = "3.4.1", features = ["json", "platform-verifier"] }
 
 # Used for the JSON which AI inference engines send and receive.
 serde_json = "1.0.145"

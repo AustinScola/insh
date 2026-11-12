@@ -12,6 +12,7 @@ use super::stream::ChatStream;
 use serde_json::Value;
 use typed_builder::TypedBuilder;
 use ureq::http::Response;
+use ureq::tls::{RootCerts, TlsConfig};
 use ureq::{Agent, Body, RequestBuilder};
 
 /// The most tokens a reply is allowed to be when the caller does not say.
@@ -80,6 +81,13 @@ impl AiClient {
             // Without this a request which is refused is only a status code, and the body saying
             // why (an expired key, an unknown model) is thrown away.
             .http_status_as_error(false)
+            // Trust what the operating system trusts. A work laptop behind a proxy which inspects
+            // TLS has the proxy's root installed there, and the bundled roots do not include it.
+            .tls_config(
+                TlsConfig::builder()
+                    .root_certs(RootCerts::PlatformVerifier)
+                    .build(),
+            )
             .build()
             .into();
 

@@ -32,6 +32,7 @@ use path_finder::Entry;
 use phrase_searcher::FileHit;
 
 use serde::{Deserialize, Serialize};
+use strum::IntoStaticStr;
 use typed_builder::TypedBuilder;
 use uuid::Uuid;
 
@@ -58,7 +59,10 @@ impl Request {
 }
 
 /// Request parameters.
-#[derive(Debug, Serialize, Deserialize)]
+///
+/// The name of the kind of request, in kebab case, is what converting to a `&'static str` gives.
+#[derive(Debug, Serialize, Deserialize, IntoStaticStr)]
+#[strum(serialize_all = "kebab-case")]
 pub enum RequestParams {
     /// Get the files in a directory.
     GetFiles(GetFilesRequestParams),

@@ -1,13 +1,30 @@
 //! The file which inshd writes its process id to.
-use std::fs::File;
-use std::io::Read;
+use std::fs::{File, OpenOptions};
+use std::io::{Error as IOError, Read, Write};
+use std::os::unix::fs::OpenOptionsExt;
+use std::process;
 
 use crate::paths::INSHD_PID_FILE;
+
+use common::paths::INSH_FILES_PERMS;
 
 /// The file which inshd writes its process id to.
 pub struct PidFile {}
 
 impl PidFile {
+    /// Write the process id of this process as that of inshd.
+    pub fn write() -> Result<(), IOError> {
+        let mut file: File = OpenOptions::new()
+            .write(true)
+            .create(true)
+            .truncate(true)
+            .mode(INSH_FILES_PERMS)
+            .open(&*INSHD_PID_FILE)?;
+        writeln!(file, "{}", process::id())?;
+
+        Ok(())
+    }
+
     /// Return the process id of inshd.
     pub fn read() -> Result<u64, ReadError> {
         let mut file = match File::open(&*INSHD_PID_FILE) {

@@ -57,16 +57,17 @@ fn main() {
 
     // Configure a basic stdout logger. The logger configured for the inshd process can be more
     // sophisticated, but for commands like start, stop, etc. we just want logging to go to stdout.
+    // NOTE: The logger stops when its handle is dropped, so the handle is held on to until exiting.
     let ConfiguredLogging {
-        mut logger_handle,
+        logger_handle: _logger_handle,
         records_rx,
     } = configure_logging(&args.log_options());
 
     let exit_code: i32 = match args.command() {
         Command::Start(start_args) => {
-            let mut options: StartOptions =
-                StartOptions::new(&mut logger_handle, records_rx, start_args);
-            if Start::run(&mut options).is_err() {
+            let options: StartOptions =
+                StartOptions::new(start_args, args.daemon_args(), records_rx);
+            if Start::run(&options).is_err() {
                 1
             } else {
                 0
@@ -81,9 +82,9 @@ fn main() {
             }
         }
         Command::Restart(restart_args) => {
-            let mut options: RestartOptions =
-                RestartOptions::new(&mut logger_handle, records_rx, restart_args);
-            if Restart::run(&mut options).is_err() {
+            let options: RestartOptions =
+                RestartOptions::new(restart_args, args.daemon_args(), records_rx);
+            if Restart::run(&options).is_err() {
                 1
             } else {
                 0

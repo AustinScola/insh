@@ -1,6 +1,6 @@
 /*!
-Renders information about files the way that people are used to reading it (which is the same way
-that `ls -l` renders it).
+Renders information the way that people are used to reading it: about files, the same way that
+`ls -l` renders it, and how long something took.
 */
 #![deny(missing_docs)]
 #![deny(clippy::missing_docs_in_private_items)]
@@ -237,3 +237,56 @@ mod time {
     }
 }
 pub use time::{human_friendly_file_time, FILE_TIME_WIDTH};
+
+/// Contains the [`Elapsed`] struct.
+mod elapsed {
+    use std::fmt::{Display, Error as FmtError, Formatter};
+    use std::time::Duration;
+
+    /// The number of seconds in a minute.
+    const SECONDS_PER_MINUTE: u64 = 60;
+
+    /// The number of seconds in an hour.
+    const SECONDS_PER_HOUR: u64 = 60 * SECONDS_PER_MINUTE;
+
+    /// How long something took, written the way people read it.
+    ///
+    /// Only the units which are needed are written, so a quick request is `0.01s` and a long one is
+    /// `2m 11.23s`.
+    pub struct Elapsed(pub Duration);
+
+    impl Display for Elapsed {
+        fn fmt(&self, formatter: &mut Formatter<'_>) -> Result<(), FmtError> {
+            let whole_seconds: u64 = self.0.as_secs();
+            let hours: u64 = whole_seconds / SECONDS_PER_HOUR;
+            let minutes: u64 = (whole_seconds % SECONDS_PER_HOUR) / SECONDS_PER_MINUTE;
+            let seconds: f64 = (whole_seconds % SECONDS_PER_MINUTE) as f64
+                + f64::from(self.0.subsec_nanos()) / 1e9;
+
+            if hours > 0 {
+                write!(formatter, "{}h {}m {:.2}s", hours, minutes, seconds)
+            } else if minutes > 0 {
+                write!(formatter, "{}m {:.2}s", minutes, seconds)
+            } else {
+                write!(formatter, "{:.2}s", seconds)
+            }
+        }
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use super::*;
+
+        use test_case::test_case;
+
+        #[test_case(Duration::ZERO, "0.00s"; "zero")]
+        #[test_case(Duration::from_millis(11_230), "11.23s"; "seconds")]
+        #[test_case(Duration::from_millis(131_230), "2m 11.23s"; "minutes")]
+        #[test_case(Duration::from_secs(3600), "1h 0m 0.00s"; "an hour")]
+        #[test_case(Duration::from_millis(3_723_450), "1h 2m 3.45s"; "hours")]
+        fn test_display(duration: Duration, expected: &str) {
+            assert_eq!(Elapsed(duration).to_string(), expected);
+        }
+    }
+}
+pub use elapsed::Elapsed;
