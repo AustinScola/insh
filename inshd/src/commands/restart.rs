@@ -7,7 +7,7 @@ pub struct Restart {}
 
 impl Restart {
     /// Restart inshd.
-    pub fn run(options: &mut RestartOptions) -> Result<(), RestartError> {
+    pub fn run(options: &RestartOptions) -> Result<(), RestartError> {
         if let Err(error) = Stop::run(&options.stop_options) {
             match error {
                 StopError::NotRunning => {}
@@ -17,7 +17,7 @@ impl Restart {
             }
         }
 
-        if let Err(error) = Start::run(&mut options.start_options) {
+        if let Err(error) = Start::run(&options.start_options) {
             return Err(RestartError::FailedToStart(error));
         }
 
@@ -28,6 +28,8 @@ impl Restart {
 mod restart_options {
     //! Options for restarting inshd.
 
+    use std::ffi::OsString;
+
     use crate::args::RestartArgs;
     use crate::commands::start::StartOptions;
     use crate::commands::stop::StopOptions;
@@ -35,27 +37,27 @@ mod restart_options {
     use insh_api::LogRecord;
 
     use crossbeam::channel::Receiver;
-    use flexi_logger::LoggerHandle;
 
     /// Options for restarting inshd.
-    pub struct RestartOptions<'a> {
+    pub struct RestartOptions {
         /// Options for starting inshd.
-        pub start_options: StartOptions<'a>,
+        pub start_options: StartOptions,
         /// Options for stopping inshd.
         pub stop_options: StopOptions,
     }
 
-    impl<'a> RestartOptions<'a> {
+    impl RestartOptions {
         /// Return new restart options.
         pub fn new(
-            logger_handle: &'a mut LoggerHandle,
-            log_records_rx: Receiver<LogRecord>,
             restart_args: &RestartArgs,
+            daemon_args: Vec<OsString>,
+            log_records_rx: Receiver<LogRecord>,
         ) -> Self {
             Self {
                 start_options: StartOptions {
                     force: restart_args.force,
-                    logger_handle,
+                    foreground: false,
+                    daemon_args,
                     log_records_rx,
                 },
                 stop_options: StopOptions {

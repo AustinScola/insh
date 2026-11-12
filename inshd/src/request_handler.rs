@@ -1,5 +1,6 @@
 //! Handles requests from clients.
 use std::sync::Arc;
+use std::time::Instant;
 
 use crate::config::Config;
 use crate::contexted_request::ContextedRequest;
@@ -13,6 +14,7 @@ use crate::request_handlers::{
 use crate::stop::Stop;
 
 use embedder::Embedder;
+use human_friendly::Elapsed;
 use insh_api::{Request, RequestParams, Response, ResponseParamsAndLast};
 use insh_db::DbConnPool;
 
@@ -57,9 +59,10 @@ impl RequestHandler {
                 recv(self.contexted_requests_rx) -> contexted_request => {
                     let contexted_request: ContextedRequest = contexted_request.unwrap();
                     let client_uuid: Uuid = *contexted_request.client_uuid();
-                    log::info!("Handling request {}.", contexted_request.request().uuid());
-
                     let request: &Request = contexted_request.request();
+                    let started: Instant = Instant::now();
+                    let kind: &'static str = request.params().into();
+                    log::info!("Handling {} request {}...", kind, request.uuid());
 
                     let response_params_and_last_iter: Box<dyn Iterator<Item = ResponseParamsAndLast>> = match request.params() {
                         RequestParams::GetFiles(params) => Box::new(GetFiles::new(params)),
@@ -177,7 +180,12 @@ impl RequestHandler {
                         log::warn!("Never received last response.");
                     }
 
-                    log::info!("Done handling request {}.", request.uuid());
+                    log::info!(
+                        "Handled {} request {} ({}).",
+                        kind,
+                        request.uuid(),
+                        Elapsed(started.elapsed())
+                    );
                 }
             }
         }

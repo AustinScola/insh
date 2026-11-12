@@ -20,5 +20,8 @@ typed-builder = { workspace = true }
 # Used for serialization and deserialization of data structures.
 serde = { workspace = true }
 
+# Used for naming the kinds of requests.
+strum = { version = "0.27.2", features = ["derive"] }
+
 # Used for globally unique identifiers.
 uuid = { workspace = true, features = ["serde"] }

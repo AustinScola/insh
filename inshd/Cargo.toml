@@ -1,6 +1,6 @@
 [package]
 name = "inshd"
-version = "0.6.7"
+version = "0.6.8"
 edition = "2021"
 description = "A daemon for insh."
 
@@ -16,6 +16,9 @@ ai-client = { version = "0.1.0", path = "../ai-client" }
 
 # Used to turn the messages of a chat into vectors so they can be searched by meaning.
 embedder = { version = "0.1.0", path = "../embedder" }
+
+# Used for writing how long requests took.
+human-friendly = { version = "0.1.0", path = "../human-friendly" }
 insh-api = { version = "0.1.0", path = "../insh-api" }
 
 # Used for working out what the bytes a program writes mean to show.

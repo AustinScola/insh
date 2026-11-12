@@ -1,11 +1,11 @@
 //! The inshd server.
+use std::backtrace::Backtrace;
 use std::fs::{remove_file, set_permissions, Permissions};
 use std::io::Write;
 use std::os::unix::fs::PermissionsExt;
 use std::os::unix::net::UnixListener;
 use std::panic;
 use std::panic::PanicHookInfo;
-use std::process::exit;
 use std::sync::Arc;
 use std::thread;
 use std::thread::JoinHandle;
@@ -352,17 +352,17 @@ impl Server {
     fn set_panic_hook(died_tx: Sender<RequestHandlerDied>) {
         panic::set_hook(Box::new(move |panic_info: &PanicHookInfo| {
             let thread_handle = thread::current();
-            let thread_name: &str = match thread_handle.name() {
-                Some(thread_name) => thread_name,
-                None => {
-                    log::error!("Unnamed thread panicked: {}", panic_info);
+            // NOTE: Only the thread which panicked dies, so a thread which is not ours (one which a
+            // dependency spawned) is logged and left at that rather than taking inshd down with it.
+            let thread_name: &str = thread_handle.name().unwrap_or("<unnamed>");
+            let backtrace: Backtrace = Backtrace::force_capture();
 
-                    Server::cleanup();
-                    exit(1);
-                }
-            };
-
-            log::error!("Thread {} panicked: {}", thread_name, panic_info);
+            log::error!(
+                "Thread {} panicked: {}\n{}",
+                thread_name,
+                panic_info,
+                backtrace
+            );
 
             if let Some(rest) = thread_name.strip_prefix("request-handler-") {
                 if let Ok(number) = rest.parse::<usize>() {

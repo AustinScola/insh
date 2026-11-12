@@ -9,3 +9,6 @@ description = "Turns the current process into a daemon."
 #
 # Used for forking, detaching from the controlling terminal, and redirecting the standard streams.
 nix = { workspace = true }
+
+# Used for generating the builder pattern for structs.
+typed-builder = { workspace = true }

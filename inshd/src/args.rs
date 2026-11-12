@@ -1,8 +1,9 @@
 //! Arguments for inshd.
 use std::error::Error;
+use std::ffi::OsString;
 use std::fmt::{Display, Error as FmtError, Formatter};
 use std::num::ParseFloatError;
-use std::path::PathBuf;
+use std::path::{absolute, PathBuf};
 use std::time::Duration;
 
 use crate::logging::{Color, LogOptions};
@@ -71,6 +72,47 @@ impl Args {
             .build()
     }
 
+    /// Return the arguments which the daemon runs inshd with, which start it in the foreground and
+    /// log the same way as this.
+    pub fn daemon_args(&self) -> Vec<OsString> {
+        let mut args: Vec<OsString> = Vec::new();
+
+        if let Some(log_file_path) = &self.log_file_path {
+            // The daemon runs from the root directory, where a relative path means something else.
+            let log_file_path: PathBuf =
+                absolute(log_file_path).unwrap_or_else(|_| log_file_path.clone());
+            args.push("--log-file".into());
+            args.push(log_file_path.into());
+        }
+
+        args.push("--log-level".into());
+        args.push(self.log_level_filter.to_string().into());
+
+        for module_log_level_filter in &self.module_log_level_filters {
+            args.push("--module-log-level".into());
+            args.push(
+                format!(
+                    "{}={}",
+                    module_log_level_filter.module_name(),
+                    module_log_level_filter.log_level_filter()
+                )
+                .into(),
+            );
+        }
+
+        if self.color {
+            args.push("--color".into());
+        }
+        if self.no_color {
+            args.push("--no-color".into());
+        }
+
+        args.push("start".into());
+        args.push("--foreground".into());
+
+        args
+    }
+
     /// Return the log specification.
     fn log_spec(&self) -> LogSpec {
         let mut log_spec_builder = LogSpec::builder();
@@ -112,12 +154,16 @@ pub struct StartArgs {
     /// Start even if already running.
     #[arg(short = 'f')]
     pub force: bool,
+    /// Run in the foreground rather than as a daemon.
+    #[arg(long = "foreground", visible_alias = "fg")]
+    pub foreground: bool,
 }
 
 impl From<&RestartArgs> for StartArgs {
     fn from(restart_args: &RestartArgs) -> Self {
         Self {
             force: restart_args.force,
+            foreground: false,
         }
     }
 }

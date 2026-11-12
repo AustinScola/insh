@@ -6,8 +6,6 @@
 
 mod daemon;
 mod error;
-mod outcome;
 
 pub use daemon::Daemon;
 pub use error::Error;
-pub use outcome::Outcome;
