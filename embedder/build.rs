@@ -76,7 +76,11 @@ fn main() {
 fn digest(bytes: &[u8]) -> String {
     let mut hasher = Sha256::new();
     hasher.update(bytes);
-    return format!("{:x}", hasher.finalize());
+    return hasher
+        .finalize()
+        .iter()
+        .map(|byte| format!("{:02x}", byte))
+        .collect();
 }
 
 /// Return the contents of a file of the model.

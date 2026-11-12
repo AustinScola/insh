@@ -1618,8 +1618,7 @@ mod tests {
             _ => panic!("Expected the files to be asked for."),
         };
         let entries: Vec<PathEntry> =
-            serde_yaml_ng::from_str("[{path: /tmp/aaa}, {path: /tmp/bbb}, {path: /tmp/ccc}]")
-                .unwrap();
+            yaml_serde::from_str("[{path: /tmp/aaa}, {path: /tmp/bbb}, {path: /tmp/ccc}]").unwrap();
         pane.handle(Event::Response(
             Response::builder()
                 .uuid(*request.uuid())

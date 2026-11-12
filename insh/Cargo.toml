@@ -63,7 +63,7 @@ copypasta = { workspace = true }
 
 # Used for serialization and deserialization of data structures.
 serde = { workspace = true }
-serde_yaml_ng = { workspace = true }
+yaml_serde = { workspace = true }
 
 # Used for logging. (These dependencies are only included if the logging features is enabled.)
 log = { workspace = true, optional = true }

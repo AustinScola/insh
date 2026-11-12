@@ -112,7 +112,7 @@ impl Config {
             },
         };
 
-        let config: Config = match serde_yaml_ng::from_reader(file) {
+        let config: Config = match yaml_serde::from_reader(file) {
             Ok(config) => config,
             Err(error) => {
                 return Err(LoadError::ParseFailed { path, error });
@@ -641,7 +641,7 @@ mod load_error {
     use std::io::Error as IOError;
     use std::path::PathBuf;
 
-    use serde_yaml_ng::Error as YamlError;
+    use yaml_serde::Error as YamlError;
 
     /// An error loading the configuration.
     pub enum LoadError {
@@ -735,7 +735,7 @@ mod tests {
             SECRET
         );
 
-        let config: Config = serde_yaml_ng::from_str(&yaml).unwrap();
+        let config: Config = yaml_serde::from_str(&yaml).unwrap();
 
         assert!(config.ai().configured());
         assert_eq!(config.ai().model(), DEFAULT_AI_MODEL);
@@ -761,7 +761,7 @@ mod tests {
             SECRET
         );
 
-        let error = match serde_yaml_ng::from_str::<Config>(&yaml) {
+        let error = match yaml_serde::from_str::<Config>(&yaml) {
             Ok(_) => panic!("The configuration should not have parsed."),
             Err(error) => error,
         };

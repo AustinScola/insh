@@ -12,7 +12,7 @@ mod config {
     use super::{BrowserConfig, GeneralConfig, InputConfig, RenderConfig};
 
     use serde::Deserialize;
-    use serde_yaml_ng::Error as YamlParseError;
+    use yaml_serde::Error as YamlParseError;
 
     /// Configuration options.
     #[derive(Deserialize, Debug, Default, Clone, Eq, PartialEq)]
@@ -73,7 +73,7 @@ mod config {
                 },
             };
 
-            match serde_yaml_ng::from_reader(file) {
+            match yaml_serde::from_reader(file) {
                 Ok(config) => Ok(config),
                 Err(error) => Err(ConfigLoadError::ParseError { path, error }),
             }
@@ -477,21 +477,21 @@ mod tests {
     #[test_case("render: {}\n", RenderEngineConfig::Incr; "only what changed by default")]
     #[test_case("", RenderEngineConfig::Incr; "only what changed when nothing is configured")]
     fn test_the_render_engine_can_be_set(yaml: &str, expected_engine: RenderEngineConfig) {
-        let config: Config = serde_yaml_ng::from_str(yaml).unwrap();
+        let config: Config = yaml_serde::from_str(yaml).unwrap();
 
         assert_eq!(config.render().engine(), expected_engine);
     }
 
     #[test]
     fn test_the_escape_timeout_can_be_set() {
-        let config: Config = serde_yaml_ng::from_str("input:\n  escape_timeout: 250\n").unwrap();
+        let config: Config = yaml_serde::from_str("input:\n  escape_timeout: 250\n").unwrap();
 
         assert_eq!(config.input().escape_timeout(), Duration::from_millis(250));
     }
 
     #[test]
     fn test_an_escape_timeout_of_zero_is_refused() {
-        let error = serde_yaml_ng::from_str::<Config>("input:\n  escape_timeout: 0\n")
+        let error = yaml_serde::from_str::<Config>("input:\n  escape_timeout: 0\n")
             .expect_err("An escape timeout of zero should not be allowed.");
 
         assert!(
@@ -508,7 +508,7 @@ mod tests {
             Duration::from_millis(50)
         );
         assert_eq!(
-            serde_yaml_ng::from_str::<Config>("input: {}\n")
+            yaml_serde::from_str::<Config>("input: {}\n")
                 .unwrap()
                 .input()
                 .escape_timeout(),

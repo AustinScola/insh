@@ -76,7 +76,7 @@ os_pipe = { workspace = true }
 
 # Used for serialization and deserialization of data structures.
 serde = { workspace = true }
-serde_yaml_ng = { workspace = true }
+yaml_serde = { workspace = true }
 
 [dev-dependencies]
 
