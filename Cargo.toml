@@ -32,7 +32,7 @@ clap = { version = "4.6.6", features = ["derive"] }
 crossbeam = "0.8.4"
 
 # Used for determining platform-specific directories.
-dirs = "6.0.0"
+dirs = "7.0.0"
 
 # Used for logging.
 log = "0.4.34"
@@ -68,8 +68,10 @@ serde = { version = "1.0.229", features = ["derive"] }
 
 # Used for reading and writing YAML (the config files and inshd's persistent data).
 #
-# NOTE: This is a maintained fork of `serde_yaml`, which was archived upstream.
-serde_yaml_ng = "0.10.0"
+# NOTE: This is the YAML organization's fork of `serde_yaml`, which was archived upstream. It
+# replaced `serde_yaml_ng`, which depends on `unsafe-libyaml`, which is unmaintained
+# (RUSTSEC-2024-0449).
+yaml_serde = "0.10.7"
 
 # Used to handle signals.
 signal-hook = { version = "0.4.4", features = ["extended-siginfo"] }
@@ -149,7 +151,7 @@ serde_json = "1.0.145"
 # NOTE: The default features pull in `hf-hub` and with it a second major version of `ureq`. The
 # model is embedded in the executable at build time, so nothing is ever downloaded at run time and
 # `local-only` is what is wanted.
-model2vec-rs = { version = "0.2.1", default-features = false, features = ["local-only"] }
+model2vec-rs = { version = "0.4.0", default-features = false, features = ["local-only"] }
 
 # Not used directly. `model2vec-rs` depends on this, and `tokenizers` fails to compile unless a
 # regex backend is picked. The features `model2vec-rs` exposes for that (`onig`, `fancy-regex`)
@@ -158,7 +160,7 @@ model2vec-rs = { version = "0.2.1", default-features = false, features = ["local
 tokenizers = { version = "0.21.4", default-features = false, features = ["fancy-regex"] }
 
 # Used to verify the model which the build script downloads.
-sha2 = "0.10.9"
+sha2 = "0.11.1"
 
 # Used to highlight code by parsing it. Tree-sitter is what editors use, so the grammars are worth
 # having beyond showing code in a chat.
