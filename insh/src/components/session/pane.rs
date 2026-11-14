@@ -25,6 +25,8 @@ pub use props::Props;
 
 /// Contains the [`Event`] enum.
 mod event {
+    use std::path::PathBuf;
+
     use insh_api::{PaneScreen, Response};
     use term::TermEvent;
 
@@ -41,6 +43,11 @@ mod event {
         Response(Response),
         /// The daemon said what has changed about the screen of the program in it.
         Screen(PaneScreen),
+        /// The browser in it was taken to another directory.
+        ChangeDir {
+            /// The directory.
+            dir: PathBuf,
+        },
     }
 }
 pub use event::Event;
@@ -126,6 +133,7 @@ mod pane {
                 Event::SetFocus { focused } => self.state.set_focus(focused),
                 Event::Response(response) => self.state.respond(response),
                 Event::TermEvent(term_event) => self.state.term_event(term_event),
+                Event::ChangeDir { dir } => self.state.change_dir(dir),
             }
         }
 
@@ -887,6 +895,17 @@ mod state {
             self.asked(asked)
         }
 
+        /// Show the browser in it, taken to the directory.
+        pub fn change_dir(&mut self, dir: PathBuf) -> Option<Effect> {
+            // NOTE: A program in it has the pane to itself, so it is left alone. The daemon does
+            // not say to change the directory of one, but it may have started since it said.
+            if self.layout.kind() == PaneKind::Program {
+                return None;
+            }
+
+            self.asked(Asked::Show(Box::new(Showing::Browser(dir, None))))
+        }
+
         /// Do what the terminal event says.
         ///
         /// Nothing is done with it when there is a program in the pane, because what is typed goes
@@ -1488,8 +1507,8 @@ mod tests {
         assert_eq!(copy_start(&pane), (18, 3));
     }
 
-    #[test_case('f', "Find: "; "the finder")]
-    #[test_case('s', "Search: "; "the searcher")]
+    #[test_case('f', "Find:"; "the finder")]
+    #[test_case('s', "Search:"; "the searcher")]
     fn test_copy_mode_starts_where_what_to_look_for_is_typed(open: char, label: &str) {
         let mut pane: Pane = browsing(20, 60, files(1, None));
         press(&mut pane, open);
@@ -1659,11 +1678,14 @@ mod tests {
                 .params(ResponseParams::SearchPhrase(
                     SearchPhraseResponseParams::builder()
                         .hits(vec![
+                            // NOTE: The names are long enough for more than one column of
+                            // them to be highlighted, since only what is written on the selected
+                            // row is.
                             FileHit::new(
-                                Path::new("/tmp/a"),
+                                Path::new("/tmp/alpha"),
                                 vec![LineHit::new(1, "x"), LineHit::new(2, "x")],
                             ),
-                            FileHit::new(Path::new("/tmp/b"), vec![LineHit::new(1, "x")]),
+                            FileHit::new(Path::new("/tmp/beta"), vec![LineHit::new(1, "x")]),
                         ])
                         .searched(2)
                         .duration(Duration::ZERO)
@@ -1848,7 +1870,7 @@ mod tests {
         let mut pane: Pane = searching("/tmp/a");
 
         press(&mut pane, 'f');
-        assert!(drawn(&pane).contains("Files: "));
+        assert!(drawn(&pane).contains("Files:"));
         type_in(&mut pane, typed);
         let request: Request = match press_with(&mut pane, Key::CarriageReturn, KeyMods::NONE) {
             Some(Effect::Request(request)) => request,
@@ -1901,7 +1923,7 @@ mod tests {
     fn test_a_phrase_is_replaced_a_line_at_a_time_or_all_at_once() {
         let mut pane: Pane = browsing(20, 60, files(1, None));
         press_with(&mut pane, Key::Char('R'), KeyMods::SHIFT);
-        assert!(drawn(&pane).contains("Find: "));
+        assert!(drawn(&pane).contains("Find:"));
         assert!(drawn(&pane).contains("replacer"));
 
         press(&mut pane, 'x');

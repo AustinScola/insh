@@ -100,7 +100,7 @@ use action::Action;
 mod session {
     use std::collections::HashMap;
     use std::ops::Range;
-    use std::path::PathBuf;
+    use std::path::{Path, PathBuf};
 
     use super::super::borders::Borders;
     use super::super::copying::{Copying, Moving};
@@ -115,14 +115,16 @@ mod session {
     use crate::typed_path::TypedPath;
 
     use insh_api::{
-        AttachRequestParams, CopyPaneRequestParams, DirScope, DragPaneRequestParams,
-        KillPaneRequestParams, ListSessionsRequestParams, NewSessionRequestParams,
-        NewWindowRequestParams, PaneKind, PaneLayout, RenameSessionRequestParams,
-        RenameWindowRequestParams, Request, RequestParams, ResizeClientRequestParams, Response,
-        ResponseParams, RunCommandRequestParams, RunInPaneRequestParams, ScrollPaneRequestParams,
-        SearchPaneRequestParams, SelectPaneRequestParams, SelectWindowRequestParams,
-        SetDirRequestParams, Split, SplitPaneRequestParams, SwapPaneRequestParams,
-        SyncPanesRequestParams, WritePaneRequestParams, ZoomPaneRequestParams,
+        AttachRequestParams, ChangeDirRequestParams, CopyPaneRequestParams, DirScope,
+        DragPaneRequestParams, KillPaneRequestParams, KillSessionRequestParams,
+        KillWindowRequestParams, ListSessionsRequestParams, NewSessionRequestParams,
+        NewWindowRequestParams, PaneKind, PaneLayout, RenamePaneRequestParams,
+        RenameSessionRequestParams, RenameWindowRequestParams, Request, RequestParams,
+        ResizeClientRequestParams, Response, ResponseParams, RunCommandRequestParams,
+        RunInPaneRequestParams, ScrollPaneRequestParams, SearchPaneRequestParams,
+        SelectPaneRequestParams, SelectWindowRequestParams, SetDirRequestParams, Split,
+        SplitPaneRequestParams, SwapPaneRequestParams, SyncPanesRequestParams, Target,
+        WritePaneRequestParams, ZoomPaneRequestParams,
     };
     use rend::{Cell, Fabric, Location, Seeking, Size};
     use term::{Key, KeyEvent, KeyMods, MouseButton, MouseEvent, MouseEventKind, TermEvent};
@@ -173,10 +175,20 @@ mod session {
                 self.state.hovering = None;
             }
 
-            match event {
+            let elsewhere: bool = self.state.is_typed_elsewhere();
+            let effect: Option<Effect> = match event {
                 Event::TermEvent(term_event) => self.handle_term_event(term_event),
                 Event::Response(response) => self.handle_response(response),
+            };
+
+            // NOTE: The prompt and the list of sessions are opened and closed in many places, so
+            // whether either of them went up or came down is looked at once here rather than at
+            // each of those.
+            if self.state.is_typed_elsewhere() != elsewhere {
+                self.state.tell_panes_about_focus();
             }
+
+            effect
         }
 
         fn render(&self, size: Size) -> Fabric {
@@ -188,12 +200,25 @@ mod session {
         /// Do what the terminal event says.
         fn handle_term_event(&mut self, term_event: TermEvent) -> Option<Effect> {
             // NOTE: The list of sessions and the prompt are drawn over the panes and take what is
-            // typed while they are up, so nothing reaches a pane until they have been closed.
+            // typed while they are up, so nothing reaches a pane until they have been closed. The
+            // prompt goes first, since renaming from the list asks what to call it there.
+            if self.state.prompt.is_some() {
+                match &term_event {
+                    // NOTE: The mouse anywhere but the prompt does what it does without the prompt,
+                    // and pressing anywhere else gives up on what was being typed first, so that
+                    // opening the prompt by pressing on the footer does not leave nothing else
+                    // which can be pressed on.
+                    TermEvent::Mouse(mouse_event) if mouse_event.row + 1 < self.state.size.rows => {
+                        if matches!(mouse_event.kind, MouseEventKind::Press(_)) {
+                            self.state.prompt = None;
+                            self.state.renaming = None;
+                        }
+                    }
+                    _ => return self.handle_prompt_event(term_event),
+                }
+            }
             if self.state.tree.is_some() {
                 return self.handle_tree_event(term_event);
-            }
-            if self.state.prompt.is_some() {
-                return self.handle_prompt_event(term_event);
             }
             if self.state.is_copying() {
                 return self.handle_copying(term_event);
@@ -245,11 +270,67 @@ mod session {
                 ));
             }
 
+            // NOTE: The list is drawn above the footer, so there is room for one row fewer than
+            // there are in the terminal.
+            let rows: usize = self.state.size.rows.saturating_sub(1);
+            if let TermEvent::Mouse(mouse_event) = &term_event {
+                self.state.hovering = Some(Location {
+                    row: mouse_event.row,
+                    column: mouse_event.column,
+                });
+            }
             let tree: &mut Tree = self.state.tree.as_mut()?;
+            let effect: TreeEffect = match term_event {
+                TermEvent::Mouse(mouse_event) => tree.mouse(&mouse_event, rows)?,
+                term_event => tree.handle(term_event)?,
+            };
 
-            match tree.handle(term_event)? {
+            match effect {
                 TreeEffect::Close => {
                     self.state.tree = None;
+                    None
+                }
+                TreeEffect::Kill {
+                    session,
+                    window,
+                    pane,
+                } => {
+                    let params: RequestParams = match (window, pane) {
+                        (_, Some(pane)) => RequestParams::KillPane(
+                            KillPaneRequestParams::builder()
+                                .pane(Target::Id(pane))
+                                .build(),
+                        ),
+                        (Some(window), None) => RequestParams::KillWindow(
+                            KillWindowRequestParams::builder()
+                                .window(Target::Id(window))
+                                .build(),
+                        ),
+                        (None, None) => RequestParams::KillSession(
+                            KillSessionRequestParams::builder()
+                                .session(Target::Id(session))
+                                .build(),
+                        ),
+                    };
+
+                    // The list is asked for again so that what was closed goes from it.
+                    Some(Effect::Requests(vec![
+                        Request::builder().params(params).build(),
+                        State::list_sessions(),
+                    ]))
+                }
+                TreeEffect::Rename {
+                    session,
+                    window,
+                    pane,
+                    name,
+                } => {
+                    let (asking, renaming): (Asking, Uuid) = match (window, pane) {
+                        (_, Some(pane)) => (Asking::PaneName, pane),
+                        (Some(window), None) => (Asking::WindowName, window),
+                        (None, None) => (Asking::SessionName, session),
+                    };
+                    self.state.ask_name(asking, name, Some(renaming));
                     None
                 }
                 TreeEffect::Show {
@@ -423,13 +504,14 @@ mod session {
                 PromptEffect::Request(request) => Some(Effect::Request(request)),
                 PromptEffect::Close => {
                     self.state.prompt = None;
+                    self.state.renaming = None;
                     None
                 }
                 PromptEffect::Run { command, typed } => {
                     // NOTE: This is complained about rather than left to the daemon because only
                     // the client knows what a relative path is from, and it is checked before the
                     // prompt goes so that what was wrong can be said where it was typed.
-                    if let Command::SetDir { dir, .. } = &command {
+                    if let Command::SetDir { dir, .. } | Command::ChangeDir { dir, .. } = &command {
                         let dir: PathBuf = self.state.typed_dir(dir);
                         if !dir.is_dir() {
                             let message = format!("Not a directory: {}", dir.display());
@@ -573,10 +655,10 @@ mod session {
             // NOTE: The same goes for what the daemon suggests the rest of what is being typed at
             // the prompt is, which is asked for on a request of the prompt's own.
             if let ResponseParams::SuggestCommand(_) = response.params() {
-                if let Some(prompt) = self.state.prompt.as_mut() {
-                    prompt.handle_response(&response);
-                }
-                return None;
+                return match self.state.prompt.as_mut()?.handle_response(&response)? {
+                    PromptEffect::Request(request) => Some(Effect::Request(request)),
+                    _ => None,
+                };
             }
 
             // NOTE: A directory which is being typed at the prompt is suggested the way one typed
@@ -584,8 +666,10 @@ mod session {
             // the prompt only takes the answer to the request which it asked.
             if let Some(prompt) = self.state.prompt.as_mut() {
                 if prompt.is_suggestion(response.uuid()) {
-                    prompt.handle_response(&response);
-                    return None;
+                    return match prompt.handle_response(&response)? {
+                        PromptEffect::Request(request) => Some(Effect::Request(request)),
+                        _ => None,
+                    };
                 }
             }
 
@@ -616,6 +700,9 @@ mod session {
                         true => Some(Effect::Bell),
                         false => None,
                     }
+                }
+                ResponseParams::ChangedDir(params) => {
+                    self.state.changed_dir(params.panes(), params.dir())
                 }
                 // NOTE: Nothing is done about a pane finishing beyond waiting for the layout which
                 // follows it, since that is what says which panes are left.
@@ -660,6 +747,9 @@ mod session {
         tree: Option<Tree>,
         /// Where a command for the multiplexer is typed, while it is being typed.
         prompt: Option<Prompt>,
+        /// The session, window or pane picked from the list which the prompt is asking what to
+        /// call, which is nothing at all when it is the one being looked at.
+        renaming: Option<Uuid>,
         /// Where in each pane which is being looked back through is being looked at.
         copying: HashMap<Uuid, Copying>,
         /// The request which asked where something being looked for is, and the pane it is being
@@ -695,6 +785,7 @@ mod session {
                 dragging: None,
                 tree: None,
                 prompt: None,
+                renaming: None,
                 copying: HashMap::new(),
                 searching: None,
                 last_search: None,
@@ -760,7 +851,11 @@ mod session {
                     [prefix(), then(Key::Char('"'))],
                     run(Command::SplitHorizontally),
                 )
-                .bind([prefix(), then(Key::Char('x'))], run(Command::KillPane))
+                .bind([prefix(), then(Key::Char('+'))], run(Command::SplitQuad))
+                .bind(
+                    [prefix(), then(Key::Char('x'))],
+                    run(Command::KillPane { name: None }),
+                )
                 // NOTE: An arrow on its own goes to the pane that way and one held with control
                 // moves the line on that side of it, which is how tmux has them. The letters do
                 // the same as the arrows, for whoever would rather not reach for them.
@@ -920,18 +1015,100 @@ mod session {
                 .map(|window| window.name().to_string());
         }
 
-        /// Call the session or the window being looked at what was typed.
-        pub fn name(&mut self, what: Asking, name: String) -> Option<Effect> {
-            let params: RequestParams = match what {
-                Asking::WindowName => RequestParams::RenameWindow(
-                    RenameWindowRequestParams::builder().name(name).build(),
-                ),
-                _ => RequestParams::RenameSession(
-                    RenameSessionRequestParams::builder().name(name).build(),
-                ),
+        /// Return what the pane what is typed goes to is called.
+        fn pane_name(&self) -> Option<String> {
+            let layout = self.layout.as_ref()?;
+
+            return layout
+                .panes()
+                .iter()
+                .find(|pane| pane.pane() == layout.pane())
+                .map(|pane| pane.name().to_string());
+        }
+
+        /// Return the request which asks for the sessions there are.
+        pub fn list_sessions() -> Request {
+            return Request::builder()
+                .params(RequestParams::ListSessions(
+                    ListSessionsRequestParams::builder().build(),
+                ))
+                .build();
+        }
+
+        /// Ask what to call something, starting from what it is called already.
+        ///
+        /// What is being renamed is the one picked from the list when it is said, and the one
+        /// being looked at otherwise.
+        pub fn ask_name(&mut self, asking: Asking, called: String, renaming: Option<Uuid>) {
+            // NOTE: Something which goes by its number has not been called anything, so there is
+            // nothing to start from and the number would only be typed over.
+            let numbered: bool = !called.is_empty() && called.chars().all(|c| c.is_ascii_digit());
+            let called: String = match numbered {
+                true => String::new(),
+                false => called,
             };
 
-            Some(Effect::Request(Request::builder().params(params).build()))
+            self.renaming = renaming;
+            self.prompt = Some(
+                Prompt::builder()
+                    .asking(asking)
+                    .typed(called)
+                    .paths(self.typed_paths())
+                    .build(),
+            );
+        }
+
+        /// Call the session, window or pane what was typed.
+        pub fn name(&mut self, what: Asking, name: String) -> Option<Effect> {
+            let renaming: Option<Uuid> = self.renaming.take();
+            let params: RequestParams = match what {
+                Asking::WindowName => RequestParams::RenameWindow(
+                    RenameWindowRequestParams::builder()
+                        .window(renaming)
+                        .name(name)
+                        .build(),
+                ),
+                Asking::PaneName => RequestParams::RenamePane(
+                    RenamePaneRequestParams::builder()
+                        .pane(renaming)
+                        .name(name)
+                        .build(),
+                ),
+                _ => RequestParams::RenameSession(
+                    RenameSessionRequestParams::builder()
+                        .session(renaming)
+                        .name(name)
+                        .build(),
+                ),
+            };
+            let request: Request = Request::builder().params(params).build();
+
+            // NOTE: Something renamed from the list is renamed in the list as well, which means
+            // asking for it again.
+            return match self.tree.is_some() {
+                true => Some(Effect::Requests(vec![request, Self::list_sessions()])),
+                false => Some(Effect::Request(request)),
+            };
+        }
+
+        /// Take the browser in each of the panes which are being shown to the directory.
+        pub fn changed_dir(&mut self, panes: &[Uuid], dir: &Path) -> Option<Effect> {
+            let mut requests: Vec<Request> = Vec::new();
+            for pane in panes {
+                let event = PaneEvent::ChangeDir {
+                    dir: dir.to_path_buf(),
+                };
+                match self.tell_pane(pane, vec![event]) {
+                    Some(Effect::Request(request)) => requests.push(request),
+                    Some(Effect::Requests(more)) => requests.extend(more),
+                    _ => {}
+                }
+            }
+
+            match requests.is_empty() {
+                true => None,
+                false => Some(Effect::Requests(requests)),
+            }
         }
         /// Do the command, which is either one which was typed at the prompt or one which a key
         /// the multiplexer takes does.
@@ -940,21 +1117,46 @@ mod session {
             // about a pane. Listing the sessions, making one, and detaching are none of them, and
             // asking first would be giving up on those whenever there is no pane to be had.
             let params: RequestParams = match command {
-                Command::SplitVertically => RequestParams::SplitPane(
-                    SplitPaneRequestParams::builder()
-                        .pane(self.active()?)
-                        .split(Split::Beside)
-                        .build(),
-                ),
-                Command::SplitHorizontally => RequestParams::SplitPane(
-                    SplitPaneRequestParams::builder()
-                        .pane(self.active()?)
-                        .split(Split::Below)
-                        .build(),
-                ),
-                Command::KillPane => RequestParams::KillPane(
+                Command::SplitVertically => Self::split(Split::Beside),
+                Command::SplitHorizontally => Self::split(Split::Below),
+                // NOTE: The pane is split side by side and then each half one above the other,
+                // which makes a grid of four. The second split is of whichever pane what is typed
+                // goes to once the first is done, which is the new one, so it is the daemon which
+                // says which pane it is. What is typed goes back to the pane which was split.
+                Command::SplitQuad => {
+                    let pane: Uuid = self.active()?;
+                    let of = |pane: Target| {
+                        Request::builder()
+                            .params(RequestParams::SplitPane(
+                                SplitPaneRequestParams::builder()
+                                    .pane(pane)
+                                    .split(Split::Below)
+                                    .build(),
+                            ))
+                            .build()
+                    };
+                    return Some(Effect::Requests(vec![
+                        Request::builder()
+                            .params(Self::split(Split::Beside))
+                            .build(),
+                        of(Target::Current),
+                        of(Target::Id(pane)),
+                        Request::builder().params(Self::focus(pane)).build(),
+                    ]));
+                }
+                Command::KillPane { name } => RequestParams::KillPane(
                     KillPaneRequestParams::builder()
-                        .pane(self.active()?)
+                        .pane(name.map_or(Target::Current, Target::Named))
+                        .build(),
+                ),
+                Command::KillWindow { name } => RequestParams::KillWindow(
+                    KillWindowRequestParams::builder()
+                        .window(name.map_or(Target::Current, Target::Named))
+                        .build(),
+                ),
+                Command::KillSession { name } => RequestParams::KillSession(
+                    KillSessionRequestParams::builder()
+                        .session(name.map_or(Target::Current, Target::Named))
                         .build(),
                 ),
                 Command::FocusDown => Self::focus(self.pane_toward(Toward::Down)?),
@@ -988,13 +1190,7 @@ mod session {
                             .as_ref()
                             .map(|layout| layout.name().to_string())
                             .unwrap_or_default();
-                        self.prompt = Some(
-                            Prompt::builder()
-                                .asking(Asking::SessionName)
-                                .typed(called)
-                                .paths(self.typed_paths())
-                                .build(),
-                        );
+                        self.ask_name(Asking::SessionName, called, None);
                         return None;
                     }
                 },
@@ -1004,18 +1200,31 @@ mod session {
                     ),
                     None => {
                         let called: String = self.window_name().unwrap_or_default();
-                        self.prompt = Some(
-                            Prompt::builder()
-                                .asking(Asking::WindowName)
-                                .typed(called)
-                                .paths(self.typed_paths())
-                                .build(),
-                        );
+                        self.ask_name(Asking::WindowName, called, None);
+                        return None;
+                    }
+                },
+                Command::RenamePane { name } => match name {
+                    Some(name) => RequestParams::RenamePane(
+                        RenamePaneRequestParams::builder().name(name).build(),
+                    ),
+                    None => {
+                        let called: String = self.pane_name().unwrap_or_default();
+                        self.ask_name(Asking::PaneName, called, None);
                         return None;
                     }
                 },
                 Command::SetDir { session, dir, .. } => RequestParams::SetDir(
                     SetDirRequestParams::builder()
+                        .scope(match session {
+                            true => DirScope::Session,
+                            false => DirScope::Window,
+                        })
+                        .dir(self.typed_dir(&dir))
+                        .build(),
+                ),
+                Command::ChangeDir { session, dir, .. } => RequestParams::ChangeDir(
+                    ChangeDirRequestParams::builder()
                         .scope(match session {
                             true => DirScope::Session,
                             false => DirScope::Window,
@@ -1032,7 +1241,7 @@ mod session {
                 Command::ChangeMode { mode } => return self.change_mode(mode),
                 Command::ListSessions => {
                     self.tree = Some(Tree::default());
-                    RequestParams::ListSessions(ListSessionsRequestParams::builder().build())
+                    return Some(Effect::Request(Self::list_sessions()));
                 }
                 Command::Detach => return Some(Effect::Quit),
             };
@@ -1074,6 +1283,17 @@ mod session {
         pub fn focus(pane: Uuid) -> RequestParams {
             return RequestParams::SelectPane(
                 SelectPaneRequestParams::builder().pane(pane).build(),
+            );
+        }
+
+        /// Return what asking for the pane what is typed goes to to be split the given way asks
+        /// for.
+        fn split(split: Split) -> RequestParams {
+            return RequestParams::SplitPane(
+                SplitPaneRequestParams::builder()
+                    .pane(Target::Current)
+                    .split(split)
+                    .build(),
             );
         }
 
@@ -1327,6 +1547,59 @@ mod session {
             }
         }
 
+        /// Return the spots of the lines which are being dragged, or which would be if the mouse
+        /// were pressed where it is.
+        ///
+        /// NOTE: Which lines those are is what the daemon says each pane drags, since that is
+        /// worked out from how the panes are arranged, which only the daemon knows. A line is
+        /// drawn as hovered the whole of the way it moves, along with where it meets the lines at
+        /// either end of it.
+        fn lines_under_mouse(&self) -> Vec<Location> {
+            let layout = match &self.layout {
+                Some(layout) => layout,
+                None => return Vec::new(),
+            };
+            let taken: Option<Dragging>;
+            let dragging: &Dragging = match &self.dragging {
+                Some(dragging) => dragging,
+                None => {
+                    taken = self
+                        .hovering
+                        .and_then(|at| self.take_hold(at.row, at.column));
+                    match &taken {
+                        Some(taken) => taken,
+                        None => return Vec::new(),
+                    }
+                }
+            };
+
+            let mut spots: Vec<Location> = Vec::new();
+            for (held, split) in [
+                (&dragging.beside, Split::Beside),
+                (&dragging.below, Split::Below),
+            ] {
+                let panes: &[Uuid] = held.as_ref().map_or(&[], |held| held.panes.as_slice());
+                for line in layout.lines().iter().filter(|line| {
+                    line.split() == split && line.panes().iter().any(|pane| panes.contains(pane))
+                }) {
+                    for along in line.from().saturating_sub(1)..=line.to() {
+                        spots.push(match split {
+                            Split::Beside => Location {
+                                row: along,
+                                column: line.at(),
+                            },
+                            Split::Below => Location {
+                                row: line.at(),
+                                column: along,
+                            },
+                        });
+                    }
+                }
+            }
+
+            return spots;
+        }
+
         /// Move the lines which are being dragged to where the mouse is now.
         pub fn dragged(&mut self, row: usize, column: usize) -> Option<Effect> {
             let dragging: &mut Dragging = self.dragging.as_mut()?;
@@ -1534,21 +1807,6 @@ mod session {
                 (true, true) => Some(Effect::Bell),
                 (true, false) => None,
             };
-        }
-
-        /// Return which of the panes of the window what is typed goes to is, counting from zero
-        /// the way tmux counts them.
-        pub fn pane_number(&self) -> usize {
-            let layout = match &self.layout {
-                Some(layout) => layout,
-                None => return 0,
-            };
-
-            return layout
-                .panes()
-                .iter()
-                .position(|pane| pane.pane() == layout.pane())
-                .unwrap_or(0);
         }
 
         /// Return the request which looks the given number of rows further back through what has
@@ -1792,22 +2050,31 @@ mod session {
             return self.look_back(isize::MIN);
         }
 
+        /// Return whether what is typed goes to the prompt or the list of sessions, which no pane
+        /// is shown as having while either is up.
+        fn is_typed_elsewhere(&self) -> bool {
+            return self.prompt.is_some() || self.tree.is_some();
+        }
+
         /// Tell every pane whether what is typed is going to it, so that only the ones it is going
         /// to show which of their rows is selected.
         ///
         /// Every pane of a window which is being typed in together is one of them, and none of them
         /// are while the pane what is typed goes to is being looked back through, since the keys
-        /// go to that instead. Nor is a pane which is being looked back through.
+        /// go to that instead. Nor is a pane which is being looked back through, nor any while
+        /// what is typed goes to the prompt or the list of sessions.
         fn tell_panes_about_focus(&mut self) {
             let layout = match &self.layout {
                 Some(layout) => layout,
                 None => return,
             };
 
+            let elsewhere: bool = self.is_typed_elsewhere();
             let copying: bool = self.copying.contains_key(layout.pane());
             for (id, pane) in &mut self.panes {
                 pane.handle(PaneEvent::SetFocus {
-                    focused: !copying
+                    focused: !elsewhere
+                        && !copying
                         && !self.copying.contains_key(id)
                         && (layout.synchronized() || id == layout.pane()),
                 });
@@ -2116,15 +2383,38 @@ mod session {
                         },
                     };
                     fabric.set_background(Some(Color::Hover.into()), hovering.row, columns.clone());
-                    fabric.set_color(Some(Color::InvertedText.into()), hovering.row, columns);
+                    // NOTE: What is grayed already, such as the directory a file found is in, stays
+                    // grayed, the way it is on a selected row which is not focused, so that a row
+                    // looks the same under the mouse as it does selected.
+                    let grayed: Option<ansi::Color> = Some(Color::GrayedText.into());
+                    for column in columns {
+                        if fabric.spot(hovering.row, column).style().color() != grayed {
+                            fabric.set_color(
+                                Some(Color::InvertedText.into()),
+                                hovering.row,
+                                column..column + 1,
+                            );
+                        }
+                    }
                 }
             }
 
             // NOTE: The lines are drawn once all of the panes are, and all together rather than a
             // pane at a time, because which character a spot is drawn as depends on which of the
             // spots around it are lines as well.
-            Borders::of(layout.panes(), layout.pane(), Size::new(rows, size.columns))
-                .draw(&mut fabric);
+            // NOTE: The edge of the pane the mouse is over is drawn as hovered as well as the lines
+            // which would be taken hold of, so that it is plain which pane pressing would go to.
+            let mut borders: Borders =
+                Borders::of(layout.panes(), layout.pane(), Size::new(rows, size.columns))
+                    .hovering(self.lines_under_mouse());
+            if let Some(pane) = self
+                .hovering
+                .and_then(|hovering| self.pane_drawn_at(hovering.row, hovering.column))
+                .and_then(|pane| layout.panes().iter().find(|shown| *shown.pane() == pane))
+            {
+                borders = borders.hovering_pane(pane);
+            }
+            borders.draw(&mut fabric);
 
             // The cursor of the pane what is typed goes to is the one the terminal shows, so that
             // it is where the program which is being typed at has it. Nothing is typed at while
@@ -2138,7 +2428,13 @@ mod session {
             // The list of sessions is drawn over the panes rather than beside them, so that it
             // does not change how big any of them is while it is up.
             if let Some(tree) = &self.tree {
-                fabric = tree.render(Size::new(rows, size.columns));
+                // NOTE: The prompt takes what is typed while it is up, which is while something
+                // picked from the list is being renamed.
+                fabric = tree.render(
+                    Size::new(rows, size.columns),
+                    self.prompt.is_none(),
+                    self.hovering,
+                );
                 fabric.set_cursor(None);
             }
 
@@ -2147,8 +2443,11 @@ mod session {
                 Some(prompt) => prompt.render(Size::new(1, size.columns)),
                 None => {
                     let mut footer: Fabric = self.footer(size.columns);
+                    // NOTE: The footer is made another green rather than grayed while the mouse
+                    // is over it, so that it is still plain that it is the footer of the session.
                     if self.hovering.is_some_and(|hovering| hovering.row == rows) {
-                        footer.set_background(Some(Color::Hover.into()), 0, 0..size.columns);
+                        let hover: Color = Color::SessionFooterHover;
+                        footer.set_background(Some(hover.into()), 0, 0..size.columns);
                         footer.set_color(Some(Color::InvertedText.into()), 0, 0..size.columns);
                     }
                     footer
@@ -2199,14 +2498,23 @@ mod session {
             // NOTE: A window which is being typed in together is not being typed in at any one of
             // its panes, so none of them is named. Leaving it out is what says the window is being
             // typed in together, so it is not said again in words.
-            let where_you_are: String = match layout.synchronized() {
+            let mut where_you_are: String = match layout.synchronized() {
                 true => format!("{}:{}", layout.name(), name),
-                false => format!("{}:{}:{}", layout.name(), name, self.state.pane_number()),
+                false => format!(
+                    "{}:{}:{}",
+                    layout.name(),
+                    name,
+                    self.state.pane_name().unwrap_or_default()
+                ),
             };
 
-            // NOTE: Nothing is said about what the window is doing which is out of the ordinary.
-            // Being zoomed or being looked back through is plain from the pane itself, and the
-            // footer saying so as well is one more thing moving about down there to read past.
+            // NOTE: Being zoomed is said, since a pane filling the window looks the same as a
+            // window with only the one pane in it. Being looked back through is plain from the
+            // pane itself, so it is not.
+            if layout.zoomed() {
+                where_you_are.push_str(" (zoomed)");
+            }
+
             return where_you_are;
         }
 
@@ -2232,9 +2540,9 @@ mod tests {
     use file_info::FileInfo;
     use file_type::FileType;
     use insh_api::{
-        DirScope, GetFilesResponseParams, Layout, LayoutResponseParams, PaneKind, PaneLayout,
-        PaneScreen, Request, RequestParams, Response, ResponseParams, SearchPaneResponseParams,
-        Split, Window,
+        DirScope, GetFilesResponseParams, Layout, LayoutResponseParams, LineLayout, PaneKind,
+        PaneLayout, PaneScreen, Request, RequestParams, Response, ResponseParams,
+        SearchPaneResponseParams, Split, Target, Window,
     };
     use rend::{Fabric, Location, Size};
     use term::{Key, KeyEvent, KeyMods, MouseButton, MouseEvent, MouseEventKind, TermEvent};
@@ -2353,6 +2661,285 @@ mod tests {
                 _ => panic!("Expected a line to be asked to move."),
             })
             .collect()
+    }
+
+    /// Return what has been typed at the prompt, which is drawn along the bottom.
+    fn prompted(session: &Session) -> String {
+        let fabric: Fabric = session.render(Size::new(24, 80));
+        (0..80)
+            .map(|column| fabric.spot(23, column).cell().to_string())
+            .collect::<String>()
+            .trim_end()
+            .to_string()
+    }
+
+    #[test_case::test_case(',', "Rename window:"; "a window which goes by its number")]
+    #[test_case::test_case('$', "Rename session:"; "a session which goes by its number")]
+    fn test_renaming_something_which_goes_by_its_number_starts_from_nothing(
+        key: char,
+        expected: &str,
+    ) {
+        let (mut session, _) = session(
+            vec![shown(1, (0, 0), (23, 80), PaneKind::Component)],
+            1,
+            Vec::new(),
+        );
+
+        press(&mut session, Key::Char('b'), KeyMods::CONTROL);
+        press(&mut session, Key::Char(key), KeyMods::SHIFT);
+
+        assert_eq!(prompted(&session), expected);
+    }
+
+    #[test_case::test_case(40, Color::FocusedBorderHover; "the edge of the pane what is typed goes to")]
+    #[test_case::test_case(60, Color::BorderHover; "a line between two other panes")]
+    fn test_the_line_under_the_mouse_is_drawn_as_hovered(column: usize, expected: Color) {
+        let mut session: Session = lined(
+            vec![
+                shown(1, (0, 0), (23, 40), PaneKind::Component),
+                shown(2, (0, 41), (23, 19), PaneKind::Component),
+                shown(3, (0, 61), (23, 19), PaneKind::Component),
+            ],
+            vec![
+                line(Split::Beside, 40, (0, 23), &[1]),
+                line(Split::Beside, 60, (0, 23), &[2, 3]),
+            ],
+            1,
+        );
+
+        mouse(&mut session, MouseEventKind::Moved, 5, column);
+        let fabric: Fabric = session.render(Size::new(24, 80));
+
+        // The whole of the line is drawn as hovered, and not only the spot the mouse is on.
+        for row in [0, 5, 22] {
+            assert_eq!(
+                fabric.spot(row, column).style().color(),
+                Some(expected.into())
+            );
+        }
+    }
+
+    #[test_case::test_case(5, 10, 40, Color::FocusedBorderHover; "the pane what is typed goes to")]
+    #[test_case::test_case(5, 70, 60, Color::BorderHover; "another pane")]
+    #[test_case::test_case(5, 50, 40, Color::FocusedBorderHover; "another pane, whose edge with the one typed in stays its color")]
+    fn test_the_edge_of_the_pane_under_the_mouse_is_drawn_as_hovered(
+        row: usize,
+        column: usize,
+        line: usize,
+        expected: Color,
+    ) {
+        let (mut session, _) = session(
+            vec![
+                shown(1, (0, 0), (23, 40), PaneKind::Component),
+                shown(2, (0, 41), (23, 19), PaneKind::Component),
+                shown(3, (0, 61), (23, 19), PaneKind::Component),
+            ],
+            1,
+            Vec::new(),
+        );
+
+        mouse(&mut session, MouseEventKind::Moved, row, column);
+        let fabric: Fabric = session.render(Size::new(24, 80));
+
+        assert_eq!(fabric.spot(10, line).style().color(), Some(expected.into()));
+    }
+
+    #[test]
+    fn test_pressing_elsewhere_gives_up_on_the_prompt_and_does_what_pressing_there_does() {
+        let mut session: Session = browsing();
+        mouse(
+            &mut session,
+            MouseEventKind::Press(MouseButton::Left),
+            23,
+            5,
+        );
+
+        // The pane on the left is pressed on, which is not the one typed in.
+        let effect: Option<Effect> =
+            mouse(&mut session, MouseEventKind::Press(MouseButton::Left), 5, 5);
+
+        let fabric: Fabric = session.render(Size::new(24, 80));
+        assert!(!fabric.text(23, 0..80).starts_with(':'));
+        let requests: Vec<Request> = match effect {
+            Some(Effect::Request(request)) => vec![request],
+            Some(Effect::Requests(requests)) => requests,
+            _ => Vec::new(),
+        };
+        assert!(requests.iter().any(|request| matches!(
+            request.params(),
+            RequestParams::SelectPane(params) if *params.pane() == pane(1)
+        )));
+    }
+
+    /// Return a line between panes, which the panes with the given numbers drag.
+    fn line(split: Split, at: usize, (from, to): (usize, usize), panes: &[u128]) -> LineLayout {
+        LineLayout::builder()
+            .split(split)
+            .at(at)
+            .from(from)
+            .to(to)
+            .panes(panes.iter().map(|number| pane(*number)).collect())
+            .build()
+    }
+
+    /// Return a session which has been told about the panes and the lines between them.
+    fn lined(panes: Vec<PaneLayout>, lines: Vec<LineLayout>, focused: u128) -> Session {
+        let (mut session, _) = session(panes.clone(), focused, Vec::new());
+        let window: Uuid = Uuid::from_u128(200);
+        let layout: Layout = Layout::builder()
+            .session(Uuid::from_u128(201))
+            .name("0")
+            .windows(vec![Window::builder().window(window).name("0").build()])
+            .window(window)
+            .panes(panes)
+            .lines(lines)
+            .pane(pane(focused))
+            .build();
+        session.handle(Event::Response(
+            Response::builder()
+                .uuid(REQUEST)
+                .params(ResponseParams::Layout(
+                    LayoutResponseParams::builder().layout(layout).build(),
+                ))
+                .build(),
+        ));
+        session
+    }
+
+    #[test]
+    fn test_the_whole_of_a_line_which_a_drag_moves_lights_up() {
+        // Two panes stacked on the left and one on the right, so that dragging the line down the
+        // middle beside either of the panes on the left moves all of it.
+        let mut session: Session = lined(
+            vec![
+                shown(1, (0, 0), (11, 40), PaneKind::Component),
+                shown(2, (12, 0), (11, 40), PaneKind::Component),
+                shown(3, (0, 41), (23, 39), PaneKind::Component),
+            ],
+            vec![
+                line(Split::Below, 11, (0, 40), &[1, 2]),
+                line(Split::Beside, 40, (0, 23), &[1, 2, 3]),
+            ],
+            9,
+        );
+
+        // The line is pointed at beside the top pane, and lights up beside the bottom one too.
+        mouse(&mut session, MouseEventKind::Moved, 5, 40);
+        let fabric: Fabric = session.render(Size::new(24, 80));
+
+        assert_eq!(
+            fabric.spot(20, 40).style().color(),
+            Some(Color::BorderHover.into())
+        );
+    }
+
+    #[test]
+    fn test_a_line_across_the_screen_lights_up() {
+        let mut session: Session = lined(
+            vec![
+                shown(1, (0, 0), (11, 80), PaneKind::Component),
+                shown(2, (12, 0), (11, 80), PaneKind::Component),
+            ],
+            vec![line(Split::Below, 11, (0, 80), &[1, 2])],
+            9,
+        );
+
+        mouse(&mut session, MouseEventKind::Moved, 11, 30);
+        let fabric: Fabric = session.render(Size::new(24, 80));
+
+        assert_eq!(
+            fabric.spot(11, 5).style().color(),
+            Some(Color::BorderHover.into())
+        );
+    }
+
+    #[test]
+    fn test_only_the_lines_which_a_drag_moves_light_up() {
+        // The lines across the screen either side of where the lines cross are dragged apart.
+        let mut session: Session = lined(
+            square(),
+            vec![
+                line(Split::Beside, 40, (0, 23), &[1, 2, 3, 4]),
+                line(Split::Below, 10, (0, 40), &[1, 3]),
+                line(Split::Below, 10, (41, 80), &[2, 4]),
+            ],
+            9,
+        );
+
+        // The line across the screen on the left of where the lines cross is pointed at.
+        mouse(&mut session, MouseEventKind::Moved, 10, 5);
+        let fabric: Fabric = session.render(Size::new(24, 80));
+
+        assert_eq!(
+            fabric.spot(10, 30).style().color(),
+            Some(Color::BorderHover.into())
+        );
+        assert_eq!(
+            fabric.spot(10, 60).style().color(),
+            Some(Color::Border.into())
+        );
+    }
+
+    #[test]
+    fn test_nothing_is_highlighted_as_focused_while_the_prompt_is_up() {
+        let mut session: Session = browsing();
+        let highlighted = |session: &Session| -> bool {
+            let fabric: Fabric = session.render(Size::new(24, 80));
+            (0..23).any(|row| {
+                (0..80)
+                    .any(|column| background(&fabric, row, column) == Some(Color::Highlight.into()))
+            })
+        };
+        assert!(highlighted(&session));
+
+        press(&mut session, Key::Char('b'), KeyMods::CONTROL);
+        press(&mut session, Key::Char(':'), KeyMods::SHIFT);
+        assert!(!highlighted(&session));
+
+        press(&mut session, Key::Escape, KeyMods::NONE);
+        assert!(highlighted(&session));
+    }
+
+    #[test]
+    fn test_splitting_into_a_grid() {
+        let (mut session, _) = session(
+            vec![shown(1, (0, 0), (23, 80), PaneKind::Component)],
+            1,
+            Vec::new(),
+        );
+
+        press(&mut session, Key::Char('b'), KeyMods::CONTROL);
+        let effect: Option<Effect> = press(&mut session, Key::Char('+'), KeyMods::SHIFT);
+
+        let requests: Vec<Request> = match effect {
+            Some(Effect::Requests(requests)) => requests,
+            _ => Vec::new(),
+        };
+        let splits: Vec<(Target, bool)> = requests
+            .iter()
+            .filter_map(|request| match request.params() {
+                RequestParams::SplitPane(params) => Some((
+                    params.pane().clone(),
+                    matches!(params.split(), Split::Beside),
+                )),
+                _ => None,
+            })
+            .collect();
+        // The second is of whichever pane is typed in once the first is done, which is the new
+        // one, and the third is of the pane which was split to begin with.
+        assert_eq!(
+            splits,
+            vec![
+                (Target::Current, true),
+                (Target::Current, false),
+                (Target::Id(pane(1)), false)
+            ]
+        );
+        // What is typed goes back to the pane which was split.
+        assert!(matches!(
+            requests.last().map(Request::params),
+            Some(RequestParams::SelectPane(params)) if *params.pane() == pane(1)
+        ));
     }
 
     /// Return four panes in a square, whose lines cross at row 10 and column 40.
@@ -2952,17 +3539,60 @@ mod tests {
         press(&mut session, Key::Char('j'), KeyMods::NONE);
         let fabric: Fabric = session.render(Size::new(24, 80));
 
-        assert_ne!(background(&fabric, 23, 0), Some(Color::Hover.into()));
+        assert_ne!(
+            background(&fabric, 23, 0),
+            Some(Color::SessionFooterHover.into())
+        );
+    }
+
+    #[test_case::test_case(false, "0:0:2"; "the pane by its name")]
+    #[test_case::test_case(true, "0:0:2 (zoomed)"; "a pane which fills the window, which is said")]
+    fn test_the_footer_says_where_you_are(zoomed: bool, expected: &str) {
+        let (mut session, _) = session(Vec::new(), 1, Vec::new());
+        let window: Uuid = Uuid::from_u128(200);
+        let layout: Layout = Layout::builder()
+            .session(Uuid::from_u128(201))
+            .name("0")
+            .windows(vec![Window::builder().window(window).name("0").build()])
+            .window(window)
+            .panes(vec![PaneLayout::builder()
+                .pane(pane(1))
+                .at(Location::default())
+                .size(Size::new(23, 80))
+                .kind(PaneKind::Program)
+                .name("2")
+                .build()])
+            .pane(pane(1))
+            .zoomed(zoomed)
+            .build();
+        session.handle(Event::Response(
+            Response::builder()
+                .uuid(REQUEST)
+                .params(ResponseParams::Layout(
+                    LayoutResponseParams::builder().layout(layout).build(),
+                ))
+                .build(),
+        ));
+
+        let fabric: Fabric = session.render(Size::new(24, 80));
+        let footer: String = (0..80)
+            .map(|column| fabric.spot(23, column).cell().to_string())
+            .collect();
+
+        assert!(footer.contains(expected), "{}", footer);
     }
 
     #[test]
-    fn test_the_footer_is_gray_while_the_mouse_is_over_it() {
+    fn test_the_footer_is_another_green_while_the_mouse_is_over_it() {
         let mut session: Session = browsing();
 
         mouse(&mut session, MouseEventKind::Moved, 23, 5);
         let fabric: Fabric = session.render(Size::new(24, 80));
 
-        assert_eq!(background(&fabric, 23, 0), Some(Color::Hover.into()));
+        assert_eq!(
+            background(&fabric, 23, 0),
+            Some(Color::SessionFooterHover.into())
+        );
     }
 
     #[test_case::test_case(1, 41, false; "the selected file of the browser which the keys go to")]

@@ -186,10 +186,19 @@ impl Browser {
         };
 
         match (mouse_event.kind, mouse_event.row) {
-            (MouseEventKind::Press(MouseButton::Left), 0) => match self.state.focus {
-                Focus::Dir => None,
-                Focus::Contents => self.state.perform(Action::FocusDir),
-            },
+            // NOTE: Pressing on a part of the directory goes to it and types in it from there, even
+            // while it is being typed in already, and pressing on the directory which is shown
+            // already, or past the end of it, starts typing in it.
+            (MouseEventKind::Press(MouseButton::Left), 0) => {
+                let column: usize = mouse_event.column;
+                match self.state.dir.handle(DirEvent::Press { column }) {
+                    Some(dir_effect) => self.handle_dir_effect(Some(dir_effect)),
+                    None => match self.state.focus {
+                        Focus::Dir => None,
+                        Focus::Contents => self.state.perform(Action::FocusDir),
+                    },
+                }
+            }
             // NOTE: The files are told before they become what the keys go to, since pressing on
             // the one which is selected and focused already opens it.
             (MouseEventKind::Press(MouseButton::Left), _) => {
@@ -238,8 +247,11 @@ impl Browser {
                 let request = Request::builder().uuid(uuid).params(params).build();
                 Some(Effect::Request(request))
             }
-            Some(DirEffect::Enter { dir }) => {
-                self.state.perform(Action::UnfocusDir);
+            Some(DirEffect::Enter { dir, typing }) => {
+                match typing {
+                    true => self.state.perform(Action::FocusDir),
+                    false => self.state.perform(Action::UnfocusDir),
+                };
                 let visit_request = Request::builder()
                     .params(RequestParams::VisitDir(
                         VisitDirRequestParams::builder().dir(dir.clone()).build(),

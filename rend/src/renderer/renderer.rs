@@ -3,7 +3,7 @@ This module contains the [`Renderer`] struct which is used for terminal renderin
 */
 use std::io::{Stdout, Write};
 
-use super::{Engine, Frame, Instruction, Loom, Optimizer};
+use super::{Colors, Engine, Frame, Instruction, Loom, Optimizer};
 use crate::fabric::Fabric;
 use crate::location::Location;
 use crate::style::Style;
@@ -23,6 +23,9 @@ pub struct Renderer<Writer: Write = Stdout> {
     /// How much of a fabric is drawn.
     #[builder(default)]
     engine: Engine,
+    /// The colors what is drawn is drawn in.
+    #[builder(default)]
+    colors: Colors,
     /// The fabric which was drawn last, which is what the terminal is showing, when what it is
     /// showing is known.
     #[builder(setter(skip), default)]
@@ -45,7 +48,14 @@ impl<Writer: Write> Renderer<Writer> {
     }
 
     /// Draw the fabric on the terminal, and return what was sent to draw it.
-    pub fn render(&mut self, fabric: Fabric) -> Frame {
+    pub fn render(&mut self, mut fabric: Fabric) -> Frame {
+        // NOTE: Nothing is restyled when the colors change nothing, since doing so goes over
+        // every column of every row of every frame.
+        let colors: Colors = self.colors;
+        if !colors.changes_nothing() {
+            fabric.restyle(|style| colors.apply(style));
+        }
+
         let mut loom: Loom = Loom::builder()
             .fabric(&fabric)
             .engine(self.engine)

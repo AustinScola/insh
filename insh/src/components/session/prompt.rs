@@ -11,6 +11,8 @@ mod asking {
         SessionName,
         /// What to call the window.
         WindowName,
+        /// What to call the pane.
+        PaneName,
         /// What to look for going down through the pane being looked back through.
         SearchDown,
         /// What to look for going up through the pane being looked back through.
@@ -22,10 +24,11 @@ mod asking {
         pub fn marker(&self) -> &'static str {
             return match self {
                 Self::Command => ":",
-                Self::SessionName => "(rename-session) ",
-                Self::WindowName => "(rename-window) ",
-                Self::SearchDown => "(search down) ",
-                Self::SearchUp => "(search up) ",
+                Self::SessionName => "Rename session:",
+                Self::WindowName => "Rename window:",
+                Self::PaneName => "Rename pane:",
+                Self::SearchDown => "Search down:",
+                Self::SearchUp => "Search up:",
             };
         }
     }
@@ -214,8 +217,26 @@ mod command {
         SplitVertically,
         /// Split the pane what is typed goes to, one above the other.
         SplitHorizontally,
-        /// Close the pane what is typed goes to.
-        KillPane,
+        /// Split the pane what is typed goes to side by side, and then each of those one above the
+        /// other, into a grid of four.
+        SplitQuad,
+        /// Close a pane.
+        KillPane {
+            /// The pane of the window to close, which is the one what is typed goes to when it is
+            /// not given.
+            name: Option<String>,
+        },
+        /// Close a window and every pane in it.
+        KillWindow {
+            /// The window of the session to close, which is the one being looked at when it is not
+            /// given.
+            name: Option<String>,
+        },
+        /// Close a session and every window in it.
+        KillSession {
+            /// The session to close, which is the one being shown when it is not given.
+            name: Option<String>,
+        },
         /// Send what is typed to the pane below.
         FocusDown,
         /// Send what is typed to the pane above.
@@ -250,12 +271,28 @@ mod command {
             /// What to call it, which is asked for when it is not given.
             name: Option<String>,
         },
+        /// Say what the pane what is typed goes to is called.
+        RenamePane {
+            /// What to call it, which is asked for when it is not given.
+            name: Option<String>,
+        },
         /// Say which directory a new pane starts in.
         SetDir {
             /// Set it for the window, which is what is done when nothing is said.
             #[arg(short, long, conflicts_with = "session")]
             window: bool,
             /// Set it for the session, which goes for every window with none of its own.
+            #[arg(short, long)]
+            session: bool,
+            /// The directory, which is from the directory of the pane when it is a relative one.
+            dir: String,
+        },
+        /// Take the browser in every pane of the window or session to a directory.
+        ChangeDir {
+            /// Change it for the window, which is what is done when nothing is said.
+            #[arg(short, long, conflicts_with = "session")]
+            window: bool,
+            /// Change it for every window of the session.
             #[arg(short, long)]
             session: bool,
             /// The directory, which is from the directory of the pane when it is a relative one.
@@ -345,7 +382,17 @@ mod command {
 
         #[test_case("split-vertically", Ok(Some(Command::SplitVertically)); "splitting side by side")]
         #[test_case("split-horizontally", Ok(Some(Command::SplitHorizontally)); "splitting one above the other")]
-        #[test_case("kill-pane", Ok(Some(Command::KillPane)); "closing a pane")]
+        #[test_case("split-quad", Ok(Some(Command::SplitQuad)); "splitting into a grid")]
+        #[test_case("kill-pane", Ok(Some(Command::KillPane { name: None })); "closing a pane")]
+        #[test_case("kill-pane 2", Ok(Some(Command::KillPane { name: Some(String::from("2")) })); "closing a pane by its name")]
+        #[test_case("kill-window", Ok(Some(Command::KillWindow { name: None })); "closing a window")]
+        #[test_case("kill-window notes", Ok(Some(Command::KillWindow { name: Some(String::from("notes")) })); "closing a window by its name")]
+        #[test_case("kill-session", Ok(Some(Command::KillSession { name: None })); "closing a session")]
+        #[test_case("kill-session work", Ok(Some(Command::KillSession { name: Some(String::from("work")) })); "closing a session by its name")]
+        #[test_case("rename-pane", Ok(Some(Command::RenamePane { name: None })); "asking what to call the pane")]
+        #[test_case("rename-pane logs", Ok(Some(Command::RenamePane { name: Some(String::from("logs")) })); "saying what to call the pane")]
+        #[test_case("change-dir /tmp", Ok(Some(Command::ChangeDir { window: false, session: false, dir: String::from("/tmp") })); "changing the directory, of the window by default")]
+        #[test_case("change-dir -s /tmp", Ok(Some(Command::ChangeDir { window: false, session: true, dir: String::from("/tmp") })); "changing the directory of the session")]
         #[test_case("focus-down", Ok(Some(Command::FocusDown)); "the pane below")]
         #[test_case("focus-up", Ok(Some(Command::FocusUp)); "the pane above")]
         #[test_case("focus-left", Ok(Some(Command::FocusLeft)); "the pane on the left")]
@@ -407,7 +454,7 @@ mod prompt {
         Request, RequestParams, Response, ResponseParams, SuggestCommandRequestParams,
         SuggestDirRequestParams,
     };
-    use rend::{Fabric, Size, Yarn};
+    use rend::{Cell, Fabric, Size, Yarn};
     use term::{Key, KeyEvent, KeyMods, TermEvent};
 
     use typed_builder::TypedBuilder;
@@ -461,35 +508,80 @@ mod prompt {
         /// a directory rather than a command.
         #[builder(setter(skip), default)]
         suggesting_dir: Option<String>,
+        /// What the directory which was asked for goes after, when it is not what has been typed.
+        ///
+        /// NOTE: This is the command which takes a directory while its name is still being typed,
+        /// since the directory gone to last is a better guess at what comes after it than the one
+        /// it was last run with.
+        #[builder(setter(skip), default)]
+        before_dir: Option<String>,
     }
 
     impl Prompt {
-        /// The command which a directory is typed after.
-        const SET_DIR: &'static str = "set-dir";
+        /// The commands which a directory is typed after.
+        const DIR_COMMANDS: [&'static str; 2] = ["set-dir", "change-dir"];
 
         /// Return whether the response is the answer to the suggestion which was asked for last.
         pub fn is_suggestion(&self, uuid: &Uuid) -> bool {
             return self.suggesting == Some(*uuid);
         }
 
-        /// Take note of what the daemon suggested, which is ignored unless it was asked for last.
-        pub fn handle_response(&mut self, response: &Response) {
+        /// Take note of what the daemon suggested, which is ignored unless it was asked for last,
+        /// and return whatever else there is to ask for.
+        pub fn handle_response(&mut self, response: &Response) -> Option<Effect> {
             if Some(*response.uuid()) != self.suggesting {
-                return;
+                return None;
             }
 
             match response.params() {
                 ResponseParams::SuggestCommand(params) => {
                     self.suggestion = params.suggestion().clone();
+                    return self.suggest_dir_after_command();
                 }
                 ResponseParams::SuggestDir(params) => {
-                    self.suggestion = params
+                    let suggestion: Option<String> = params
                         .suggestion()
                         .as_deref()
                         .and_then(|suggestion| self.dir_suggestion(suggestion));
+                    // NOTE: The command which was suggested is kept when there is no directory to
+                    // put after it instead.
+                    if suggestion.is_some() || self.before_dir.is_none() {
+                        self.suggestion = suggestion;
+                    }
                 }
                 _ => {}
             }
+
+            None
+        }
+
+        /// Return what asking for the directory gone to last asks for, when the command which was
+        /// suggested takes a directory and only its name is being typed, so that what is suggested
+        /// after it is where you are rather than where it was run last.
+        fn suggest_dir_after_command(&mut self) -> Option<Effect> {
+            if self.typed.trim().contains(char::is_whitespace) {
+                return None;
+            }
+
+            let suggestion: &String = self.suggestion.as_ref()?;
+            let words: Words = Words::of(suggestion).ok()?;
+            let command: &String = words.words().first()?;
+            if !Self::DIR_COMMANDS.contains(&command.as_str()) {
+                return None;
+            }
+
+            self.before_dir = Some(format!("{} ", command));
+            self.suggesting_dir = Some(String::new());
+            let request = Request::builder()
+                .params(RequestParams::SuggestDir(
+                    SuggestDirRequestParams::builder()
+                        .partial(String::new())
+                        .build(),
+                ))
+                .build();
+            self.suggesting = Some(*request.uuid());
+
+            return Some(Effect::Request(request));
         }
 
         /// Return the whole of what has been typed with the rest of the directory which was
@@ -501,11 +593,24 @@ mod prompt {
         /// the directory of the pane, or from the root.
         fn dir_suggestion(&self, suggestion: &str) -> Option<String> {
             let asked: &str = self.suggesting_dir.as_deref()?;
-            let rest: &str = suggestion.strip_prefix(asked)?;
+
+            // NOTE: A directory suggested before any of it was typed is shown from the home
+            // directory when it is in it, since that is the way it would most likely be typed.
+            let from_home: String;
+            let rest: &str = match asked.is_empty() {
+                true => {
+                    from_home = self.paths.as_typed_from_home(suggestion);
+                    &from_home
+                }
+                false => suggestion.strip_prefix(asked)?,
+            };
 
             // NOTE: What is typed is split into words the way a shell splits it, so anything in the
             // rest which would split it or be taken for a quote is said with a backslash before it.
-            let mut suggested: String = self.typed.trim_start().to_string();
+            let mut suggested: String = match &self.before_dir {
+                Some(before) => before.clone(),
+                None => self.typed.trim_start().to_string(),
+            };
             for character in rest.chars() {
                 if character.is_whitespace() || matches!(character, '\\' | '\'' | '"') {
                     suggested.push('\\');
@@ -586,13 +691,18 @@ mod prompt {
             // The suggestion which is up is for less than has been typed now, so it is let go of
             // rather than left showing until the daemon answers.
             self.suggestion = None;
+            self.before_dir = None;
 
             // NOTE: A directory which is being typed is suggested the way one typed in a directory
             // bar is, from the directories which have been gone to and then from the ones which
             // are there, rather than from the commands which have been run.
-            self.suggesting_dir = self
-                .dir_being_typed()
-                .map(|dir| self.paths.resolve(&dir).to_string_lossy().into_owned());
+            // NOTE: Nothing of the directory having been typed yet asks for the one which was gone to
+            // last, which is most likely the one which is wanted, rather than for the command
+            // which was run last.
+            self.suggesting_dir = self.dir_being_typed().map(|dir| match dir.is_empty() {
+                true => String::new(),
+                false => self.paths.resolve(&dir).to_string_lossy().into_owned(),
+            });
 
             let params: RequestParams = match &self.suggesting_dir {
                 Some(dir) => RequestParams::SuggestDir(
@@ -612,24 +722,29 @@ mod prompt {
             return Some(Effect::Request(request));
         }
 
-        /// Return the directory which is being typed after the command which sets one, which is
-        /// nothing at all when it is something else being typed.
+        /// Return the directory which is being typed after one of the commands which takes one,
+        /// which is empty when none of it has been typed yet and nothing at all when it is
+        /// something else being typed.
         ///
         /// Nothing is suggested for a directory which ends with a separator, the way nothing is in
         /// a directory bar, since there is no part of the next one typed to go on yet.
         fn dir_being_typed(&self) -> Option<String> {
-            if self.typed.ends_with(char::is_whitespace) {
+            let words: Words = Words::of(&self.typed).ok()?;
+            let (command, rest): (&String, &[String]) = words.words().split_first()?;
+            if !Self::DIR_COMMANDS.contains(&command.as_str()) {
                 return None;
             }
 
-            let words: Words = Words::of(&self.typed).ok()?;
-            let (command, rest): (&String, &[String]) = words.words().split_first()?;
-            let dir: &String = rest.last()?;
+            if self.typed.ends_with(char::is_whitespace) {
+                return match rest.iter().all(|word| word.starts_with('-')) {
+                    true => Some(String::new()),
+                    false => None,
+                };
+            }
 
-            let typing_dir: bool = command == Self::SET_DIR
-                && !dir.is_empty()
-                && !dir.starts_with('-')
-                && !dir.ends_with(PATH_SEPARATOR);
+            let dir: &String = rest.last()?;
+            let typing_dir: bool =
+                !dir.is_empty() && !dir.starts_with('-') && !dir.ends_with(PATH_SEPARATOR);
 
             return match typing_dir {
                 true => Some(dir.clone()),
@@ -718,6 +833,7 @@ mod prompt {
             self.suggestion = None;
             self.suggesting = None;
             self.suggesting_dir = None;
+            self.before_dir = None;
         }
 
         /// Draw the prompt, which is one row along the bottom where the footer usually is.
@@ -759,6 +875,12 @@ mod prompt {
 
             yarn.resize(size.columns);
             yarn.background(Color::Highlight.into());
+            // NOTE: What is shown before what has been typed is drawn the way the label of a bar
+            // in the finder or the searcher is.
+            yarn.background_before(
+                Color::LabelHighlight.into(),
+                Cell::columns(self.asking.marker()),
+            );
 
             return Fabric::from(yarn);
         }
@@ -770,7 +892,7 @@ mod prompt {
 
         use std::path::PathBuf;
 
-        use insh_api::SuggestDirResponseParams;
+        use insh_api::{SuggestCommandResponseParams, SuggestDirResponseParams};
 
         use test_case::test_case;
 
@@ -806,6 +928,11 @@ mod prompt {
         #[test_case("set-dir ../fo", Some("/home/pat/fo"); "from the directory above it")]
         #[test_case("set-dir ~/foo/", None; "ending with a separator, which has nothing to go on")]
         #[test_case("set-dir -", None; "an option")]
+        #[test_case("set-dir ", Some(""); "none of it yet, which asks for the one gone to last")]
+        #[test_case("set-dir -s ", Some(""); "none of it yet after an option")]
+        #[test_case("change-dir ~/fo", Some("/home/pat/fo"); "for changing the directory")]
+        #[test_case("change-dir ", Some(""); "none of it yet for changing the directory")]
+        #[test_case("set-dir /tmp ", None; "after the directory")]
         #[test_case("new-session fo", None; "after another command")]
         fn test_a_directory_being_typed_is_suggested_the_way_a_directory_bar_suggests_one(
             typed: &str,
@@ -828,6 +955,8 @@ mod prompt {
         #[test_case("set-dir ~/fo", "/home/pat/foo bar/", Some("set-dir ~/foo\\ bar/"); "the rest of it, shown the way it is being typed")]
         #[test_case("set-dir ../fo", "/home/pat/foo/", Some("set-dir ../foo/"); "from the directory above")]
         #[test_case("set-dir ~/fo", "/elsewhere/", None; "one which is not the rest of what was typed")]
+        #[test_case("set-dir ", "/home/pat/foo bar/", Some("set-dir ~/foo\\ bar/"); "none of it typed, from the home directory")]
+        #[test_case("set-dir ", "/elsewhere/", Some("set-dir /elsewhere/"); "none of it typed, outside the home directory")]
         fn test_the_directory_suggested_goes_on_the_end_of_what_was_typed(
             typed: &str,
             suggested: &str,
@@ -870,6 +999,76 @@ mod prompt {
                     .build(),
             );
             prompt
+        }
+
+        /// Answer the request the prompt asked with the response parameters, and return what it
+        /// asks for next.
+        fn answer(
+            prompt: &mut Prompt,
+            request: &Request,
+            params: ResponseParams,
+        ) -> Option<Request> {
+            let response: Response = Response::builder()
+                .uuid(*request.uuid())
+                .params(params)
+                .build();
+            match prompt.handle_response(&response) {
+                Some(Effect::Request(request)) => Some(request),
+                _ => None,
+            }
+        }
+
+        #[test]
+        fn test_the_directory_gone_to_last_is_suggested_while_the_command_is_being_typed() {
+            let mut prompt = prompt("set-d");
+            let request: Request = type_character(&mut prompt, 'i').unwrap();
+
+            // The command was last run with another directory, so the one gone to last is asked
+            // for to go after it instead.
+            let asked: Request = answer(
+                &mut prompt,
+                &request,
+                ResponseParams::SuggestCommand(
+                    SuggestCommandResponseParams::builder()
+                        .suggestion(Some(String::from("set-dir ~/old/")))
+                        .build(),
+                ),
+            )
+            .unwrap();
+            assert!(matches!(
+                asked.params(),
+                RequestParams::SuggestDir(params) if params.partial().is_empty()
+            ));
+
+            answer(
+                &mut prompt,
+                &asked,
+                ResponseParams::SuggestDir(
+                    SuggestDirResponseParams::builder()
+                        .suggestion(Some(String::from("/home/pat/new/")))
+                        .build(),
+                ),
+            );
+            assert_eq!(prompt.completion().as_deref(), Some("set-dir ~/new/"));
+        }
+
+        #[test]
+        fn test_a_command_which_takes_no_directory_is_suggested_as_it_was_run() {
+            let mut prompt = prompt("new-s");
+            let request: Request = type_character(&mut prompt, 'e').unwrap();
+
+            let asked: Option<Request> = answer(
+                &mut prompt,
+                &request,
+                ResponseParams::SuggestCommand(
+                    SuggestCommandResponseParams::builder()
+                        .suggestion(Some(String::from("new-session work")))
+                        .build(),
+                ),
+            );
+
+            assert!(asked.is_none());
+            assert_eq!(prompt.completion().as_deref(), Some("new-session work"));
         }
 
         #[test]
@@ -927,6 +1126,28 @@ mod prompt {
             prompt.handle(TermEvent::KeyEvent(KeyEvent { key, mods }));
 
             assert_eq!(prompt.typed(), expected);
+        }
+
+        #[test_case(0, Color::LabelHighlight; "the label")]
+        #[test_case(15, Color::Highlight; "what is typed")]
+        fn test_renaming_is_drawn_the_way_a_bar_is(column: usize, expected: Color) {
+            let prompt = Prompt::builder()
+                .asking(Asking::WindowName)
+                .typed(String::from("notes"))
+                .paths(
+                    TypedPath::builder()
+                        .home(None)
+                        .from(PathBuf::from("/"))
+                        .build(),
+                )
+                .build();
+
+            let fabric: Fabric = prompt.render(Size::new(1, 30));
+
+            assert_eq!(
+                fabric.spot(0, column).style().background(),
+                Some(expected.into())
+            );
         }
 
         #[test_case(Key::Escape, KeyMods::NONE; "escape")]

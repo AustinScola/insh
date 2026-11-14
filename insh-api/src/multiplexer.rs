@@ -33,6 +33,17 @@ pub enum DirScope {
     Session,
 }
 
+/// Which session, window or pane a request is about.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum Target {
+    /// The one being looked at.
+    Current,
+    /// The one with the given id, in whichever session it is in.
+    Id(Uuid),
+    /// The one with the given name, out of the ones in the session or window being looked at.
+    Named(String),
+}
+
 /// What a pane holds.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum PaneKind {
@@ -58,10 +69,13 @@ pub struct PaneLayout {
     /// What it holds.
     #[builder(default = PaneKind::Component)]
     kind: PaneKind,
-    /// The directory the program it holds, or held last, was started in, which is nothing at all
-    /// when none was said.
+    /// The directory the program it holds, or held last, was started in, or the one it was
+    /// changed to since, which is nothing at all when none was said.
     #[builder(default)]
     dir: Option<PathBuf>,
+    /// What it is called.
+    #[builder(default, setter(into))]
+    name: String,
 }
 
 impl PaneLayout {
@@ -85,9 +99,58 @@ impl PaneLayout {
         return self.kind;
     }
 
-    /// Return the directory the program it holds, or held last, was started in.
+    /// Return the directory the program it holds, or held last, was started in, or the one it
+    /// was changed to since.
     pub fn dir(&self) -> Option<&PathBuf> {
         return self.dir.as_ref();
+    }
+
+    /// Return what it is called.
+    pub fn name(&self) -> &str {
+        return &self.name;
+    }
+}
+
+/// One of the lines between two parts of the arrangement of a window.
+#[derive(Debug, Clone, TypedBuilder, Serialize, Deserialize)]
+pub struct LineLayout {
+    /// Which way the parts it is between are split, where beside is a line down the window and
+    /// below is one across it.
+    split: Split,
+    /// Which column a line down the window is in, or which row a line across it is in.
+    at: usize,
+    /// The first row a line down the window is drawn in, or the first column of one across it.
+    from: usize,
+    /// The row or column after the last one it is drawn in.
+    to: usize,
+    /// The panes whose far side, when it is dragged, is this line.
+    panes: Vec<Uuid>,
+}
+
+impl LineLayout {
+    /// Return which way the parts it is between are split.
+    pub fn split(&self) -> Split {
+        return self.split;
+    }
+
+    /// Return which column or row it is in.
+    pub fn at(&self) -> usize {
+        return self.at;
+    }
+
+    /// Return the first row or column it is drawn in.
+    pub fn from(&self) -> usize {
+        return self.from;
+    }
+
+    /// Return the row or column after the last one it is drawn in.
+    pub fn to(&self) -> usize {
+        return self.to;
+    }
+
+    /// Return the panes whose far side, when it is dragged, is this line.
+    pub fn panes(&self) -> &[Uuid] {
+        return &self.panes;
     }
 }
 
@@ -130,6 +193,10 @@ pub struct Layout {
     window: Uuid,
     /// Where each pane of that window is.
     panes: Vec<PaneLayout>,
+    /// Where the lines between the panes of that window are, which is none at all while one of
+    /// them fills it.
+    #[builder(default)]
+    lines: Vec<LineLayout>,
     /// Which pane what is typed goes to.
     pane: Uuid,
     /// Whether one pane has been made to fill the window.
@@ -167,6 +234,11 @@ impl Layout {
     /// Return where each pane of that window is.
     pub fn panes(&self) -> &[PaneLayout] {
         return &self.panes;
+    }
+
+    /// Return where the lines between the panes of that window are.
+    pub fn lines(&self) -> &[LineLayout] {
+        return &self.lines;
     }
 
     /// Return which pane what is typed goes to.
@@ -344,6 +416,9 @@ impl WindowSummary {
 pub struct PaneSummary {
     /// Which pane it is.
     pane: Uuid,
+    /// What it is called.
+    #[builder(default, setter(into))]
+    name: String,
     /// Whether what is typed in its window goes to it.
     #[builder(default)]
     active: bool,
@@ -353,6 +428,11 @@ impl PaneSummary {
     /// Return which pane it is.
     pub fn pane(&self) -> &Uuid {
         return &self.pane;
+    }
+
+    /// Return what it is called.
+    pub fn name(&self) -> &str {
+        return &self.name;
     }
 
     /// Return whether what is typed in its window goes to it.
@@ -443,7 +523,11 @@ impl WritePaneRequestParams {
 #[derive(Debug, TypedBuilder, Serialize, Deserialize)]
 pub struct SplitPaneRequestParams {
     /// Which pane to split.
-    pane: Uuid,
+    ///
+    /// NOTE: The one what is typed goes to is worked out by the daemon when the request arrives
+    /// rather than by the client when it is sent, since splitting a pane makes the new one the one
+    /// what is typed goes to, and that is the pane a split straight after it is of.
+    pane: Target,
     /// Which way to split it.
     split: Split,
     /// The directory to run the program of the new pane in.
@@ -453,7 +537,7 @@ pub struct SplitPaneRequestParams {
 
 impl SplitPaneRequestParams {
     /// Return which pane to split.
-    pub fn pane(&self) -> &Uuid {
+    pub fn pane(&self) -> &Target {
         return &self.pane;
     }
 
@@ -644,15 +728,23 @@ impl SearchPaneRequestParams {
     }
 }
 
-/// Request parameters for calling the session a client is showing something else.
+/// Request parameters for calling a session something else.
 #[derive(Debug, TypedBuilder, Serialize, Deserialize)]
 pub struct RenameSessionRequestParams {
+    /// Which session to rename, or the one the client is showing when there is none.
+    #[builder(default)]
+    session: Option<Uuid>,
     /// What to call it.
     #[builder(setter(into))]
     name: String,
 }
 
 impl RenameSessionRequestParams {
+    /// Return which session to rename.
+    pub fn session(&self) -> Option<&Uuid> {
+        return self.session.as_ref();
+    }
+
     /// Return what to call it.
     pub fn name(&self) -> &str {
         return &self.name;
@@ -682,6 +774,29 @@ impl RenameWindowRequestParams {
     }
 }
 
+/// Request parameters for calling a pane something else.
+#[derive(Debug, TypedBuilder, Serialize, Deserialize)]
+pub struct RenamePaneRequestParams {
+    /// Which pane to rename, or the one what is typed goes to when there is none.
+    #[builder(default)]
+    pane: Option<Uuid>,
+    /// What to call it, which is its number again when it is nothing at all.
+    #[builder(setter(into))]
+    name: String,
+}
+
+impl RenamePaneRequestParams {
+    /// Return which pane to rename.
+    pub fn pane(&self) -> Option<&Uuid> {
+        return self.pane.as_ref();
+    }
+
+    /// Return what to call it.
+    pub fn name(&self) -> &str {
+        return &self.name;
+    }
+}
+
 /// Request parameters for setting the default starting directory.
 #[derive(Debug, TypedBuilder, Serialize, Deserialize)]
 pub struct SetDirRequestParams {
@@ -693,6 +808,30 @@ pub struct SetDirRequestParams {
 
 impl SetDirRequestParams {
     /// Return what to set it for.
+    pub fn scope(&self) -> DirScope {
+        return self.scope;
+    }
+
+    /// Return the directory.
+    pub fn dir(&self) -> &PathBuf {
+        return &self.dir;
+    }
+}
+
+/// Request parameters for taking the browser in every pane of a window or session to a directory.
+///
+/// A pane with a program running in it is left alone, since there is no telling the program to go
+/// anywhere.
+#[derive(Debug, TypedBuilder, Serialize, Deserialize)]
+pub struct ChangeDirRequestParams {
+    /// Which panes to take there.
+    scope: DirScope,
+    /// The directory.
+    dir: PathBuf,
+}
+
+impl ChangeDirRequestParams {
+    /// Return which panes to take there.
     pub fn scope(&self) -> DirScope {
         return self.scope;
     }
@@ -756,14 +895,42 @@ impl SelectPaneRequestParams {
 /// Request parameters for closing a pane.
 #[derive(Debug, TypedBuilder, Serialize, Deserialize)]
 pub struct KillPaneRequestParams {
-    /// Which pane to close.
-    pane: Uuid,
+    /// Which pane to close, where one named is one of the window being looked at.
+    pane: Target,
 }
 
 impl KillPaneRequestParams {
     /// Return which pane to close.
-    pub fn pane(&self) -> &Uuid {
+    pub fn pane(&self) -> &Target {
         return &self.pane;
+    }
+}
+
+/// Request parameters for closing a window and every pane in it.
+#[derive(Debug, TypedBuilder, Serialize, Deserialize)]
+pub struct KillWindowRequestParams {
+    /// Which window to close, where one named is one of the session being shown.
+    window: Target,
+}
+
+impl KillWindowRequestParams {
+    /// Return which window to close.
+    pub fn window(&self) -> &Target {
+        return &self.window;
+    }
+}
+
+/// Request parameters for closing a session and every window in it.
+#[derive(Debug, TypedBuilder, Serialize, Deserialize)]
+pub struct KillSessionRequestParams {
+    /// Which session to close.
+    session: Target,
+}
+
+impl KillSessionRequestParams {
+    /// Return which session to close.
+    pub fn session(&self) -> &Target {
+        return &self.session;
     }
 }
 
@@ -857,7 +1024,8 @@ impl ResizeClientRequestParams {
 ///
 /// These are shared so that the daemon, which is what suggests a command, and the client, which is
 /// what works out which one was typed, never disagree about which there are.
-pub const COMMAND_NAMES: [&str; 23] = [
+pub const COMMAND_NAMES: [&str; 28] = [
+    "change-dir",
     "change-mode",
     "detach",
     "focus-down",
@@ -865,9 +1033,12 @@ pub const COMMAND_NAMES: [&str; 23] = [
     "focus-right",
     "focus-up",
     "kill-pane",
+    "kill-session",
+    "kill-window",
     "list-sessions",
     "new-session",
     "new-window",
+    "rename-pane",
     "rename-session",
     "rename-window",
     "resize-pane-down",
@@ -876,6 +1047,7 @@ pub const COMMAND_NAMES: [&str; 23] = [
     "resize-pane-up",
     "set-dir",
     "split-horizontally",
+    "split-quad",
     "split-vertically",
     "switch-pane-next",
     "switch-pane-previous",
@@ -981,6 +1153,28 @@ impl PaneExitedResponseParams {
     /// Return which pane it was.
     pub fn pane(&self) -> &Uuid {
         return &self.pane;
+    }
+}
+
+/// Response parameters for the browser in some of the panes of a session having been taken to
+/// another directory.
+#[derive(Debug, Clone, TypedBuilder, Serialize, Deserialize)]
+pub struct ChangedDirResponseParams {
+    /// Which panes were.
+    panes: Vec<Uuid>,
+    /// The directory.
+    dir: PathBuf,
+}
+
+impl ChangedDirResponseParams {
+    /// Return which panes were.
+    pub fn panes(&self) -> &[Uuid] {
+        return &self.panes;
+    }
+
+    /// Return the directory.
+    pub fn dir(&self) -> &PathBuf {
+        return &self.dir;
     }
 }
 

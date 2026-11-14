@@ -35,6 +35,7 @@ use std::path::PathBuf;
 use std::process::exit;
 
 use crate::args::{Args, Command};
+use crate::color::Theme;
 use crate::components::{Insh, InshProps, InshStart as Start, Session};
 use crate::config::{Config, RenderEngineConfig};
 #[cfg(feature = "logging")]
@@ -178,6 +179,7 @@ fn main() {
             Renderer::builder()
                 .writer(io::stdout())
                 .engine(engine)
+                .colors(Theme::DEFAULT.colors(Term::shows_true_color()))
                 .build(),
         )
         .build();

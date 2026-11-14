@@ -234,8 +234,18 @@ mod searcher {
             };
 
             match (mouse_event.kind, mouse_event.row) {
+                // NOTE: Pressing on a part of the directory goes to it and types in it from there,
+                // and pressing on the directory which is shown already, or past the end of it,
+                // starts typing in it.
                 (MouseEventKind::Press(MouseButton::Left), row) if row < above => {
                     let bar: Focus = self.state.focus_at(row)?;
+                    if bar == Focus::Dir {
+                        let column: usize = mouse_event.column;
+                        if let Some(dir_effect) = self.state.dir.handle(DirEvent::Press { column })
+                        {
+                            return self.handle_dir_effect(Some(dir_effect));
+                        }
+                    }
                     self.state.perform(Action::TakeFocus(bar))
                 }
                 // NOTE: There is nothing to go to before anything has been found.
@@ -518,15 +528,23 @@ mod searcher {
                     let request = Request::builder().uuid(uuid).params(params).build();
                     Some(Effect::Request(request))
                 }
-                Some(DirEffect::Enter { dir }) => {
+                Some(DirEffect::Enter { dir, typing }) => {
                     let request = Request::builder()
                         .params(RequestParams::VisitDir(
                             VisitDirRequestParams::builder().dir(dir.clone()).build(),
                         ))
                         .build();
                     self.state.contents.handle(ContentsEvent::SetDir { dir });
-                    self.state.phrase.handle(PhraseEvent::Focus);
-                    self.state.perform(Action::FocusPhrase);
+                    // The directory is typed in from there when part of it was pressed on.
+                    match typing {
+                        true => {
+                            self.state.perform(Action::TakeFocus(Focus::Dir));
+                        }
+                        false => {
+                            self.state.phrase.handle(PhraseEvent::Focus);
+                            self.state.perform(Action::FocusPhrase);
+                        }
+                    }
                     Some(Effect::Request(request))
                 }
                 Some(DirEffect::Unfocus) => {
@@ -701,9 +719,7 @@ mod state {
         /// phrase from the first time it is.
         fn focus_files(&mut self) -> Option<Effect> {
             if self.files.is_none() {
-                let props = PhraseProps::builder()
-                    .label(String::from("Files: "))
-                    .build();
+                let props = PhraseProps::builder().label(String::from("Files:")).build();
                 self.files = Some(Phrase::new(props));
                 self.resize(self.size);
             }
@@ -810,8 +826,8 @@ mod state {
             // NOTE: What is looked for is said to be what is found when it is being replaced, so
             // that the two bars are told apart.
             let label: &str = match props.replacing {
-                true => "Find: ",
-                false => "Search: ",
+                true => "Find:",
+                false => "Search:",
             };
             let phrase_props = PhraseProps::builder()
                 .completable(true)
@@ -822,7 +838,7 @@ mod state {
             let replacement: Option<Phrase> = props.replacing.then(|| {
                 let mut replacement = Phrase::new(
                     PhraseProps::builder()
-                        .label(String::from("Replace: "))
+                        .label(String::from("Replace:"))
                         .build(),
                 );
                 replacement.handle(PhraseEvent::Unfocus);

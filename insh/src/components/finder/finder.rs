@@ -158,8 +158,15 @@ mod finder {
             };
 
             match (mouse_event.kind, mouse_event.row) {
+                // NOTE: Pressing on a part of the directory goes to it and types in it from there,
+                // and pressing on the directory which is shown already, or past the end of it,
+                // starts typing in it.
                 (MouseEventKind::Press(MouseButton::Left), 0) => {
-                    self.state.perform(Action::TakeFocus(Focus::Dir))
+                    let column: usize = mouse_event.column;
+                    match self.state.dir.handle(DirEvent::Press { column }) {
+                        Some(dir_effect) => self.handle_dir_effect(Some(dir_effect)),
+                        None => self.state.perform(Action::TakeFocus(Focus::Dir)),
+                    }
                 }
                 (MouseEventKind::Press(MouseButton::Left), 1) => {
                     self.state.perform(Action::TakeFocus(Focus::Phrase))
@@ -345,15 +352,23 @@ mod finder {
                     let request = Request::builder().uuid(uuid).params(params).build();
                     Some(Effect::Request(request))
                 }
-                Some(DirEffect::Enter { dir }) => {
+                Some(DirEffect::Enter { dir, typing }) => {
                     let request = Request::builder()
                         .params(RequestParams::VisitDir(
                             VisitDirRequestParams::builder().dir(dir.clone()).build(),
                         ))
                         .build();
                     self.state.contents.handle(ContentsEvent::SetDir { dir });
-                    self.state.phrase.handle(PhraseEvent::Focus);
-                    self.state.perform(Action::FocusPhrase);
+                    // The directory is typed in from there when part of it was pressed on.
+                    match typing {
+                        true => {
+                            self.state.perform(Action::TakeFocus(Focus::Dir));
+                        }
+                        false => {
+                            self.state.phrase.handle(PhraseEvent::Focus);
+                            self.state.perform(Action::FocusPhrase);
+                        }
+                    }
                     Some(Effect::Request(request))
                 }
                 Some(DirEffect::Unfocus) => {
@@ -399,7 +414,7 @@ mod state {
                 PhraseProps::builder()
                     .completable(true)
                     .value(props.phrase)
-                    .label(String::from("Find: "))
+                    .label(String::from("Find:"))
                     .build(),
             );
 

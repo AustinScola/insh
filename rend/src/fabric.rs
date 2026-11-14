@@ -163,6 +163,20 @@ impl Fabric {
         }
     }
 
+    /// Change the way every column of every row is written.
+    pub fn restyle(&mut self, restyle: impl Fn(Style) -> Style) {
+        let columns: usize = self.size.columns;
+        for styles in &mut self.styles {
+            // NOTE: The styles are only kept for as many columns as have been written in some
+            // way, so they are filled out to the whole row first, since how a column which has not
+            // been written in is drawn may be changed as well.
+            styles.resize(columns, Style::default());
+            for style in styles.iter_mut() {
+                *style = restyle(*style);
+            }
+        }
+    }
+
     /// Change the background of the range of the row to the color, leaving everything else about
     /// the way it is written as it is.
     pub fn set_background(&mut self, color: Option<Color>, row: usize, columns: Range<usize>) {

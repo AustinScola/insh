@@ -130,9 +130,14 @@ mod phrase {
             }
 
             yarn.resize(size.columns);
-            let background_color =
-                Color::highlight(self.state.is_focused() && !self.state.is_pane_unfocused());
-            yarn.background(background_color.into());
+            let focused: bool = self.state.is_focused() && !self.state.is_pane_unfocused();
+            yarn.background(Color::highlight(focused).into());
+            // NOTE: What is written before what is typed is not typed in, so it is highlighted a
+            // darker color than where typing goes.
+            yarn.background_before(
+                Color::label_highlight(focused).into(),
+                Cell::columns(self.state.label()),
+            );
             Fabric::from(yarn)
         }
     }
@@ -155,6 +160,47 @@ mod phrase {
         use ansi::Color as AnsiColor;
 
         use test_case::test_case;
+
+        #[test_case(0, Color::LabelHighlight; "what is written before it, which is not typed in")]
+        #[test_case(8, Color::Highlight; "what is typed")]
+        #[test_case(12, Color::Highlight; "past what is typed, where typing goes")]
+        fn test_only_where_typing_goes_is_highlighted(column: usize, expected: Color) {
+            let phrase = Phrase {
+                state: State::builder()
+                    .label(Some(String::from("Search:")))
+                    .value("abc")
+                    .build(),
+            };
+
+            let fabric: Fabric = phrase.render(Size::new(1, 20));
+
+            assert_eq!(
+                fabric.spot(0, column).style().background(),
+                Some(AnsiColor::from(expected))
+            );
+        }
+
+        #[test_case(0, Color::UnfocusedHighlight; "what is written before it, which is not typed in")]
+        #[test_case(8, Color::InvertedBackground; "what is typed")]
+        fn test_a_bar_which_is_not_focused_is_grayed_only_before_it(
+            column: usize,
+            expected: Color,
+        ) {
+            let phrase = Phrase {
+                state: State::builder()
+                    .label(Some(String::from("Search:")))
+                    .value("abc")
+                    .focus(false)
+                    .build(),
+            };
+
+            let fabric: Fabric = phrase.render(Size::new(1, 20));
+
+            assert_eq!(
+                fabric.spot(0, column).style().background(),
+                Some(AnsiColor::from(expected))
+            );
+        }
 
         #[test_case(4, Color::InvertedLightGrayedText; "the next part, which tab takes")]
         #[test_case(6, Color::InvertedGrayedText; "the rest, which only shift and tab take")]

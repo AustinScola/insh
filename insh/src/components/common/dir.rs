@@ -84,6 +84,7 @@ mod dir {
                 Event::Focus => Some(Action::Focus),
                 Event::Unfocus => Some(Action::Unfocus),
                 Event::SetPaneFocus { focused } => Some(Action::SetPaneFocus { focused }),
+                Event::Press { column } => Some(Action::Press { column }),
                 Event::TermEvent(event) => Some(Action::HandleTermEvent { event }),
                 Event::Completion { uuid, completion } => {
                     Some(Action::SetCompletion { uuid, completion })
@@ -127,6 +128,11 @@ mod event {
             /// Whether it does.
             focused: bool,
         },
+        /// The directory was pressed on with the mouse.
+        Press {
+            /// The column it was pressed on.
+            column: usize,
+        },
         /// A terminal event.
         TermEvent(TermEvent),
         /// A completion arrived.
@@ -150,6 +156,7 @@ mod state {
     use crate::stateful::Stateful;
     use crate::typed_path::TypedPath;
 
+    use rend::Cell;
     use term::TermEvent;
     use til::Component;
 
@@ -214,6 +221,45 @@ mod state {
                 .resolve(string);
         }
 
+        /// Return the directory which the part of what is shown at the column is, which is nothing
+        /// at all past the end of it.
+        ///
+        /// A separator goes with the part before it, so that pressing on the slash after the
+        /// tilde is going home.
+        fn dir_at(&self, shown: &str, column: usize) -> Option<PathBuf> {
+            let mut end: usize = 0;
+            for (at, character) in shown.char_indices() {
+                end += Cell::columns(&shown[at..at + character.len_utf8()]);
+                if character == PATH_SEPARATOR && end > column {
+                    return Some(self.path(&shown[..=at]));
+                }
+            }
+
+            None
+        }
+
+        /// Go to the directory whose part of what is shown was pressed on, and type in it from
+        /// there, so that going up and then typing a way back down is one thing rather than two.
+        ///
+        /// While the directory is being typed in, what is shown is what has been typed, and a part
+        /// of it is only gone to when it is a directory. Otherwise nothing is done when what was
+        /// pressed on is the directory which is shown already, which is left to whatever the
+        /// directory is in to decide about.
+        fn press(&mut self, column: usize) -> Option<Effect> {
+            let dir: PathBuf = match &self.phrase {
+                Some(phrase) => self
+                    .dir_at(phrase.value(), column)
+                    .filter(|dir| dir.is_dir())?,
+                None => self
+                    .dir_at(&self.dir_string(), column)
+                    .filter(|dir| *dir != self.dir)?,
+            };
+
+            self.dir = dir.clone();
+            self.focus();
+            Some(Effect::Enter { dir, typing: true })
+        }
+
         /// Show a different directory.
         fn set_dir(&mut self, dir: PathBuf) -> Option<Effect> {
             self.dir = dir;
@@ -265,7 +311,7 @@ mod state {
 
                     self.phrase = None;
                     self.dir = dir.clone();
-                    Some(Effect::Enter { dir })
+                    Some(Effect::Enter { dir, typing: false })
                 }
                 Some(PhraseEffect::Quit) => {
                     self.phrase = None;
@@ -340,6 +386,7 @@ mod state {
                     }
                     None
                 }
+                Action::Press { column } => self.press(column),
                 Action::HandleTermEvent { event } => self.handle_term_event(event),
                 Action::SetCompletion { uuid, completion } => self.set_completion(uuid, completion),
             }
@@ -385,6 +432,56 @@ mod state {
         fn test_path(string: &str, expected: &str) {
             assert_eq!(state().path(string), PathBuf::from(expected));
         }
+
+        #[test]
+        fn test_pressing_on_a_part_of_what_is_being_typed_goes_to_it() {
+            let mut state: State = state();
+            state.dir = PathBuf::from("/tmp");
+            state.focus();
+            // Everything typed is rubbed out, and the root and a directory which is not there are
+            // typed instead.
+            for _ in 0.."/tmp/".len() {
+                state.handle_term_event(TermEvent::KeyEvent(term::KeyEvent {
+                    key: term::Key::Backspace,
+                    mods: term::KeyMods::NONE,
+                }));
+            }
+            for character in "/nowhere-at-all/".chars() {
+                state.handle_term_event(TermEvent::KeyEvent(term::KeyEvent {
+                    key: term::Key::Char(character),
+                    mods: term::KeyMods::NONE,
+                }));
+            }
+
+            // The part which is not a directory is not gone to, and the root is, which goes on
+            // being typed in from there.
+            assert!(state.press(5).is_none());
+            assert!(matches!(
+                state.press(0),
+                Some(Effect::Enter { dir, typing: true }) if dir == PathBuf::from("/")
+            ));
+            assert_eq!(state.phrase().as_ref().map(Phrase::value), Some("/"));
+        }
+
+        #[test_case("/home/pat/foo/bar", 0, Some("/home/pat"); "the tilde")]
+        #[test_case("/home/pat/foo/bar", 1, Some("/home/pat"); "the separator after the tilde")]
+        #[test_case("/home/pat/foo/bar", 3, Some("/home/pat/foo"); "a part partway through")]
+        #[test_case("/home/pat/foo/bar", 5, Some("/home/pat/foo"); "the separator after a part")]
+        #[test_case("/home/pat/foo/bar", 7, None; "the directory which is shown already")]
+        #[test_case("/home/pat/foo/bar", 20, None; "past the end")]
+        #[test_case("/data/foo", 0, Some("/"); "the root")]
+        #[test_case("/home/pat/😀/bar", 4, Some("/home/pat/😀"); "a part two columns wide")]
+        fn test_press(dir: &str, column: usize, expected: Option<&str>) {
+            let mut state: State = state();
+            state.dir = PathBuf::from(dir);
+
+            let entered: Option<PathBuf> = match state.press(column) {
+                Some(Effect::Enter { dir, typing: true }) => Some(dir),
+                _ => None,
+            };
+
+            assert_eq!(entered, expected.map(PathBuf::from));
+        }
     }
 }
 use state::State;
@@ -414,6 +511,11 @@ mod action {
         SetPaneFocus {
             /// Whether it does.
             focused: bool,
+        },
+        /// Go to the directory whose part of what is shown was pressed on.
+        Press {
+            /// The column it was pressed on.
+            column: usize,
         },
         /// Type in the directory.
         HandleTermEvent {
@@ -450,6 +552,9 @@ mod effect {
         Enter {
             /// The directory.
             dir: PathBuf,
+            /// Whether the directory is still being typed in, which it is when part of it was
+            /// pressed on.
+            typing: bool,
         },
         /// The directory is no longer being typed in.
         Unfocus,

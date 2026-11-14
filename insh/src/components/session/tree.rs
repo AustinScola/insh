@@ -16,6 +16,30 @@ mod effect {
             /// already goes to when there is none.
             pane: Option<Uuid>,
         },
+        /// Close the given session, window or pane.
+        Kill {
+            /// The session to close, or the one the window is in.
+            session: Uuid,
+            /// The window to close, or the one the pane is in, which is none at all when it is the
+            /// session which is to be closed.
+            window: Option<Uuid>,
+            /// The pane to close, which is none at all when it is a window or a session which is to
+            /// be closed.
+            pane: Option<Uuid>,
+        },
+        /// Ask what to call the given session, window or pane.
+        Rename {
+            /// The session to rename, or the one the window is in.
+            session: Uuid,
+            /// The window to rename, or the one the pane is in, which is none at all when it is the
+            /// session which is to be renamed.
+            window: Option<Uuid>,
+            /// The pane to rename, which is none at all when it is a window or a session which is
+            /// to be renamed.
+            pane: Option<Uuid>,
+            /// What it is called already.
+            name: String,
+        },
         /// Stop showing the tree.
         Close,
     }
@@ -28,8 +52,8 @@ mod tree {
     use crate::color::Color;
 
     use insh_api::SessionSummary;
-    use rend::{Fabric, Size, Yarn};
-    use term::{Key, KeyEvent, KeyMods, TermEvent};
+    use rend::{Cell, Fabric, Location, Size, Style, Yarn};
+    use term::{Key, KeyEvent, KeyMods, MouseButton, MouseEvent, MouseEventKind, TermEvent};
 
     use uuid::Uuid;
 
@@ -59,16 +83,22 @@ mod tree {
         /// Take note of the sessions there are.
         ///
         /// Whichever row was selected stays selected if it is still there, so that the list being
-        /// sent again does not move the selection out from under whoever is looking at it.
+        /// sent again does not move the selection out from under whoever is looking at it. One
+        /// which has gone, because it was closed, leaves the selection on the row where it was.
         pub fn show(&mut self, sessions: &[SessionSummary]) {
             let was: Option<Row> = self.rows.get(self.selected).cloned();
 
             self.sessions = sessions.to_vec();
             self.lay_out();
 
-            self.selected = was
-                .and_then(|was| self.rows.iter().position(|row| row.is(&was)))
-                .unwrap_or_else(|| self.showing());
+            self.selected = match was {
+                Some(was) => self
+                    .rows
+                    .iter()
+                    .position(|row| row.is(&was))
+                    .unwrap_or(self.selected),
+                None => self.showing(),
+            };
         }
 
         /// Work out the rows again from the sessions and which of them are open.
@@ -96,12 +126,79 @@ mod tree {
                 (Key::Char('l') | Key::Right, _) => return self.open(),
                 (Key::Char('h') | Key::Left, _) => self.shut(),
                 (Key::CarriageReturn, _) => return self.pick(),
+                (Key::Char('x'), KeyMods::NONE) => return self.kill(),
+                (Key::Char('r'), KeyMods::NONE) => return self.rename(),
                 (Key::Char('q') | Key::Escape, _) => return Some(Effect::Close),
                 (Key::Char('c'), KeyMods::CONTROL) => return Some(Effect::Close),
                 _ => {}
             }
 
             None
+        }
+
+        /// Do what was done with the mouse, given how many rows there is room to show.
+        ///
+        /// Pressing on the arrow of a row shows what is in it or stops showing it, and pressing
+        /// anywhere else on a row selects it, or shows it when it is selected already, the way
+        /// pressing on a file in the browser opens it. The mouse wheel moves the selection.
+        pub fn mouse(&mut self, mouse_event: &MouseEvent, rows: usize) -> Option<Effect> {
+            match mouse_event.kind {
+                MouseEventKind::Press(MouseButton::Left) => {
+                    let at: usize = self.row_at(mouse_event.row, rows)?;
+                    if self.rows[at].arrow() == Some(mouse_event.column) {
+                        self.toggle(at);
+                        return None;
+                    }
+                    if at == self.selected {
+                        return self.pick();
+                    }
+                    self.selected = at;
+                }
+                MouseEventKind::ScrollUp => self.move_by(-1),
+                MouseEventKind::ScrollDown => self.move_by(1),
+                _ => {}
+            }
+
+            None
+        }
+
+        /// Show what is in the given row, or stop showing it when it is shown already, leaving
+        /// whichever row was selected selected while it is still there and selecting the given
+        /// row when it is not.
+        fn toggle(&mut self, at: usize) {
+            let toggled: Row = self.rows[at].clone();
+            let selected: Option<Row> = self.rows.get(self.selected).cloned();
+
+            let (open, which): (&mut Vec<Uuid>, Uuid) = match toggled.window() {
+                Some(window) => (&mut self.opened, window),
+                None => (&mut self.opened_sessions, toggled.session()),
+            };
+            match open.iter().position(|shown| *shown == which) {
+                Some(position) => {
+                    open.remove(position);
+                }
+                None => open.push(which),
+            }
+            self.lay_out();
+
+            let find = |row: &Row| self.rows.iter().position(|shown| shown.is(row));
+            if let Some(position) = selected.as_ref().and_then(find).or_else(|| find(&toggled)) {
+                self.selected = position;
+            }
+        }
+
+        /// Return which row is shown on the given row of the screen, given how many rows there
+        /// is room to show, which is none at all past the last of them.
+        fn row_at(&self, row: usize, rows: usize) -> Option<usize> {
+            let at: usize = self.first_shown(rows) + row;
+            return (row < rows && at < self.rows.len()).then_some(at);
+        }
+
+        /// Return the first row which is shown, given how many rows there is room to show.
+        ///
+        /// The rows are scrolled so that the one which is selected is always shown.
+        fn first_shown(&self, rows: usize) -> usize {
+            return self.selected.saturating_sub(rows.saturating_sub(1));
         }
 
         /// Move the selection along by the given number of rows.
@@ -224,27 +321,77 @@ mod tree {
             });
         }
 
-        /// Draw the list.
-        pub fn render(&self, size: Size) -> Fabric {
+        /// Return what closing whatever is selected asks for.
+        fn kill(&self) -> Option<Effect> {
+            let row: &Row = self.rows.get(self.selected)?;
+            return Some(Effect::Kill {
+                session: row.session(),
+                window: row.window(),
+                pane: row.pane(),
+            });
+        }
+
+        /// Return what asking what to call whatever is selected asks for.
+        fn rename(&self) -> Option<Effect> {
+            let row: &Row = self.rows.get(self.selected)?;
+            return Some(Effect::Rename {
+                session: row.session(),
+                window: row.window(),
+                pane: row.pane(),
+                name: row.name().to_string(),
+            });
+        }
+
+        /// Draw the list, with the row which is selected grayed when what is typed is going
+        /// somewhere else, such as to the prompt asking what to call it, and whatever of the list
+        /// the mouse is over grayed as well when it is over any of it.
+        pub fn render(&self, size: Size, focused: bool, hovering: Option<Location>) -> Fabric {
             if self.rows.is_empty() {
                 return Fabric::center("No sessions.", size);
             }
 
-            // The rows are scrolled so that the one which is selected is always shown.
-            let first: usize = self.selected.saturating_sub(size.rows.saturating_sub(1));
+            let first: usize = self.first_shown(size.rows);
+            let hovered: Option<usize> =
+                hovering.and_then(|hovering| self.row_at(hovering.row, size.rows));
+            // NOTE: The arrow of a row is grayed on its own when it is what the mouse is over,
+            // since pressing on it does something other than pressing on the rest of the row.
+            let on_arrow: bool = hovered.is_some_and(|at| {
+                self.rows[at].arrow() == hovering.map(|hovering| hovering.column)
+            });
 
             let mut yarns: Vec<Yarn> = Vec::with_capacity(size.rows);
             for (at, row) in self.rows.iter().enumerate().skip(first).take(size.rows) {
-                let mut yarn = Yarn::from(row.text());
-                yarn.resize(size.columns);
-
                 // NOTE: Everything is written the same way but for the row which is selected, so
                 // that the list reads as one thing rather than the sessions standing apart from
-                // the windows in them.
-                if at == self.selected {
-                    yarn.color(Color::InvertedText.into());
-                    yarn.background(Color::Highlight.into());
+                // the windows in them. Only the name on it is highlighted, and not the lines of
+                // the tree before it, so that it reads as what is picked.
+                let under_mouse: bool = Some(at) == hovered;
+                let background: Option<Color> =
+                    match (at == self.selected, under_mouse && !on_arrow) {
+                        (true, _) => Some(Color::row_highlight(focused)),
+                        (false, true) => Some(Color::Hover),
+                        (false, false) => None,
+                    };
+
+                let mut yarn = Yarn::from(row.text());
+                let highlighted = |background: Color| {
+                    Style::builder()
+                        .color(Some(Color::InvertedText.into()))
+                        .background(Some(background.into()))
+                        .build()
+                };
+                if let Some(background) = background {
+                    let before: &str = row.text().strip_suffix(row.name()).unwrap_or_default();
+                    let start: usize = Cell::columns(before);
+                    yarn.style(
+                        highlighted(background),
+                        start..start + Cell::columns(row.name()),
+                    );
                 }
+                if let Some(arrow) = row.arrow().filter(|_| under_mouse && on_arrow) {
+                    yarn.style(highlighted(Color::Hover), arrow..arrow + 1);
+                }
+                yarn.resize(size.columns);
 
                 yarns.push(yarn);
             }
@@ -278,8 +425,13 @@ mod row {
         /// Whether it is the window being looked at in the session being shown, which is the row
         /// the list opens on.
         here: bool,
+        /// What the session, window or pane the row is for is called.
+        name: String,
         /// What the row says.
         text: String,
+        /// The column the arrow which shows what is in it, or stops showing it, is drawn in, which
+        /// is none at all for a pane, which has nothing in it to show.
+        arrow: Option<usize>,
     }
 
     impl Row {
@@ -325,6 +477,8 @@ mod row {
                     window: None,
                     pane: None,
                     here: session.showing() && !open,
+                    name: session.name().to_string(),
+                    arrow: Some(0),
                     text: format!(
                         "{}{}",
                         match open {
@@ -351,6 +505,8 @@ mod row {
                         window: Some(*window.window()),
                         pane: None,
                         here: session.showing() && window.active(),
+                        name: window.name().to_string(),
+                        arrow: Some(Self::BRANCH.chars().count()),
                         text: format!(
                             "{}{}{}",
                             match last {
@@ -376,6 +532,8 @@ mod row {
                             window: Some(*window.window()),
                             pane: Some(*pane.pane()),
                             here: false,
+                            name: pane.name().to_string(),
+                            arrow: None,
                             text: format!(
                                 "{}{}{}",
                                 match last {
@@ -386,7 +544,7 @@ mod row {
                                     true => Self::LAST,
                                     false => Self::BRANCH,
                                 },
-                                number
+                                pane.name()
                             ),
                         });
                     }
@@ -409,6 +567,16 @@ mod row {
         /// Return which pane of that window the row is for.
         pub fn pane(&self) -> Option<Uuid> {
             return self.pane;
+        }
+
+        /// Return what the session, window or pane the row is for is called.
+        pub fn name(&self) -> &str {
+            return &self.name;
+        }
+
+        /// Return the column the arrow which shows what is in it is drawn in, if it has one.
+        pub fn arrow(&self) -> Option<usize> {
+            return self.arrow;
         }
 
         /// Return what the row says.
@@ -434,10 +602,11 @@ use row::Row;
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::color::Color;
 
     use insh_api::{PaneSummary, SessionSummary, WindowSummary};
-    use rend::Size;
-    use term::{Key, KeyEvent, KeyMods, TermEvent};
+    use rend::{Location, Size};
+    use term::{Key, KeyEvent, KeyMods, MouseButton, MouseEvent, MouseEventKind, TermEvent};
 
     use uuid::Uuid;
 
@@ -464,6 +633,7 @@ mod tests {
             .map(|(at, number)| {
                 PaneSummary::builder()
                     .pane(pane(*number))
+                    .name(at.to_string())
                     .active(at == 0)
                     .build()
             })
@@ -507,7 +677,7 @@ mod tests {
 
     /// Return what the tree is showing, a row per line.
     fn shown(tree: &Tree, rows: usize) -> Vec<String> {
-        let fabric = tree.render(Size::new(rows, 30));
+        let fabric = tree.render(Size::new(rows, 30), true, None);
 
         (0..rows)
             .map(|row| {
@@ -720,6 +890,195 @@ mod tests {
         assert!(matches!(
             press(&mut tree, Key::CarriageReturn),
             Some(Effect::Show { window, .. }) if window == self::window(2)
+        ));
+    }
+
+    #[test]
+    fn test_a_pane_is_closed() {
+        let mut tree: Tree = opened();
+        press(&mut tree, Key::Char('l'));
+        press(&mut tree, Key::Char('j'));
+
+        assert!(matches!(
+            press(&mut tree, Key::Char('x')),
+            Some(Effect::Kill { session, window, pane })
+                if session == self::session(1)
+                    && window == Some(self::window(1))
+                    && pane == Some(self::pane(1))
+        ));
+    }
+
+    #[test]
+    fn test_the_selection_stays_where_it_was_once_what_was_selected_is_closed() {
+        let mut tree: Tree = opened();
+        // The first window shows its panes, and the second of them is selected.
+        press(&mut tree, Key::Char('l'));
+        press(&mut tree, Key::Char('j'));
+        press(&mut tree, Key::Char('j'));
+
+        let mut sessions: Vec<SessionSummary> = sessions();
+        sessions[0] = SessionSummary::builder()
+            .session(session(1))
+            .name("0")
+            .windows(vec![
+                WindowSummary::builder()
+                    .window(window(1))
+                    .name("1")
+                    .panes(panes(&[1]))
+                    .active(true)
+                    .build(),
+                WindowSummary::builder()
+                    .window(window(2))
+                    .name("2")
+                    .panes(panes(&[3]))
+                    .build(),
+            ])
+            .clients(1)
+            .showing(true)
+            .build();
+        tree.show(&sessions);
+
+        // The row where the pane was is the window after it now.
+        assert!(matches!(
+            press(&mut tree, Key::CarriageReturn),
+            Some(Effect::Show { window, pane: None, .. }) if window == self::window(2)
+        ));
+    }
+
+    #[test]
+    fn test_a_session_is_closed() {
+        let mut tree: Tree = opened();
+        press(&mut tree, Key::Char('h'));
+
+        assert!(matches!(
+            press(&mut tree, Key::Char('x')),
+            Some(Effect::Kill { session, window: None, pane: None })
+                if session == self::session(1)
+        ));
+    }
+
+    #[test]
+    fn test_a_window_is_renamed_from_what_it_is_called_already() {
+        let mut tree: Tree = opened();
+        press(&mut tree, Key::Char('j'));
+
+        assert!(matches!(
+            press(&mut tree, Key::Char('r')),
+            Some(Effect::Rename { window, pane: None, name, .. })
+                if window == Some(self::window(2)) && name == "2"
+        ));
+    }
+
+    #[test_case::test_case(true, Color::Highlight; "while what is typed goes to it")]
+    #[test_case::test_case(false, Color::UnfocusedHighlight; "while what is typed goes elsewhere")]
+    fn test_only_the_name_on_the_selected_row_is_highlighted(focused: bool, expected: Color) {
+        let mut tree = Tree::default();
+        tree.show(&sessions());
+
+        // The first row says "▸ 0", and only the name at the third column of it is highlighted.
+        let fabric = tree.render(Size::new(2, 30), focused, None);
+
+        assert_eq!(fabric.spot(0, 0).style().background(), None);
+        assert_eq!(
+            fabric.spot(0, 2).style().background(),
+            Some(expected.into())
+        );
+        assert_eq!(fabric.spot(0, 3).style().background(), None);
+    }
+
+    /// Do what the mouse does at the given row, on the name of a window of the first session.
+    fn mouse(tree: &mut Tree, kind: MouseEventKind, row: usize) -> Option<Effect> {
+        tree.mouse(
+            &MouseEvent {
+                kind,
+                row,
+                column: 5,
+                mods: KeyMods::NONE,
+            },
+            10,
+        )
+    }
+
+    #[test]
+    fn test_pressing_on_a_row_selects_it_and_pressing_again_shows_it() {
+        let mut tree: Tree = opened();
+        let press = MouseEventKind::Press(MouseButton::Left);
+
+        // The last row is the window of the second session.
+        assert!(mouse(&mut tree, press, 4).is_none());
+        assert!(matches!(
+            mouse(&mut tree, press, 4),
+            Some(Effect::Show { window, .. }) if window == self::window(3)
+        ));
+    }
+
+    #[test]
+    fn test_pressing_past_the_last_row_does_nothing() {
+        let mut tree: Tree = opened();
+
+        mouse(&mut tree, MouseEventKind::Press(MouseButton::Left), 8);
+
+        // The window being looked at is still the one selected.
+        assert!(matches!(
+            press(&mut tree, Key::CarriageReturn),
+            Some(Effect::Show { window, .. }) if window == self::window(1)
+        ));
+    }
+
+    #[test]
+    fn test_the_name_on_the_row_under_the_mouse_is_grayed() {
+        let tree: Tree = opened();
+
+        // The first row says "▾ 0", which is not the one selected.
+        let fabric = tree.render(Size::new(5, 30), true, Some(Location { row: 0, column: 2 }));
+
+        assert_eq!(fabric.spot(0, 0).style().background(), None);
+        assert_eq!(
+            fabric.spot(0, 2).style().background(),
+            Some(Color::Hover.into())
+        );
+    }
+
+    #[test]
+    fn test_only_the_arrow_under_the_mouse_is_grayed() {
+        let tree: Tree = opened();
+
+        // The second row says "├─ ▸ 1", whose arrow is in the fourth column.
+        let fabric = tree.render(Size::new(5, 30), true, Some(Location { row: 2, column: 3 }));
+
+        assert_eq!(
+            fabric.spot(2, 3).style().background(),
+            Some(Color::Hover.into())
+        );
+        assert_eq!(fabric.spot(2, 5).style().background(), None);
+    }
+
+    #[test]
+    fn test_pressing_on_an_arrow_shows_what_is_in_the_row_and_leaves_the_selection() {
+        let mut tree: Tree = opened();
+        let press_on = |tree: &mut Tree, row: usize, column: usize| {
+            tree.mouse(
+                &MouseEvent {
+                    kind: MouseEventKind::Press(MouseButton::Left),
+                    row,
+                    column,
+                    mods: KeyMods::NONE,
+                },
+                10,
+            )
+        };
+
+        // The arrow of the first window shows its panes.
+        assert!(press_on(&mut tree, 1, 3).is_none());
+        assert_eq!(shown(&tree, 4)[2], "│  ├─ 0");
+
+        // The arrow of the first session stops showing its windows, and the window which was
+        // selected is gone with them, so the session is selected instead.
+        press_on(&mut tree, 0, 0);
+        assert_eq!(shown(&tree, 2), vec!["▸ 0", "▾ 1"]);
+        assert!(matches!(
+            press(&mut tree, Key::CarriageReturn),
+            Some(Effect::Show { session, .. }) if session == self::session(1)
         ));
     }
 

@@ -145,6 +145,16 @@ impl Style {
         self.background = background;
     }
 
+    /// Underline the text the given way.
+    pub fn set_underline(&mut self, underline: Underline) {
+        self.underline = underline;
+    }
+
+    /// Underline the text in the given color.
+    pub fn set_underline_color(&mut self, underline_color: Option<Color>) {
+        self.underline_color = underline_color;
+    }
+
     /// Return whether the text is written in bold.
     pub fn bold(&self) -> bool {
         return self.attributes.contains(Attributes::BOLD);
