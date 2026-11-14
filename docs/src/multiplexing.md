@@ -4,32 +4,36 @@ Insh has terminal multplexing inspired heavily by tmux. The session, window, and
 are all borrowed. As is the usage of a prefix.
 
 ## Normal mode
-| Command                            | Status bar command                              | Description                                                               |
-|------------------------------------|-------------------------------------------------|---------------------------------------------------------------------------|
-| `<Ctrl-b %`                        | split-vertically                                | Split the current pane vertically.                                        |
-| `<Ctrl-b "`                        | split-horizontally                              | Split the current pane horizontally.                                      |
-| `<Ctrl>-b x`                       | kill-pane                                       | Kill the current pane.                                                    |
-| `<Ctrl>-b j` \| `<Ctrl>-b <Down>`  | focus-down                                      | Select the pane below the current pane.                                   |
-| `<Ctrl>-b k` \| `<Ctrl>-b <Up>`    | focus-up                                        | Select the pane above the current pane.                                   |
-| `<Ctrl>-b h` \| `<Ctrl>-b <Left>`  | focus-left                                      | Select the pane to the left of the current pane.                          |
-| `<Ctrl>-b l` \| `<Ctrl>-b <Right>` | focus-right                                     | Select the pane to the right of the current pane.                         |
-| `<Ctrl>-b <Ctrl>-<Down>`           | resize-pane-down                                | Resize the pane downwards.                                                |
-| `<Ctrl>-b <Ctrl>-<Up>`             | resize-pane-up                                  | Resize the pane upwards.                                                  |
-| `<Ctrl>-b <Ctrl>-<Left>`           | resize-pane-left                                | Resize the pane left.                                                     |
-| `<Ctrl>-b <Ctrl>-<Right>`          | resize-pane-right                               | Resize the pane right.                                                    |
-| `<Ctrl>-b y`                       | synchronize-panes                               | Synchronize panes.                                                        |
-| `<Ctrl-b z`                        | toggle-zoom                                     | Toggle zooming the current pane.                                          |
-| `<Ctrl>-b {`                       | switch-pane-previous                            | Switch the current pane with the previous pane.                           |
-| `<Ctrl>-b }`                       | switch-pane-next                                | Switch the current pane with the next pane.                               |
-| `<Ctrl-b $`                        | rename-session [name]                           | Rename the current session.                                               |
-| `<Ctrl-b ,`                        | rename-window [name]                            | Rename the current window.                                                |
-|                                    | new-session [name]                              | Create a new session.                                                     |
-| `<Ctrl>-b c`                       | new-window [name]                               | Create a new window.                                                      |
-|                                    | set-dir [--window \| -w \| --session \| -s] dir | Set the default starting directory for a window/session (default window). |
-| `<Ctrl-b [`                        | change-mode copy                                | Enter copy mode                                                           |
-| `<Ctrl>-b s`                       | list-sessions \| ls                             | View the session, window, and pane switcher.                              |
-| `<Ctrl>-b :`                       | change-mode prompt                              | Prompt for a command.                                                     |
-|                                    | detach                                          | Detach from the current session.                                          |
+| Command                            | Status bar command                                   | Description                                                               |
+|------------------------------------|------------------------------------------------------|---------------------------------------------------------------------------|
+| `<Ctrl-b %`                        | split-vertically                                     | Split the current pane vertically.                                        |
+| `<Ctrl-b "`                        | split-horizontally                                   | Split the current pane horizontally.                                      |
+| `<Ctrl>-b c`                       | new-window [name]                                    | Create a new window.                                                      |
+|                                    | new-session [name]                                   | Create a new session.                                                     |
+| `<Ctrl>-b x`                       | kill-pane [name]                                     | Kill a pane (default current).                                            |
+|                                    | kill-window [name]                                   | Kill a window (default current).                                          |
+|                                    | kill-session [name]                                  | Kill a session (default current).                                         |
+| `<Ctrl>-b j` \| `<Ctrl>-b <Down>`  | focus-down                                           | Select the pane below the current pane.                                   |
+| `<Ctrl>-b k` \| `<Ctrl>-b <Up>`    | focus-up                                             | Select the pane above the current pane.                                   |
+| `<Ctrl>-b h` \| `<Ctrl>-b <Left>`  | focus-left                                           | Select the pane to the left of the current pane.                          |
+| `<Ctrl>-b l` \| `<Ctrl>-b <Right>` | focus-right                                          | Select the pane to the right of the current pane.                         |
+| `<Ctrl>-b <Ctrl>-<Down>`           | resize-pane-down                                     | Resize the pane downwards.                                                |
+| `<Ctrl>-b <Ctrl>-<Up>`             | resize-pane-up                                       | Resize the pane upwards.                                                  |
+| `<Ctrl>-b <Ctrl>-<Left>`           | resize-pane-left                                     | Resize the pane left.                                                     |
+| `<Ctrl>-b <Ctrl>-<Right>`          | resize-pane-right                                    | Resize the pane right.                                                    |
+| `<Ctrl>-b y`                       | synchronize-panes                                    | Synchronize panes.                                                        |
+| `<Ctrl-b z`                        | toggle-zoom                                          | Toggle zooming the current pane.                                          |
+| `<Ctrl>-b {`                       | switch-pane-previous                                 | Switch the current pane with the previous pane.                           |
+| `<Ctrl>-b }`                       | switch-pane-next                                     | Switch the current pane with the next pane.                               |
+|                                    | rename-pane <name>                                   | Rename the current window.                                                |
+| `<Ctrl-b ,`                        | rename-window <name>                                 | Rename the current window.                                                |
+| `<Ctrl-b $`                        | rename-session <name>                                | Rename the current session.                                               |
+|                                    | set-dir [--window \| -w \| --session \| -s] <dir>    | Set the default starting directory for a window/session (default window). |
+|                                    | change-dir [--window \| -w \| --session \| -s] <dir> | Change the directory for a window/session (default window).               |
+| `<Ctrl-b [`                        | change-mode copy                                     | Enter copy mode                                                           |
+| `<Ctrl>-b s`                       | list-sessions \| ls                                  | View the session, window, and pane switcher.                              |
+| `<Ctrl>-b :`                       | change-mode prompt                                   | Prompt for a command.                                                     |
+|                                    | detach                                               | Detach from the current session.                                          |
 
 ## Copy mode
 | Command            | Description                                     |
