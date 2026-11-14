@@ -1,3 +1,14 @@
+# 0.6.9
+- Improve `set-dir` suggestions.
+- Add a `change-dir` command.
+- Expand the `kill-pane` command to optionally take the pane name.
+- Add a `kill-window` command.
+- Add a `kill-session` command.
+- Add a `rename-pane` command.
+- Add `x` for deleting a session, window, or pane in the session switcher.
+- Add `r` for renaming a session, window, or pane in the session switcher.
+- Underline the part of the searcher line hit that matches the search.
+
 # 0.6.8
 - Fix inshie on MacOS.
 
