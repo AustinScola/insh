@@ -14,9 +14,10 @@ use crate::disconnected_client::DisconnectedClient;
 use crate::stop::Stop;
 
 use insh_api::{
-    CopyPaneResponseParams, DetachedResponseParams, DirScope, LayoutResponseParams,
-    PaneExitedResponseParams, PaneScreen, PaneScreenResponseParams, RequestParams, Response,
-    ResponseParams, SearchPaneResponseParams, SessionSummary, SessionsResponseParams, Split,
+    ChangedDirResponseParams, CopyPaneResponseParams, DetachedResponseParams, DirScope,
+    LayoutResponseParams, PaneExitedResponseParams, PaneKind, PaneScreen, PaneScreenResponseParams,
+    RequestParams, Response, ResponseParams, SearchPaneResponseParams, SessionSummary,
+    SessionsResponseParams, Split, Target,
 };
 use rend::{Location, Size};
 
@@ -165,7 +166,7 @@ impl Multiplexer {
             }
             RequestParams::SplitPane(params) => self.split(
                 &client,
-                *params.pane(),
+                params.pane(),
                 params.split(),
                 params.dir().cloned(),
             ),
@@ -176,7 +177,9 @@ impl Multiplexer {
                 }
                 self.tell_about_layout(&client, Vec::new());
             }
-            RequestParams::KillPane(params) => self.kill(&client, *params.pane()),
+            RequestParams::KillPane(params) => self.kill_pane(&client, params.pane()),
+            RequestParams::KillWindow(params) => self.kill_window(&client, params.window()),
+            RequestParams::KillSession(params) => self.kill_session(&client, params.session()),
             RequestParams::DragPane(params) => {
                 let (panes, split, by) = (params.panes(), params.split(), params.by());
                 let screens: Vec<PaneScreen> = match self.session_of_mut(&client) {
@@ -280,21 +283,64 @@ impl Multiplexer {
                 };
                 self.tell_about_layout(&client, screens);
             }
+            // NOTE: Every client showing the session is told about it being renamed, not only the
+            // one which renamed it, since the switcher can rename one which another is showing.
             RequestParams::RenameSession(params) => {
                 let name: String = params.name().to_string();
-                match self.session_of_mut(&client) {
-                    Some(session) => session.rename(name),
+                let session: Uuid = match params.session() {
+                    Some(session) => *session,
+                    None => match self.attachments.get(&client) {
+                        Some(attachment) => attachment.session,
+                        None => return,
+                    },
+                };
+                match self.sessions.get_mut(&session) {
+                    Some(renamed) => renamed.rename(name),
                     None => return,
                 }
-                self.tell_about_layout(&client, Vec::new());
+                self.tell_all_about_layout(session, Vec::new());
             }
             RequestParams::RenameWindow(params) => {
                 let (window, name) = (params.window().copied(), params.name().to_string());
-                match self.session_of_mut(&client) {
-                    Some(session) => session.window_or_active_mut(window.as_ref()).rename(name),
+                // NOTE: A window which is said but is not there any more is not renamed at all,
+                // rather than the one being looked at being renamed in its place.
+                let session: Uuid = match window {
+                    Some(window) => match self.session_with_window(&window) {
+                        Some(session) => session,
+                        None => return,
+                    },
+                    None => match self.attachments.get(&client) {
+                        Some(attachment) => attachment.session,
+                        None => return,
+                    },
+                };
+                match self.sessions.get_mut(&session) {
+                    Some(renamed) => renamed.window_or_active_mut(window.as_ref()).rename(name),
                     None => return,
                 }
-                self.tell_about_layout(&client, Vec::new());
+                self.tell_all_about_layout(session, Vec::new());
+            }
+            RequestParams::RenamePane(params) => {
+                let name: String = params.name().to_string();
+                let (session, pane): (Uuid, Uuid) = match params.pane() {
+                    Some(pane) => match self.session_with(pane) {
+                        Some(session) => (session, *pane),
+                        None => return,
+                    },
+                    None => match self.session_of(&client) {
+                        Some(session) => (session.id(), session.active_pane()),
+                        None => return,
+                    },
+                };
+                match self
+                    .sessions
+                    .get_mut(&session)
+                    .and_then(|session| session.pane_mut(&pane))
+                {
+                    Some(renamed) => renamed.rename(name),
+                    None => return,
+                }
+                self.tell_all_about_layout(session, Vec::new());
             }
             RequestParams::SetDir(params) => {
                 let (scope, dir) = (params.scope(), params.dir().clone());
@@ -310,6 +356,50 @@ impl Multiplexer {
                 // NOTE: Every client showing the session is told, since whichever of them next
                 // draws a new pane is the one which has to know where it starts.
                 self.tell_all_about_layout(session, Vec::new());
+            }
+            RequestParams::ChangeDir(params) => {
+                let (scope, dir) = (params.scope(), params.dir().clone());
+                let session: Uuid = match self.attachments.get(&client) {
+                    Some(attachment) => attachment.session,
+                    None => return,
+                };
+                let changed: &mut Session = match self.sessions.get_mut(&session) {
+                    Some(changed) => changed,
+                    None => return,
+                };
+
+                let panes: Vec<Uuid> = match scope {
+                    DirScope::Window => changed.window().tree().panes(),
+                    DirScope::Session => changed.pane_ids(),
+                };
+                // NOTE: A pane with a program in it is left where it is, since there is no telling
+                // the program to go anywhere.
+                let panes: Vec<Uuid> = panes
+                    .into_iter()
+                    .filter(|pane| {
+                        changed
+                            .pane(pane)
+                            .is_some_and(|pane| pane.kind() == PaneKind::Component)
+                    })
+                    .collect();
+                for pane in &panes {
+                    if let Some(pane) = changed.pane_mut(pane) {
+                        pane.set_dir(dir.clone());
+                    }
+                }
+
+                // NOTE: The clients are only told about the panes which they may be showing. The
+                // rest start out in the directory the next time they are shown, since that is
+                // what a pane a client has not seen yet starts out in.
+                self.tell_all(
+                    session,
+                    ResponseParams::ChangedDir(
+                        ChangedDirResponseParams::builder()
+                            .panes(panes)
+                            .dir(dir)
+                            .build(),
+                    ),
+                );
             }
             RequestParams::SyncPanes(_) => {
                 match self.session_of_mut(&client) {
@@ -409,7 +499,13 @@ impl Multiplexer {
             Output::Finished { pane, child } => {
                 let session: Uuid = match self.session_with(&pane) {
                     Some(session) => session,
-                    None => return,
+                    // NOTE: The pane was closed before its program finished, so all there is left
+                    // of it is the threads which were reading and writing it.
+                    None => {
+                        self.readers.remove(&pane);
+                        self.writers.remove(&pane);
+                        return;
+                    }
                 };
 
                 if let Some(finished) = self
@@ -646,9 +742,17 @@ impl Multiplexer {
     }
 
     /// Split a pane of the session a client is showing.
-    fn split(&mut self, client: &Uuid, pane: Uuid, split: Split, dir: Option<PathBuf>) {
+    fn split(&mut self, client: &Uuid, target: &Target, split: Split, dir: Option<PathBuf>) {
         let session: Uuid = match self.attachments.get(client) {
             Some(attachment) => attachment.session,
+            None => return,
+        };
+        let pane: Uuid = match self
+            .sessions
+            .get(&session)
+            .and_then(|session| session.find_pane(target))
+        {
+            Some(pane) => pane,
             None => return,
         };
 
@@ -797,13 +901,90 @@ impl Multiplexer {
         );
     }
 
-    /// Close a pane of the session a client is showing.
-    fn kill(&mut self, client: &Uuid, pane: Uuid) {
-        let session: Uuid = match self.attachments.get(client) {
-            Some(attachment) => attachment.session,
+    /// Close the pane the target is, which is one of the session a client is showing unless it is
+    /// picked out by which one it is.
+    fn kill_pane(&mut self, client: &Uuid, target: &Target) {
+        let session: Uuid = match target {
+            Target::Id(pane) => match self.session_with(pane) {
+                Some(session) => session,
+                None => return,
+            },
+            Target::Current | Target::Named(_) => match self.attachments.get(client) {
+                Some(attachment) => attachment.session,
+                None => return,
+            },
+        };
+        let pane: Uuid = match self
+            .sessions
+            .get(&session)
+            .and_then(|session| session.find_pane(target))
+        {
+            Some(pane) => pane,
             None => return,
         };
         self.close_pane(session, pane);
+    }
+
+    /// Close the window the target is along with every pane in it, which is one of the session a
+    /// client is showing unless it is picked out by which one it is.
+    fn kill_window(&mut self, client: &Uuid, target: &Target) {
+        let session: Uuid = match target {
+            Target::Id(window) => match self.session_with_window(window) {
+                Some(session) => session,
+                None => return,
+            },
+            Target::Current | Target::Named(_) => match self.attachments.get(client) {
+                Some(attachment) => attachment.session,
+                None => return,
+            },
+        };
+
+        let left: bool = match self.sessions.get_mut(&session) {
+            Some(killed) => match killed.find_window(target) {
+                Some(window) => killed.remove_window(&window),
+                None => return,
+            },
+            None => return,
+        };
+
+        if !left {
+            self.end_session(session);
+            return;
+        }
+
+        let screens: Vec<PaneScreen> = match self.sessions.get_mut(&session) {
+            Some(session) => {
+                session.fit();
+                Self::whole_screens(session)
+            }
+            None => return,
+        };
+        self.tell_all_about_layout(session, screens);
+    }
+
+    /// Close the session the target is along with every window in it.
+    fn kill_session(&mut self, client: &Uuid, target: &Target) {
+        let session: Uuid = match target {
+            Target::Current => match self.attachments.get(client) {
+                Some(attachment) => attachment.session,
+                None => return,
+            },
+            Target::Id(session) => *session,
+            Target::Named(name) => match self
+                .sessions
+                .values()
+                .find(|session| session.name() == name)
+            {
+                Some(session) => session.id(),
+                None => return,
+            },
+        };
+
+        match self.sessions.get_mut(&session) {
+            Some(killed) => killed.close(),
+            None => return,
+        }
+        self.end_session(session);
     }
 
     /// Take a pane out of its session, closing the session when it was the last one.
@@ -819,23 +1000,7 @@ impl Multiplexer {
         );
 
         if !left {
-            self.sessions.remove(&session);
-            if self.last == Some(session) {
-                self.last = self.sessions.keys().next().copied();
-            }
-
-            // The clients which were showing it have nothing to show any more.
-            let showing: Vec<Uuid> = self.showing(session);
-            for client in showing {
-                if let Some(attachment) = self.leave(&client) {
-                    self.send(
-                        client,
-                        attachment.request,
-                        ResponseParams::Detached(DetachedResponseParams::builder().build()),
-                        true,
-                    );
-                }
-            }
+            self.end_session(session);
             return;
         }
 
@@ -847,6 +1012,57 @@ impl Multiplexer {
             None => return,
         };
         self.tell_all_about_layout(session, screens);
+    }
+
+    /// Take the session away, which there is nothing left of, and stop showing it to the clients
+    /// which were.
+    ///
+    /// A client which was showing it is shown whichever session was shown last instead, and only
+    /// stops showing one when there is none left to show.
+    fn end_session(&mut self, session: Uuid) {
+        self.sessions.remove(&session);
+        if self.last == Some(session) {
+            self.last = self.sessions.keys().next().copied();
+        }
+
+        let showing: Vec<Uuid> = self.showing(session);
+        for client in showing {
+            let attachment: Attachment = match self.leave(&client) {
+                Some(attachment) => attachment,
+                None => continue,
+            };
+
+            let next: Uuid = match self.last {
+                Some(next) => next,
+                None => {
+                    self.send(
+                        client,
+                        attachment.request,
+                        ResponseParams::Detached(DetachedResponseParams::builder().build()),
+                        true,
+                    );
+                    continue;
+                }
+            };
+
+            // NOTE: The client goes on being told about the session it is shown on the request it
+            // attached with, the way it is when it makes a new one.
+            self.attachments.insert(
+                client,
+                Attachment {
+                    session: next,
+                    ..attachment
+                },
+            );
+            let screens: Vec<PaneScreen> = match self.sessions.get_mut(&next) {
+                Some(next) => {
+                    next.resize(attachment.size);
+                    Self::whole_screens(next)
+                }
+                None => continue,
+            };
+            self.tell_about_layout(&client, screens);
+        }
     }
 
     /// Return the whole of the screen of every pane of the window being looked at.
@@ -883,6 +1099,15 @@ impl Multiplexer {
             .sessions
             .iter()
             .find(|(_, session)| session.has_pane(pane))
+            .map(|(id, _)| *id);
+    }
+
+    /// Return which session the window is in.
+    fn session_with_window(&self, window: &Uuid) -> Option<Uuid> {
+        return self
+            .sessions
+            .iter()
+            .find(|(_, session)| session.has_window(window))
             .map(|(id, _)| *id);
     }
 

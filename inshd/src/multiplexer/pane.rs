@@ -71,11 +71,14 @@ pub struct Pane {
     size: Size,
     /// The program running in it, which is nothing at all for a pane a client draws itself.
     program: Option<Program>,
-    /// The directory the program running in it, or which ran in it last, was started in.
+    /// The directory the program running in it, or which ran in it last, was started in, or the
+    /// one the browser in it was taken to since.
     ///
     /// NOTE: This outlives the program, since a client which has not seen the pane before shows
     /// the browser in it once the program has finished, and this is where that was.
     dir: Option<PathBuf>,
+    /// What it has been called, which is nothing at all when it goes by its number.
+    name: Option<String>,
 }
 
 impl Pane {
@@ -140,6 +143,7 @@ impl Pane {
             size: Self::at_least_one(size),
             program: None,
             dir: None,
+            name: None,
         };
     }
 
@@ -156,9 +160,33 @@ impl Pane {
         };
     }
 
-    /// Return the directory the program running in it, or which ran in it last, was started in.
+    /// Return the directory the program running in it, or which ran in it last, was started in,
+    /// or the one the browser in it was taken to since.
     pub fn dir(&self) -> Option<&PathBuf> {
         return self.dir.as_ref();
+    }
+
+    /// Take note that the browser in it was taken to the directory.
+    pub fn set_dir(&mut self, dir: PathBuf) {
+        self.dir = Some(dir);
+    }
+
+    /// Return what it has been called, which is nothing at all when it goes by its number.
+    pub fn name(&self) -> Option<&str> {
+        return self.name.as_deref();
+    }
+
+    /// Call it something else, where nothing at all is going by its number again.
+    ///
+    /// NOTE: A name which is only a number goes by its number again as well, since a pane which
+    /// has not been called anything is called by its number, and a name which is one would be
+    /// taken for another pane's.
+    pub fn rename(&mut self, name: String) {
+        let numbered: bool = name.chars().all(|character| character.is_ascii_digit());
+        self.name = match numbered {
+            true => None,
+            false => Some(name),
+        };
     }
 
     /// Return a size which has at least one row and one column.

@@ -2,7 +2,7 @@
 
 use std::collections::BTreeSet;
 
-use insh_api::{PaneLayout, Split};
+use insh_api::{LineLayout, PaneLayout, Split};
 use rend::{Location, Size};
 
 use uuid::Uuid;
@@ -89,6 +89,99 @@ impl Tree {
             };
             part.lay_out(at, size, layouts);
         }
+    }
+
+    /// Return where every line between two parts is, given the corner the window starts at and how
+    /// big it is.
+    pub fn lines(&self, at: Location, size: Size) -> Vec<LineLayout> {
+        let mut lines: Vec<LineLayout> = Vec::new();
+        self.collect_lines(at, size, &mut lines);
+        return lines;
+    }
+
+    /// Put where every line between two parts is onto the given lines.
+    fn collect_lines(&self, at: Location, size: Size, lines: &mut Vec<LineLayout>) {
+        let (split, parts, sizes): (Split, &Vec<Tree>, &Vec<usize>) = match self {
+            Self::Pane(_) => return,
+            Self::Split {
+                split,
+                parts,
+                sizes,
+            } => (*split, parts, sizes),
+        };
+
+        let along: usize = match split {
+            Split::Beside => size.columns,
+            Split::Below => size.rows,
+        };
+        let shares: Vec<(usize, usize)> = Self::shares(along, sizes);
+
+        for (part, (start, len)) in parts.iter().zip(shares.iter().copied()) {
+            let (part_at, part_size): (Location, Size) = match split {
+                Split::Beside => (
+                    Location::builder()
+                        .row(at.row)
+                        .column(at.column + start)
+                        .build(),
+                    Size::new(size.rows, len),
+                ),
+                Split::Below => (
+                    Location::builder()
+                        .row(at.row + start)
+                        .column(at.column)
+                        .build(),
+                    Size::new(len, size.columns),
+                ),
+            };
+            part.collect_lines(part_at, part_size, lines);
+        }
+
+        for (line, (start, len)) in shares.iter().copied().enumerate().take(parts.len() - 1) {
+            // NOTE: This line is what dragging the far side of a pane of the part before it moves,
+            // and of the last part as well when it is the last line, since the last part has no
+            // line after it and moves the one before it instead.
+            let last: bool = line + 2 == parts.len();
+            let panes: Vec<Uuid> = parts
+                .iter()
+                .enumerate()
+                .filter(|(part, _)| *part == line || (last && *part == line + 1))
+                .flat_map(|(_, part)| part.dragging(split))
+                .collect();
+
+            lines.push(match split {
+                Split::Beside => LineLayout::builder()
+                    .split(split)
+                    .at(at.column + start + len)
+                    .from(at.row)
+                    .to(at.row + size.rows)
+                    .panes(panes)
+                    .build(),
+                Split::Below => LineLayout::builder()
+                    .split(split)
+                    .at(at.row + start + len)
+                    .from(at.column)
+                    .to(at.column + size.columns)
+                    .panes(panes)
+                    .build(),
+            });
+        }
+    }
+
+    /// Return the panes of it whose far side, dragged the given way, moves the line of whatever
+    /// it is a part of rather than one of its own.
+    ///
+    /// A pane in a split the same way moves a line of that split instead, since the line which
+    /// moves is the one nearest the pane.
+    fn dragging(&self, split: Split) -> Vec<Uuid> {
+        return match self {
+            Self::Pane(pane) => vec![*pane],
+            Self::Split {
+                split: arranged, ..
+            } if *arranged == split => Vec::new(),
+            Self::Split { parts, .. } => {
+                parts.iter().flat_map(|part| part.dragging(split)).collect()
+            }
+        };
     }
 
     /// Return where each part starts and how much of the rows or columns it gets.
@@ -308,11 +401,16 @@ impl Tree {
         {
             parts.remove(position);
 
-            // What the pane had goes to whichever part is next to where it was, along with the
-            // row or column the line beside it was taking, so that the rest of the window is not
-            // left with a gap in it and none of the other lines moves.
+            // What the pane had goes to the part before where it was, along with the row or column
+            // the line beside it was taking, so that the rest of the window is not left with a gap
+            // in it and none of the other lines moves.
+            //
+            // NOTE: The part before is the one it was most likely split off of, since a new pane
+            // goes after the one which was split, so this gives a pane back what it gave up. Only
+            // the first part has nothing before it, and what it had goes to the one after instead,
+            // which is how tmux shares it out.
             let had: usize = sizes.remove(position) + Self::DIVIDER;
-            let beside: usize = position.min(sizes.len().saturating_sub(1));
+            let beside: usize = position.saturating_sub(1);
             if let Some(size) = sizes.get_mut(beside) {
                 *size += had;
             }
@@ -325,6 +423,26 @@ impl Tree {
         }
 
         return true;
+    }
+
+    /// Return the pane which is given what the pane has when it is taken out, which is the one
+    /// nearest it in the part before it, or in the part after it when it is the first.
+    pub fn heir(&self, pane: &Uuid) -> Option<Uuid> {
+        let parts: &Vec<Tree> = match self {
+            Self::Pane(_) => return None,
+            Self::Split { parts, .. } => parts,
+        };
+
+        let position: Option<usize> = parts
+            .iter()
+            .position(|part| matches!(part, Self::Pane(this) if this == pane));
+        return match position {
+            Some(0) => parts
+                .get(1)
+                .and_then(|after| after.panes().first().copied()),
+            Some(position) => parts[position - 1].panes().last().copied(),
+            None => parts.iter().find_map(|part| part.heir(pane)),
+        };
     }
 
     /// Swap the pane with the one before it in the window, or the one after it when that is which
@@ -770,6 +888,109 @@ mod tests {
             layout(&tree, Size::new(4, 21)),
             vec![(0, 0, 4, 10), (0, 11, 4, 10)]
         );
+    }
+
+    #[test]
+    fn test_what_a_pane_in_the_middle_had_goes_back_to_the_one_before_it() {
+        // One pane above another, with the top one split again so that the new one is between.
+        let size = Size::new(11, 10);
+        let mut tree = Tree::Pane(pane(1));
+        tree.split(&pane(1), Split::Below, pane(2));
+        tree.rescale(size);
+        let before: Vec<(usize, usize, usize, usize)> = layout(&tree, size);
+        tree.split(&pane(1), Split::Below, pane(3));
+
+        tree.remove(&pane(3));
+
+        // The top pane gets back what it gave up, and the bottom one stays where it was.
+        assert_eq!(layout(&tree, size), before);
+    }
+
+    #[test]
+    fn test_what_the_first_pane_had_goes_to_the_one_after_it() {
+        let size = Size::new(4, 21);
+        let mut tree = Tree::Pane(pane(1));
+        tree.split(&pane(1), Split::Beside, pane(2));
+        tree.split(&pane(2), Split::Beside, pane(3));
+        tree.rescale(size);
+        let last: (usize, usize, usize, usize) = layout(&tree, size)[2];
+
+        tree.remove(&pane(1));
+
+        // The second takes the left of the window as well as its own, and the last stays put.
+        let after: Vec<(usize, usize, usize, usize)> = layout(&tree, size);
+        assert_eq!(after[0].1, 0);
+        assert_eq!(after[1], last);
+    }
+
+    #[test]
+    fn test_the_heir_of_a_pane_is_the_one_nearest_it_before_it() {
+        // One pane on the left, and two stacked on the right of it.
+        let mut tree = Tree::Pane(pane(1));
+        tree.split(&pane(1), Split::Beside, pane(2));
+        tree.split(&pane(2), Split::Below, pane(3));
+        tree.split(&pane(1), Split::Below, pane(4));
+
+        assert_eq!(tree.heir(&pane(3)), Some(pane(2)));
+        assert_eq!(tree.heir(&pane(4)), Some(pane(1)));
+        // The first of the ones on the left has nothing before it, so it is the one after it.
+        assert_eq!(tree.heir(&pane(1)), Some(pane(4)));
+        assert_eq!(Tree::Pane(pane(1)).heir(&pane(1)), None);
+    }
+
+    /// Return each line as which way it is split, where it is, where it runs from and to, and the
+    /// numbers of the panes which drag it.
+    fn dividers(tree: &Tree, size: Size) -> Vec<(bool, usize, usize, usize, Vec<u128>)> {
+        let mut lines: Vec<(bool, usize, usize, usize, Vec<u128>)> = tree
+            .lines(corner(), size)
+            .iter()
+            .map(|line| {
+                let mut panes: Vec<u128> = line.panes().iter().map(Uuid::as_u128).collect();
+                panes.sort();
+                (
+                    matches!(line.split(), Split::Beside),
+                    line.at(),
+                    line.from(),
+                    line.to(),
+                    panes,
+                )
+            })
+            .collect();
+        lines.sort();
+        lines
+    }
+
+    #[test]
+    fn test_a_line_is_dragged_by_every_pane_whose_far_side_moves_it() {
+        // Two panes stacked on the left and one on the right.
+        let mut tree = Tree::Pane(pane(1));
+        tree.split(&pane(1), Split::Beside, pane(3));
+        tree.split(&pane(1), Split::Below, pane(2));
+
+        assert_eq!(
+            dividers(&tree, Size::new(9, 21)),
+            vec![
+                // The line across the left, which the two stacked panes drag.
+                (false, 4, 0, 10, vec![1, 2]),
+                // The line down the middle, which all three drag, the whole height of the window.
+                (true, 10, 0, 9, vec![1, 2, 3]),
+            ]
+        );
+    }
+
+    #[test]
+    fn test_the_lines_across_a_grid_are_dragged_apart() {
+        let mut tree = Tree::Pane(pane(1));
+        tree.split(&pane(1), Split::Beside, pane(2));
+        tree.split(&pane(1), Split::Below, pane(3));
+        tree.split(&pane(2), Split::Below, pane(4));
+
+        let across: Vec<Vec<u128>> = dividers(&tree, Size::new(9, 21))
+            .into_iter()
+            .filter(|(beside, ..)| !beside)
+            .map(|(.., panes)| panes)
+            .collect();
+        assert_eq!(across, vec![vec![1, 3], vec![2, 4]]);
     }
 
     #[test]

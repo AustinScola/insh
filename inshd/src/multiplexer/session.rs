@@ -6,7 +6,7 @@ use std::path::PathBuf;
 use super::pane::Pane;
 use super::tree::Tree;
 
-use insh_api::{Layout, PaneKind, PaneLayout, Split, Window as WindowSummary};
+use insh_api::{Layout, PaneKind, PaneLayout, Split, Target, Window as WindowSummary};
 use rend::{Location, Size};
 
 use typed_builder::TypedBuilder;
@@ -186,6 +186,61 @@ impl Session {
         return self.window().dir().or(self.dir.as_ref());
     }
 
+    /// Return whether the window is one of the ones in the session.
+    pub fn has_window(&self, window: &Uuid) -> bool {
+        return self.windows.iter().any(|shown| shown.id() == *window);
+    }
+
+    /// Return the window the target is, out of the ones in the session.
+    pub fn find_window(&self, target: &Target) -> Option<Uuid> {
+        return match target {
+            Target::Current => Some(self.window().id()),
+            Target::Id(window) => self.has_window(window).then_some(*window),
+            Target::Named(name) => self
+                .windows
+                .iter()
+                .find(|window| window.name() == name)
+                .map(Window::id),
+        };
+    }
+
+    /// Return the pane the target is, where one named is one of the window being looked at.
+    pub fn find_pane(&self, target: &Target) -> Option<Uuid> {
+        return match target {
+            Target::Current => Some(self.active_pane()),
+            Target::Id(pane) => self.has_pane(pane).then_some(*pane),
+            Target::Named(name) => {
+                let window: &Window = self.window();
+                window
+                    .tree()
+                    .panes()
+                    .into_iter()
+                    .find(|pane| self.pane_name(window, pane) == *name)
+            }
+        };
+    }
+
+    /// Return what the pane of the window is called, which is its number in the window, counting
+    /// from zero the way tmux counts them, when it has not been called anything.
+    pub fn pane_name(&self, window: &Window, pane: &Uuid) -> String {
+        if let Some(name) = self.panes.get(pane).and_then(Pane::name) {
+            return name.to_string();
+        }
+
+        return window
+            .tree()
+            .panes()
+            .iter()
+            .position(|shown| shown == pane)
+            .unwrap_or_default()
+            .to_string();
+    }
+
+    /// Return every pane of the session, whichever of its windows it is in.
+    pub fn pane_ids(&self) -> Vec<Uuid> {
+        return self.panes.keys().copied().collect();
+    }
+
     /// Return the given window, to be changed, or the one being looked at when there is none.
     pub fn window_or_active_mut(&mut self, window: Option<&Uuid>) -> &mut Window {
         let which: Option<Uuid> = window
@@ -304,12 +359,23 @@ impl Session {
 
         let size: Size = self.window_size();
         for window in &mut self.windows {
+            // NOTE: What is typed goes to whichever pane is given what the pane had, the way it
+            // does in tmux, rather than to the first pane of the window.
+            let heir: Option<Uuid> = match window.active() == *pane {
+                true => window.tree().heir(pane),
+                false => None,
+            };
+
             // NOTE: What the pane had is given to the one beside it a row or a column at a time,
             // so the arrangement is put in the same units as the screen first.
             if window.zoomed().is_none() {
                 window.tree_mut().rescale(size);
             }
             window.tree_mut().remove(pane);
+
+            if let Some(heir) = heir {
+                window.select(heir);
+            }
         }
 
         // NOTE: A window whose only pane is the one which went has nothing left in it. Taking the
@@ -338,6 +404,30 @@ impl Session {
         }
 
         return true;
+    }
+
+    /// Take the window out of the session along with every pane in it, and return whether there is
+    /// anything left of the session.
+    pub fn remove_window(&mut self, window: &Uuid) -> bool {
+        let panes: Vec<Uuid> = match self.windows.iter().find(|shown| shown.id() == *window) {
+            Some(shown) => shown.tree().panes(),
+            None => return !self.windows.is_empty(),
+        };
+
+        // NOTE: The window goes along with the last of its panes, so there is nothing to take out
+        // of the session once they have all gone.
+        let mut left: bool = true;
+        for pane in panes {
+            left = self.remove_pane(&pane);
+        }
+        return left;
+    }
+
+    /// Ask the program of every pane of it to finish.
+    pub fn close(&mut self) {
+        for pane in self.panes.values_mut() {
+            pane.close();
+        }
     }
 
     /// Change how big the terminal showing it is, and every pane in it along with that.
@@ -400,6 +490,7 @@ impl Session {
                 .size(self.window_size())
                 .kind(kind)
                 .dir(dir)
+                .name(self.pane_name(window, &zoomed))
                 .build()];
         }
 
@@ -421,6 +512,7 @@ impl Session {
                     .size(layout.size())
                     .kind(kind)
                     .dir(dir)
+                    .name(self.pane_name(window, layout.pane()))
                     .build()
             })
             .collect();
@@ -440,6 +532,7 @@ impl Session {
                     .map(|pane| {
                         insh_api::PaneSummary::builder()
                             .pane(pane)
+                            .name(self.pane_name(window, &pane))
                             .active(pane == window.active())
                             .build()
                     })
@@ -473,6 +566,13 @@ impl Session {
             )
             .window(self.window().id())
             .panes(self.layouts())
+            .lines(match self.window().zoomed() {
+                Some(_) => Vec::new(),
+                None => self
+                    .window()
+                    .tree()
+                    .lines(Location::default(), self.window_size()),
+            })
             .pane(self.active_pane())
             .zoomed(self.window().zoomed().is_some())
             .synchronized(self.window().synchronized())
@@ -568,6 +668,84 @@ mod tests {
             session.starting_dir().map(PathBuf::as_path),
             Some(Path::new("/session"))
         );
+    }
+
+    #[test]
+    fn test_a_pane_which_fills_the_window_goes_by_its_number_in_it() {
+        let mut session: Session = session();
+        let first: Uuid = session.active_pane();
+        session.split(&first, Split::Beside, Pane::empty(Size::new(23, 80)));
+        let second: Uuid = session.active_pane();
+
+        session.window_mut().zoom(second);
+
+        let names: Vec<String> = session
+            .layouts()
+            .iter()
+            .map(|layout| layout.name().to_string())
+            .collect();
+        assert_eq!(names, vec![String::from("1")]);
+    }
+
+    #[test]
+    fn test_a_pane_is_found_by_what_it_has_been_called() {
+        let mut session: Session = session();
+        let first: Uuid = session.active_pane();
+        session.split(&first, Split::Beside, Pane::empty(Size::new(23, 80)));
+        if let Some(pane) = session.pane_mut(&first) {
+            pane.rename(String::from("logs"));
+        }
+
+        assert_eq!(
+            session.find_pane(&Target::Named(String::from("logs"))),
+            Some(first)
+        );
+        assert_eq!(
+            session.find_pane(&Target::Named(String::from("1"))),
+            Some(session.active_pane())
+        );
+    }
+
+    #[test]
+    fn test_what_is_typed_goes_to_the_pane_given_the_room_of_one_which_goes() {
+        let mut session: Session = session();
+        let first: Uuid = session.active_pane();
+        session.split(&first, Split::Below, Pane::empty(Size::new(23, 80)));
+        let bottom: Uuid = session.active_pane();
+        session.split(&first, Split::Below, Pane::empty(Size::new(23, 80)));
+        let middle: Uuid = session.active_pane();
+        session.window_mut().select(bottom);
+        session.remove_pane(&bottom);
+
+        // The bottom one was split off of the middle one, which is given its room.
+        assert_eq!(session.active_pane(), middle);
+    }
+
+    #[test]
+    fn test_a_pane_called_a_number_goes_by_its_own_number() {
+        let mut session: Session = session();
+        let first: Uuid = session.active_pane();
+        session.split(&first, Split::Beside, Pane::empty(Size::new(23, 80)));
+        if let Some(pane) = session.pane_mut(&first) {
+            pane.rename(String::from("1"));
+        }
+
+        // The first pane is not taken for the second, which is the one numbered one.
+        assert_eq!(
+            session.find_pane(&Target::Named(String::from("1"))),
+            Some(session.active_pane())
+        );
+        assert_eq!(session.pane_name(session.window(), &first), "0");
+    }
+
+    #[test]
+    fn test_removing_the_last_window_leaves_nothing_of_the_session() {
+        let mut session: Session = session();
+        let first: Uuid = session.active_pane();
+        session.split(&first, Split::Below, Pane::empty(Size::new(23, 80)));
+        let window: Uuid = session.window().id();
+
+        assert!(!session.remove_window(&window));
     }
 
     /// Return how many columns each pane of the window being looked at has, from left to right.

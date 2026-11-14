@@ -20,7 +20,7 @@ mod yarn;
 pub use cell::Cell;
 pub use fabric::Fabric;
 pub use location::Location;
-pub use renderer::{Engine, Frame, Instruction, Renderer, Text};
+pub use renderer::{Colors, Engine, Frame, Instruction, Renderer, Text};
 pub use row::Row;
 pub use seeking::Seeking;
 pub use size::Size;

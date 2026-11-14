@@ -103,6 +103,21 @@ mod contents {
             yarn
         }
 
+        /// Underline wherever the phrase is in the line, which the yarn is what is drawn of.
+        fn underline(yarn: &mut Yarn, line: &str, phrase: &str) {
+            if phrase.is_empty() {
+                return;
+            }
+
+            // NOTE: A yarn is measured in columns rather than in bytes, so where the phrase is
+            // found is measured by what comes before it in the line.
+            let columns: usize = Yarn::from(phrase).len();
+            for (at, _) in line.match_indices(phrase) {
+                let start: usize = Yarn::from(&line[..at]).len();
+                yarn.underline(Underline::Single, start..start + columns);
+            }
+        }
+
         /// Return a line of a file, colored the way an editor would color it.
         ///
         /// A file in a language which is not known is left in whatever the terminal writes in,
@@ -307,15 +322,16 @@ mod contents {
                                     path = path.strip_prefix(PATH_SEPARATOR).unwrap().to_string();
                                 }
 
+                                // NOTE: Only what is written on the selected row is highlighted,
+                                // the way the selected file of the browser is.
                                 let mut yarn = Yarn::from(path);
-                                yarn.resize(columns);
-
                                 if !self.state.is_line_selected() && file_hit_is_focused {
                                     yarn.background(
                                         Color::row_highlight(self.state.focused()).into(),
                                     );
                                     yarn.color(Color::InvertedText.into());
                                 }
+                                yarn.resize(columns);
 
                                 yarns.push(yarn);
                             }
@@ -354,7 +370,13 @@ mod contents {
                                 let decision: Option<bool> =
                                     self.state.decision(file_hit_number, line_hit_number);
                                 let text: Yarn = match (self.state.replacing(), decision) {
-                                    (None, _) => self.highlight(&line, language),
+                                    (None, _) => {
+                                        let mut text: Yarn = self.highlight(&line, language);
+                                        if let Some(phrase) = self.state.phrase() {
+                                            Self::underline(&mut text, &line, phrase);
+                                        }
+                                        text
+                                    }
                                     (Some((phrase, _)), None) => Self::preview(&line, phrase),
                                     (Some((phrase, replacement)), Some(true)) => {
                                         Yarn::from(line.replace(phrase, replacement))
@@ -367,7 +389,6 @@ mod contents {
                                 };
                                 yarn = yarn.concat(text);
 
-                                yarn.resize(columns);
                                 if file_hit_is_focused
                                     && self.state.is_line_selected()
                                     && self.state.line_hit_number().unwrap() == line_hit_number
@@ -377,6 +398,7 @@ mod contents {
                                     );
                                     yarn.color(Color::InvertedText.into());
                                 }
+                                yarn.resize(columns);
                                 yarns.push(yarn);
                             }
 
@@ -437,6 +459,33 @@ mod contents {
                 Some(_) => String::new(),
                 None => format!("-/{}", line_hits),
             }
+        }
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use super::*;
+
+        use test_case::test_case;
+
+        #[test_case("a foo b foo", "foo", vec![2, 3, 4, 8, 9, 10]; "every time the phrase is in the line")]
+        #[test_case("😀foo", "foo", vec![2, 3, 4]; "after a character two columns wide")]
+        #[test_case("bar", "foo", vec![]; "a line the phrase is not in")]
+        fn test_underline(line: &str, phrase: &str, expected: Vec<usize>) {
+            let mut yarn: Yarn = Yarn::from(line);
+            yarn.color(Color::LightGrayedText.into());
+
+            Contents::underline(&mut yarn, line, phrase);
+
+            let underlined: Vec<usize> = (0..yarn.len())
+                .filter(|column| yarn.styles()[*column].underline() == Underline::Single)
+                .collect();
+            assert_eq!(underlined, expected);
+            // What it was colored is kept.
+            assert!(yarn
+                .styles()
+                .iter()
+                .all(|style| style.color() == Some(Color::LightGrayedText.into())));
         }
     }
 }
@@ -891,6 +940,11 @@ mod state {
             self.pending_request = Some(*request.uuid());
 
             Some(Effect::Request(request))
+        }
+
+        /// Return the phrase being searched for, when one is.
+        pub fn phrase(&self) -> Option<&str> {
+            self.phrase.as_deref()
         }
 
         /// Return the phrase and what it is being replaced with, when it is being replaced.

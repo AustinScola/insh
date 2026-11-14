@@ -273,7 +273,7 @@ mod file_creator {
                     let request = Request::builder().uuid(uuid).params(params).build();
                     Some(Effect::Request(request))
                 }
-                Some(DirEffect::Enter { dir }) => {
+                Some(DirEffect::Enter { dir, .. }) => {
                     let request = Request::builder()
                         .params(RequestParams::VisitDir(
                             VisitDirRequestParams::builder().dir(dir.clone()).build(),

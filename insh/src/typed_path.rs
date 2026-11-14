@@ -52,4 +52,20 @@ impl TypedPath {
 
         return resolved;
     }
+
+    /// Return the path the way it is typed from the home directory, which is the way it is when
+    /// it is not in it.
+    pub fn as_typed_from_home(&self, path: &str) -> String {
+        let home: Option<String> = self
+            .home
+            .as_ref()
+            .map(|home| home.to_string_lossy().into_owned());
+
+        return match home.as_deref().and_then(|home| path.strip_prefix(home)) {
+            Some(rest) if rest.is_empty() || rest.starts_with(PATH_SEPARATOR) => {
+                format!("~{}", rest)
+            }
+            _ => path.to_string(),
+        };
+    }
 }

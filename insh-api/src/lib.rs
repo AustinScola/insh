@@ -12,18 +12,20 @@ use std::time::Duration;
 mod multiplexer;
 
 pub use multiplexer::{
-    AttachRequestParams, CopyPaneRequestParams, CopyPaneResponseParams, DetachRequestParams,
-    DetachedResponseParams, DirScope, DragPaneRequestParams, KillPaneRequestParams, Layout,
-    LayoutResponseParams, ListSessionsRequestParams, NewSessionRequestParams,
-    NewWindowRequestParams, PaneExitedResponseParams, PaneKind, PaneLayout, PaneRow, PaneScreen,
-    PaneScreenResponseParams, PaneSummary, RenameSessionRequestParams, RenameWindowRequestParams,
+    AttachRequestParams, ChangeDirRequestParams, ChangedDirResponseParams, CopyPaneRequestParams,
+    CopyPaneResponseParams, DetachRequestParams, DetachedResponseParams, DirScope,
+    DragPaneRequestParams, KillPaneRequestParams, KillSessionRequestParams,
+    KillWindowRequestParams, Layout, LayoutResponseParams, LineLayout, ListSessionsRequestParams,
+    NewSessionRequestParams, NewWindowRequestParams, PaneExitedResponseParams, PaneKind,
+    PaneLayout, PaneRow, PaneScreen, PaneScreenResponseParams, PaneSummary,
+    RenamePaneRequestParams, RenameSessionRequestParams, RenameWindowRequestParams,
     ResizeClientRequestParams, RunCommandRequestParams, RunCommandResponseParams,
     RunInPaneRequestParams, ScrollPaneRequestParams, SearchPaneRequestParams,
     SearchPaneResponseParams, SelectPaneRequestParams, SelectWindowRequestParams, SessionSummary,
     SessionsResponseParams, SetDirRequestParams, Split, SplitPaneRequestParams,
     SuggestCommandRequestParams, SuggestCommandResponseParams, SwapPaneRequestParams,
-    SyncPanesRequestParams, Window, WindowSummary, WritePaneRequestParams, ZoomPaneRequestParams,
-    COMMAND_NAMES,
+    SyncPanesRequestParams, Target, Window, WindowSummary, WritePaneRequestParams,
+    ZoomPaneRequestParams, COMMAND_NAMES,
 };
 
 use file_info::FileInfo;
@@ -103,6 +105,10 @@ pub enum RequestParams {
     SelectPane(SelectPaneRequestParams),
     /// Close a pane.
     KillPane(KillPaneRequestParams),
+    /// Close a window and every pane in it.
+    KillWindow(KillWindowRequestParams),
+    /// Close a session and every window in it.
+    KillSession(KillSessionRequestParams),
     /// Run a program in a pane.
     RunInPane(RunInPaneRequestParams),
     /// Move the line on the far side of a pane.
@@ -115,8 +121,12 @@ pub enum RequestParams {
     RenameSession(RenameSessionRequestParams),
     /// Call a window something else.
     RenameWindow(RenameWindowRequestParams),
+    /// Call a pane something else.
+    RenamePane(RenamePaneRequestParams),
     /// Set the default starting directory of a window or a session.
     SetDir(SetDirRequestParams),
+    /// Take the browser in every pane of a window or a session to a directory.
+    ChangeDir(ChangeDirRequestParams),
     /// Look back through what has scrolled off the top of a pane.
     ScrollPane(ScrollPaneRequestParams),
     /// Take the text written in a pane from one spot to another.
@@ -735,6 +745,8 @@ pub enum ResponseParams {
     PaneExited(PaneExitedResponseParams),
     /// The client is no longer showing a session.
     Detached(DetachedResponseParams),
+    /// The browser in some of the panes of the session was taken to another directory.
+    ChangedDir(ChangedDirResponseParams),
     /// The sessions there are.
     Sessions(SessionsResponseParams),
     /// The text taken from a pane.

@@ -1,5 +1,6 @@
 //! The terminal.
 
+use std::env;
 use std::ffi::c_int;
 use std::fmt::{Display, Error as FmtError, Formatter};
 use std::fs::File;
@@ -62,6 +63,15 @@ impl Term {
 
     /// How long to wait for the rest of an escape sequence by default.
     pub const DEFAULT_ESCAPE_TIMEOUT: Duration = Duration::from_millis(50);
+
+    /// Return whether the terminal says it can show a color given by its components as it is.
+    ///
+    /// NOTE: There is no asking a terminal this, so it is taken from what terminals which can
+    /// put in the environment, which is the convention most programs go by.
+    pub fn shows_true_color() -> bool {
+        return env::var("COLORTERM")
+            .is_ok_and(|colorterm| matches!(colorterm.as_str(), "truecolor" | "24bit"));
+    }
 
     /// How many bytes to read from the terminal at a time. Pasted text is the only input which is
     /// ever anywhere near this long, and it does not matter if it takes more than one read.

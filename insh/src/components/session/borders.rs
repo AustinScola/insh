@@ -40,6 +40,8 @@ mod borders {
         spots: HashMap<Location, Sides>,
         /// The spots which are drawn along the edge of the pane what is typed goes to.
         focused: Vec<Location>,
+        /// The spots of the lines the mouse is over, or which are being dragged.
+        hovered: Vec<Location>,
     }
 
     impl Borders {
@@ -115,6 +117,35 @@ mod borders {
             borders
         }
 
+        /// Return the lines with the given spots drawn as the mouse being over them as well, which
+        /// is whichever of them are lines at all.
+        pub fn hovering(mut self, spots: Vec<Location>) -> Self {
+            self.hovered.extend(spots);
+            self
+        }
+
+        /// Return the lines with the edge of the given pane drawn as the mouse being over them as
+        /// well.
+        ///
+        /// The edge a pane shares with the one what is typed goes to stays the color of that one,
+        /// and is drawn as hovered in it.
+        ///
+        /// NOTE: The spots off the corners of the pane are part of its edge, since that is where
+        /// the lines along two of its sides meet.
+        pub fn hovering_pane(mut self, pane: &PaneLayout) -> Self {
+            let (at, size) = (pane.at(), pane.size());
+            let rows = at.row.saturating_sub(1)..=at.row + size.rows;
+            let columns = at.column.saturating_sub(1)..=at.column + size.columns;
+            let edge: Vec<Location> = self
+                .spots
+                .keys()
+                .filter(|spot| rows.contains(&spot.row) && columns.contains(&spot.column))
+                .copied()
+                .collect();
+            self.hovered.extend(edge);
+            self
+        }
+
         /// Work out which ways the line carries on from each spot.
         fn join(&mut self) {
             let spots: Vec<Location> = self.spots.keys().copied().collect();
@@ -150,9 +181,12 @@ mod borders {
         pub fn draw(&self, fabric: &mut Fabric) {
             for (at, sides) in &self.spots {
                 let focused: bool = self.focused.contains(at);
-                let color: Color = match focused {
-                    true => Color::FocusedBorder,
-                    false => Color::Border,
+                let hovered: bool = self.hovered.contains(at);
+                let color: Color = match (focused, hovered) {
+                    (true, false) => Color::FocusedBorder,
+                    (true, true) => Color::FocusedBorderHover,
+                    (false, false) => Color::Border,
+                    (false, true) => Color::BorderHover,
                 };
 
                 let mut yarn = Yarn::from(Self::character(*sides));

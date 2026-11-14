@@ -7,7 +7,7 @@ use std::ops::Range;
 use super::cell::Cell;
 use super::style::Style;
 
-use ansi::Color;
+use ansi::{Color, Underline};
 
 // MAYBE TODO: Store ranges instead of using `Vec` to save memory?
 /// A yarn is a string along with the way each column of it is written.
@@ -179,9 +179,25 @@ impl Yarn {
         self.restyle(0..self.len(), |style| style.set_background(Some(color)));
     }
 
+    /// Change the background color of all text before the given position.
+    pub fn background_before(&mut self, color: Color, position: usize) {
+        self.restyle(0..position.min(self.len()), |style| {
+            style.set_background(Some(color))
+        });
+    }
+
     /// Write the whole of the yarn in bold.
     pub fn bold(&mut self) {
         self.restyle(0..self.len(), |style| style.set_bold(true));
+    }
+
+    /// Underline every column of the range the given way, leaving the rest of how it is written
+    /// as it was.
+    pub fn underline(&mut self, underline: Underline, columns: Range<usize>) {
+        let len: usize = self.len();
+        self.restyle(columns.start.min(len)..columns.end.min(len), |written| {
+            written.set_underline(underline)
+        });
     }
 
     /// Write every column of the range the given way.

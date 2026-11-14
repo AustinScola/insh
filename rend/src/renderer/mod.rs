@@ -1,5 +1,6 @@
 //! Drawing a fabric on a terminal.
 
+mod colors;
 mod engine;
 mod frame;
 mod instruction;
@@ -10,6 +11,7 @@ mod renderer;
 mod terminal;
 mod text;
 
+pub use colors::Colors;
 pub use engine::Engine;
 pub use frame::Frame;
 pub use instruction::Instruction;
