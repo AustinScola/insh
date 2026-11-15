@@ -1,3 +1,8 @@
+# 0.6.10
+- Add web search to Inshie.
+- Fix pasting multi-line content into Inshie.
+- Fix Inshie History mouse support.
+
 # 0.6.9
 - Improve `set-dir` suggestions.
 - Add a `change-dir` command.

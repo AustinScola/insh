@@ -1,6 +1,6 @@
 [package]
 name = "inshd"
-version = "0.6.9"
+version = "0.6.10"
 edition = "2021"
 description = "A daemon for insh."
 
@@ -13,6 +13,9 @@ common = { version = "0.1.0", path = "../common" }
 
 # Used to stream replies from an AI inference engine.
 ai-client = { version = "0.1.0", path = "../ai-client" }
+
+# Used for searching and reading the web on behalf of the inference engine.
+web-client = { version = "0.1.0", path = "../web-client" }
 
 # Used to turn the messages of a chat into vectors so they can be searched by meaning.
 embedder = { version = "0.1.0", path = "../embedder" }
@@ -77,6 +80,12 @@ os_pipe = { workspace = true }
 # Used for serialization and deserialization of data structures.
 serde = { workspace = true }
 yaml_serde = { workspace = true }
+
+# Used for the input of the tools which the inference engine uses.
+serde_json = { workspace = true }
+
+# Used for telling the inference engine what the date is.
+chrono = { workspace = true }
 
 [dev-dependencies]
 

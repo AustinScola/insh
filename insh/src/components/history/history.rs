@@ -49,6 +49,9 @@ mod chats {
     }
 
     impl Chats {
+        /// How many rows one turn of the mouse wheel scrolls by.
+        const WHEELED_ROWS: usize = 3;
+
         /// Show some chats, starting again from the first.
         pub fn show(&mut self, entries: Vec<Entry>) {
             self.selected = match entries.is_empty() {
@@ -87,6 +90,47 @@ mod chats {
                 (Key::Char('e'), &KeyMods::CONTROL) => self.scroll_down(),
                 (Key::Char('y'), &KeyMods::CONTROL) => self.scroll_up(),
                 _ => Movement::Ignored,
+            }
+        }
+
+        /// Return whether a chat is shown in a row of the list.
+        pub fn shows(&self, row: usize) -> bool {
+            row < self.rows && self.offset + row < self.entries.len()
+        }
+
+        /// Return whether a row of the list is grayed under the mouse.
+        ///
+        /// The selected chat keeps its color while the list has focus, the same as a file in the
+        /// browser, so that which one is selected can still be seen.
+        pub fn hovers(&self, row: usize, focused: bool) -> bool {
+            self.shows(row) && !(focused && self.selected == Some(self.offset + row))
+        }
+
+        /// Select the chat in a row of the list, and return it if it was already selected.
+        ///
+        /// Pressing on the selected chat again opens it, the same as the finder, but only while
+        /// the list has focus, so that the press which gives it focus does not also open a chat.
+        pub fn press(&mut self, row: usize, focused: bool) -> Option<&Entry> {
+            if !self.shows(row) {
+                return None;
+            }
+            let index: usize = self.offset + row;
+
+            if focused && self.selected == Some(index) {
+                return self.entries.get(index);
+            }
+
+            self.selected = Some(index);
+            None
+        }
+
+        /// Show the chats a turn of the mouse wheel up from the ones which are shown, or down.
+        pub fn wheel(&mut self, up: bool) {
+            for _ in 0..Self::WHEELED_ROWS {
+                match up {
+                    true => self.scroll_up(),
+                    false => self.scroll_down(),
+                };
             }
         }
 
@@ -205,13 +249,14 @@ mod chats {
                 .skip(self.offset)
                 .take(size.rows)
             {
+                // Only the title is picked out, so the selected chat is colored before the row is
+                // filled out to the width, the same as a file in the browser.
                 let mut yarn: Yarn = Yarn::from(entry.title.as_str());
-                yarn.resize(size.columns);
-
                 if self.selected == Some(index) {
                     yarn.color(Color::InvertedText.into());
                     yarn.background(Color::row_highlight(focused).into());
                 }
+                yarn.resize(size.columns);
 
                 yarns.push(yarn);
             }
@@ -241,14 +286,14 @@ pub use chats::{Chats, Movement};
 /// Contains the [`History`] component.
 mod history {
     use super::{Chats, Effect, Entry, Movement};
-    use crate::components::common::{Footer, FooterProps, PaneContentsEvent as Event};
+    use crate::components::common::{Footer, FooterProps, Hover, PaneContentsEvent as Event};
 
     use insh_api::{
         DeleteChatRequestParams, ListChatsRequestParams, Request, RequestParams, Response,
         ResponseParams,
     };
     use rend::{Fabric, Location, Size};
-    use term::{Key, KeyEvent, KeyMods, TermEvent};
+    use term::{Key, KeyEvent, KeyMods, MouseButton, MouseEvent, MouseEventKind, TermEvent};
     use til::Component;
 
     use uuid::Uuid;
@@ -301,6 +346,7 @@ mod history {
                     None
                 }
                 Event::TermEvent(TermEvent::KeyEvent(key_event)) => self.handle_key(key_event),
+                Event::TermEvent(TermEvent::Mouse(mouse_event)) => self.handle_mouse(mouse_event),
                 Event::TermEvent(_) => None,
             }
         }
@@ -334,6 +380,15 @@ mod history {
         pub fn copy_start(&self) -> Option<Location> {
             let row: usize = self.chats.selected_row()?;
             Some(Location::builder().row(row).column(0).build())
+        }
+
+        /// Return how the row is shown as being under the mouse when it is.
+        ///
+        /// Only a row with a chat in it is, since pressing on any other does nothing.
+        pub fn hovers(&self, row: usize) -> Option<Hover> {
+            self.chats
+                .hovers(row, !self.pane_unfocused)
+                .then_some(Hover::Text)
         }
 
         /// Return the request for the chats, which is made when the history is opened.
@@ -386,6 +441,34 @@ mod history {
                 (Key::CarriageReturn, _) | (Key::Char('l'), KeyMods::NONE) => {
                     let entry: &Entry = self.chats.selected()?;
                     Some(Effect::Open { id: entry.id })
+                }
+                _ => None,
+            }
+        }
+
+        /// Handle something done with the mouse.
+        fn handle_mouse(&mut self, mouse_event: MouseEvent) -> Option<Effect> {
+            // Pressing or scrolling calls off a delete, the same as typing anything does, since
+            // either can change which chat is selected.
+            if matches!(
+                mouse_event.kind,
+                MouseEventKind::Press(_) | MouseEventKind::ScrollUp | MouseEventKind::ScrollDown
+            ) {
+                self.deleting = false;
+            }
+
+            match mouse_event.kind {
+                MouseEventKind::Press(MouseButton::Left) => {
+                    let entry: &Entry = self.chats.press(mouse_event.row, !self.pane_unfocused)?;
+                    Some(Effect::Open { id: entry.id })
+                }
+                MouseEventKind::ScrollUp => {
+                    self.chats.wheel(true);
+                    None
+                }
+                MouseEventKind::ScrollDown => {
+                    self.chats.wheel(false);
+                    None
                 }
                 _ => None,
             }
@@ -459,14 +542,14 @@ mod tests {
     use super::History;
     use super::{Chats, Effect, Entry, Movement};
 
-    use crate::components::common::PaneContentsEvent as Event;
+    use crate::components::common::{Hover, PaneContentsEvent as Event};
 
     use insh_api::{
         Chat, DeleteChatResponseParams, ListChatsResponseParams, RequestParams, Response,
         ResponseParams,
     };
     use rend::{Fabric, Size};
-    use term::{Key, KeyEvent, KeyMods, TermEvent};
+    use term::{Key, KeyEvent, KeyMods, MouseButton, MouseEvent, MouseEventKind, TermEvent};
     use til::Component;
 
     use std::path::PathBuf;
@@ -653,6 +736,109 @@ mod tests {
 
         // The last chat is the one selected, and it is on the last row of the screen.
         assert_eq!(last.trim(), "19");
+    }
+
+    /// Return the effect of doing something with the mouse on a row.
+    fn mouse(history: &mut History, kind: MouseEventKind, row: usize) -> Option<Effect> {
+        history.handle(Event::TermEvent(TermEvent::Mouse(MouseEvent {
+            kind,
+            row,
+            column: 0,
+            mods: KeyMods::NONE,
+        })))
+    }
+
+    /// Pressing on a chat selects it, and pressing on it again opens it.
+    #[test]
+    fn test_pressing_twice_opens_a_chat() {
+        let mut history = history();
+        let press = MouseEventKind::Press(MouseButton::Left);
+
+        // The history only has one chat, so it starts out selected and is opened straight away.
+        assert!(matches!(
+            mouse(&mut history, press, 0),
+            Some(Effect::Open { id: 7 })
+        ));
+        // There is no chat below it to press on.
+        assert!(mouse(&mut history, press, 1).is_none());
+    }
+
+    /// Scrolling between the two `d`s calls the delete off, since it can move the selection.
+    #[test]
+    fn test_scrolling_in_between_calls_the_delete_off() {
+        let mut history = history();
+
+        press(&mut history, Key::Char('d'));
+        mouse(&mut history, MouseEventKind::ScrollDown, 0);
+
+        assert!(!deletes(press(&mut history, Key::Char('d'))));
+    }
+
+    /// The press which gives the pane focus only selects, so that it does not also open a chat.
+    #[test]
+    fn test_pressing_an_unfocused_history_only_selects() {
+        let mut history = history();
+        history.handle(Event::SetFocus { focused: false });
+
+        assert!(mouse(&mut history, MouseEventKind::Press(MouseButton::Left), 0).is_none());
+    }
+
+    #[test]
+    fn test_pressing_selects_the_chat_pressed_on() {
+        let mut chats = chats(20, 5);
+
+        assert!(chats.press(3, true).is_none());
+        assert_eq!(chats.selected().map(|entry| entry.id), Some(3));
+        assert_eq!(chats.press(3, true).map(|entry| entry.id), Some(3));
+        // Rows past the end of the list are not chats.
+        assert!(chats.press(5, true).is_none());
+        assert_eq!(chats.selected().map(|entry| entry.id), Some(3));
+    }
+
+    /// The wheel scrolls the list, taking the selection along when it would go out of view.
+    #[test]
+    fn test_the_wheel_scrolls() {
+        let mut chats = chats(20, 5);
+
+        chats.wheel(false);
+        assert!(chats.press(0, false).is_none());
+        assert_eq!(chats.selected().map(|entry| entry.id), Some(3));
+
+        chats.wheel(true);
+        assert!(chats.press(0, false).is_none());
+        assert_eq!(chats.selected().map(|entry| entry.id), Some(0));
+    }
+
+    /// Only a row with a chat in it is grayed under the mouse, so the empty rows below the
+    /// chats are left alone.
+    #[test]
+    fn test_only_rows_with_a_chat_are_hovered() {
+        let mut history = history();
+        history.handle(Event::SetFocus { focused: false });
+
+        assert_eq!(history.hovers(0), Some(Hover::Text));
+        assert_eq!(history.hovers(1), None);
+    }
+
+    /// The selected chat keeps its color under the mouse while the history has focus.
+    #[test]
+    fn test_the_selected_chat_is_not_hovered_while_focused() {
+        let mut history = history();
+        history.handle(Event::SetFocus { focused: true });
+
+        assert_eq!(history.hovers(0), None);
+    }
+
+    /// Only the title of the selected chat is picked out, not the rest of the row.
+    #[test]
+    fn test_only_the_title_is_highlighted() {
+        let history = history();
+
+        let fabric: Fabric = history.render(Size::new(10, 20));
+
+        // The title is "one", and the rest of the row is left alone.
+        assert!(fabric.spot(0, 2).style().background().is_some());
+        assert!(fabric.spot(0, 3).style().background().is_none());
     }
 
     /// Whatever it is asked for, the history has to give back a fabric of exactly that size.

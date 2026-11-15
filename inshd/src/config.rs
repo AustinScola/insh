@@ -9,6 +9,8 @@ use std::path::{Path, PathBuf};
 use common::paths::INSH_DIR;
 
 use ai_client::Api;
+use web_client::Provider;
+
 use serde::Deserialize;
 
 /// The number of request handlers to run.
@@ -31,7 +33,12 @@ const DEFAULT_AI_MODEL: &str = "claude-opus-5";
 
 /// What the inference engine is told about how to answer, when nothing is configured to replace
 /// it.
-const DEFAULT_AI_INSTRUCTIONS: &str = r#"# General
+const DEFAULT_AI_INSTRUCTIONS: &str = r#"# Identity
+- Your name is Inshie.
+- You were created by Austin Scola.
+- You are the AI assistant built into insh, a graphical, interactive terminal environment.
+
+# General
 - Be concise.
 - Hard cap: 30 words; only more if depth is explicitly asked for.
 - No preamble.
@@ -42,6 +49,15 @@ const DEFAULT_AI_INSTRUCTIONS: &str = r#"# General
 # Code
 - End comments with periods.
 "#;
+
+/// How many pages a web search finds.
+const DEFAULT_WEB_SEARCH_NUM_RESULTS: usize = 5;
+
+/// The most characters of the passages of each page which a web search returns.
+const DEFAULT_WEB_SEARCH_HIGHLIGHT_CHARACTERS: usize = 1000;
+
+/// The most characters of a page which reading it returns.
+const DEFAULT_WEB_FETCH_MAX_CHARACTERS: usize = 20_000;
 
 /// The permission bits which let anyone other than the owner read a file.
 const OTHERS_CAN_READ: u32 = 0o077;
@@ -173,7 +189,7 @@ impl Config {
         if metadata.permissions().mode() & OTHERS_CAN_READ != 0 {
             log::warn!(
                 "The configuration file {:?} can be read by users other than you, and it is where \
-                 the AI API key is kept. Consider `chmod 600 {}`.",
+                 the API keys are kept. Consider `chmod 600 {}`.",
                 path,
                 path.display()
             );
@@ -459,6 +475,9 @@ pub struct AiConfig {
     /// Configuration of searching through what was said.
     #[serde(default)]
     search: AiSearchConfig,
+    /// Configuration of the tools which the inference engine can use.
+    #[serde(default)]
+    tools: AiToolsConfig,
 }
 
 impl Default for AiConfig {
@@ -470,6 +489,7 @@ impl Default for AiConfig {
             api_type: Api::default(),
             instructions: AiInstructionsConfig::default(),
             search: AiSearchConfig::default(),
+            tools: AiToolsConfig::default(),
         }
     }
 }
@@ -509,6 +529,11 @@ impl AiConfig {
     /// Return configuration of searching through what was said.
     pub fn search(&self) -> &AiSearchConfig {
         &self.search
+    }
+
+    /// Return configuration of the tools which the inference engine can use.
+    pub fn tools(&self) -> &AiToolsConfig {
+        &self.tools
     }
 
     /// Return whether there is enough here to ask an inference engine for a reply.
@@ -595,6 +620,140 @@ impl AiSearchConfig {
     /// match.
     pub fn threshold(&self) -> f64 {
         self.threshold
+    }
+}
+
+/// Configuration of the tools which the inference engine can use.
+///
+/// A tool is only offered to the inference engine when it is configured.
+#[derive(Deserialize, Debug, Default, Clone, Eq, PartialEq)]
+pub struct AiToolsConfig {
+    /// Configuration of searching and reading the web.
+    #[serde(default)]
+    web: Option<WebConfig>,
+}
+
+impl AiToolsConfig {
+    /// Return configuration of searching and reading the web, if it is configured.
+    pub fn web(&self) -> Option<&WebConfig> {
+        self.web.as_ref()
+    }
+}
+
+/// Configuration of searching and reading the web.
+#[derive(Deserialize, Debug, Clone, Eq, PartialEq)]
+pub struct WebConfig {
+    /// The service which does the searching and reading.
+    #[serde(default)]
+    provider: Provider,
+    /// The key which authenticates requests.
+    api_key: String,
+    /// The URL of the provider, when it is not the usual one.
+    #[serde(default)]
+    base_url: Option<String>,
+    /// Configuration of searching the web.
+    #[serde(default)]
+    search: WebSearchConfig,
+    /// Configuration of reading a page.
+    #[serde(default)]
+    fetch: WebFetchConfig,
+}
+
+impl WebConfig {
+    /// Return the service which does the searching and reading.
+    pub fn provider(&self) -> Provider {
+        self.provider
+    }
+
+    /// Return the key which authenticates requests.
+    pub fn api_key(&self) -> &str {
+        &self.api_key
+    }
+
+    /// Return the URL of the provider, when it is not the usual one.
+    pub fn base_url(&self) -> Option<&String> {
+        self.base_url.as_ref()
+    }
+
+    /// Return configuration of searching the web.
+    pub fn search(&self) -> &WebSearchConfig {
+        &self.search
+    }
+
+    /// Return configuration of reading a page.
+    pub fn fetch(&self) -> &WebFetchConfig {
+        &self.fetch
+    }
+}
+
+/// Configuration of searching the web.
+#[derive(Deserialize, Debug, Clone, Eq, PartialEq)]
+pub struct WebSearchConfig {
+    /// How many pages a search finds.
+    #[serde(default = "WebSearchConfig::default_num_results")]
+    num_results: usize,
+    /// The most characters of the passages of each page which a search returns.
+    #[serde(default = "WebSearchConfig::default_highlight_characters")]
+    highlight_characters: usize,
+}
+
+impl Default for WebSearchConfig {
+    fn default() -> Self {
+        Self {
+            num_results: Self::default_num_results(),
+            highlight_characters: Self::default_highlight_characters(),
+        }
+    }
+}
+
+impl WebSearchConfig {
+    /// Return how many pages a search finds unless another number is configured.
+    fn default_num_results() -> usize {
+        DEFAULT_WEB_SEARCH_NUM_RESULTS
+    }
+
+    /// Return the most characters of the passages of each page unless another number is
+    /// configured.
+    fn default_highlight_characters() -> usize {
+        DEFAULT_WEB_SEARCH_HIGHLIGHT_CHARACTERS
+    }
+
+    /// Return how many pages a search finds.
+    pub fn num_results(&self) -> usize {
+        self.num_results
+    }
+
+    /// Return the most characters of the passages of each page which a search returns.
+    pub fn highlight_characters(&self) -> usize {
+        self.highlight_characters
+    }
+}
+
+/// Configuration of reading a page.
+#[derive(Deserialize, Debug, Clone, Eq, PartialEq)]
+pub struct WebFetchConfig {
+    /// The most characters of a page which reading it returns.
+    #[serde(default = "WebFetchConfig::default_max_characters")]
+    max_characters: usize,
+}
+
+impl Default for WebFetchConfig {
+    fn default() -> Self {
+        Self {
+            max_characters: Self::default_max_characters(),
+        }
+    }
+}
+
+impl WebFetchConfig {
+    /// Return the most characters of a page unless another number is configured.
+    fn default_max_characters() -> usize {
+        DEFAULT_WEB_FETCH_MAX_CHARACTERS
+    }
+
+    /// Return the most characters of a page which reading it returns.
+    pub fn max_characters(&self) -> usize {
+        self.max_characters
     }
 }
 
@@ -781,6 +940,31 @@ mod tests {
             message.contains("line"),
             "The message is unhelpful: {}",
             message
+        );
+    }
+
+    /// The web is off unless it is configured, and only needs a key when it is.
+    #[test]
+    fn test_the_web_only_needs_a_key() {
+        let config: Config =
+            yaml_serde::from_str("ai:\n  base_url: https://example.com\n").unwrap();
+        assert!(config.ai().tools().web().is_none());
+
+        let yaml: String = format!("ai:\n  tools:\n    web:\n      api_key: {}\n", SECRET);
+        let config: Config = yaml_serde::from_str(&yaml).unwrap();
+        let web: &WebConfig = config.ai().tools().web().unwrap();
+
+        assert_eq!(web.provider(), Provider::Exa);
+        assert_eq!(web.api_key(), SECRET);
+        assert_eq!(web.base_url(), None);
+        assert_eq!(web.search().num_results(), DEFAULT_WEB_SEARCH_NUM_RESULTS);
+        assert_eq!(
+            web.search().highlight_characters(),
+            DEFAULT_WEB_SEARCH_HIGHLIGHT_CHARACTERS
+        );
+        assert_eq!(
+            web.fetch().max_characters(),
+            DEFAULT_WEB_FETCH_MAX_CHARACTERS
         );
     }
 

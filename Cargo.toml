@@ -22,6 +22,7 @@ members = [
     "file-info",
     "file-type",
     "human-friendly",
+    "web-client",
 ]
 
 [workspace.dependencies]

@@ -1,5 +1,7 @@
 //! A message in a conversation.
 
+use super::tool::{Thought, ToolCall, ToolResult};
+
 use serde::Serialize;
 use typed_builder::TypedBuilder;
 
@@ -14,11 +16,20 @@ pub enum Role {
 }
 
 /// A message in a conversation.
-#[derive(Serialize, TypedBuilder, Debug, Clone, Eq, PartialEq)]
+#[derive(TypedBuilder, Debug, Clone, PartialEq)]
 pub struct Message {
     /// Who sent the message.
     pub role: Role,
     /// What the message says.
-    #[builder(setter(into))]
+    #[builder(default, setter(into))]
     pub content: String,
+    /// What the engine thought before it said this, when it is the engine which said it.
+    #[builder(default)]
+    pub thoughts: Vec<Thought>,
+    /// The tools which the engine asked to use, when it is the engine which said it.
+    #[builder(default)]
+    pub tool_calls: Vec<ToolCall>,
+    /// What came of the tools which the engine asked to use in the message before this one.
+    #[builder(default)]
+    pub tool_results: Vec<ToolResult>,
 }

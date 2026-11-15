@@ -673,20 +673,17 @@ mod state {
         /// Return whether the row is shown as being under the mouse when it is.
         ///
         /// Only the rows which pressing on would do something are, which each component says for
-        /// itself. Any row but the footer of the ones which do not is in a pane which what is
-        /// typed does not go to, since pressing there goes to it. The screen of a program is the
-        /// program's to draw, so none of it is.
+        /// itself. The screen of a program is the program's to draw, so none of it is.
         pub fn hovers(&self, row: usize) -> Option<Hover> {
-            let footer: bool = row + 1 >= self.layout.size().rows;
             match &self.contents {
                 Contents::Terminal(_) => None,
+                Contents::Chat(chat) => chat.hovers(row),
                 Contents::Browser(browser) => browser.hovers(row),
                 Contents::Finder(finder) => finder.hovers(row),
                 Contents::Searcher(searcher) => searcher.hovers(row),
                 Contents::FileCreator(file_creator) => file_creator.hovers(row),
-                Contents::Chat(_) | Contents::History(_) | Contents::HistorySearcher(_) => {
-                    (!self.focused && !footer).then_some(Hover::Row)
-                }
+                Contents::History(history) => history.hovers(row),
+                Contents::HistorySearcher(searcher) => searcher.hovers(row),
             }
         }
 

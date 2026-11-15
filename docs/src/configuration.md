@@ -51,3 +51,15 @@ Inshd can be configured by the file `~/.insh/inshd-config.yaml`.
 **ai.instructions.additional** (`str`|`null`): Additional AI instructions (default=`null`).
 
 **ai.search.threshold** (`float`): The maximum cosine distance for semantic search to be considered a hit; lower is stricter (default=`0.7`).
+
+**ai.tools.web.provider** (`exa`): The web provider (default=`exa`).
+
+**ai.tools.web.api_key** (`str`): The web provider API key.
+
+**ai.tools.web.base_url** (`str`|`null`): Used to override the web provider's base URL (default=`null`).
+
+**ai.tools.web.search.num_results** (`usize`): The number of pages a web search returns (default=`5`).
+
+**ai.tools.web.search.highlight_characters** (`usize`): The maximum number of characters of relevant passages returned per page by a web search (default=`1000`).
+
+**ai.tools.web.fetch.max_characters** (`usize`): The maximum number of characters of a page returned by a web fetch (default=`20000`).

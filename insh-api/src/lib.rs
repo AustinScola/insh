@@ -1200,6 +1200,10 @@ pub struct ChatResponseParams {
     /// one word answer can come to far more tokens than the words in it.
     #[builder(default)]
     thinking_tokens: Option<usize>,
+    /// What the inference engine is doing other than thinking or answering, like searching the
+    /// web.
+    #[builder(default)]
+    activity: Option<String>,
     /// How long the reply has been coming.
     #[builder(default)]
     duration: Duration,
@@ -1232,6 +1236,11 @@ impl ChatResponseParams {
     /// Return how many of those tokens were the engine thinking rather than answering.
     pub fn thinking_tokens(&self) -> Option<usize> {
         self.thinking_tokens
+    }
+
+    /// Return what the inference engine is doing other than thinking or answering.
+    pub fn activity(&self) -> Option<&String> {
+        self.activity.as_ref()
     }
 
     /// Return how long the reply has been coming.
