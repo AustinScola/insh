@@ -38,6 +38,7 @@ mod scheduler;
 mod server;
 mod signal_handler;
 mod stop;
+mod tools;
 
 use crate::args::{Args, Command, DatabaseCommand};
 use crate::commands::{

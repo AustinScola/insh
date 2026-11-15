@@ -8,6 +8,7 @@ use super::error::ChatError;
 use super::message::Message;
 use super::sse::SseEvents;
 use super::stream::ChatStream;
+use super::tool::{ToolChoice, ToolDefinition};
 
 use serde_json::Value;
 use typed_builder::TypedBuilder;
@@ -67,12 +68,7 @@ impl AiClient {
     /// Ask for a reply to a conversation.
     pub fn chat(&self, options: ChatOptions) -> Result<ChatStream, ChatError> {
         let url: String = format!("{}{}", self.base_url.trim_end_matches('/'), self.api.path());
-        let body: Value = self.api.body(
-            &self.model,
-            self.max_tokens,
-            &options.messages,
-            options.instructions.as_deref(),
-        );
+        let body: Value = self.api.body(&self.model, self.max_tokens, &options);
 
         let agent: Agent = Agent::config_builder()
             // A reply takes as long as it takes. A global timeout would cut off a long one part
@@ -130,4 +126,10 @@ pub struct ChatOptions {
     /// What the inference engine should be told about how to answer, if anything.
     #[builder(default, setter(into))]
     pub instructions: Option<String>,
+    /// The tools which the inference engine can ask to use.
+    #[builder(default)]
+    pub tools: Vec<ToolDefinition>,
+    /// Whether the inference engine is allowed to ask to use one of them.
+    #[builder(default)]
+    pub tool_choice: ToolChoice,
 }

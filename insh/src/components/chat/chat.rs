@@ -42,11 +42,13 @@ pub use props::Props;
 
 /// Contains the [`Chat`] component.
 mod chat {
+    use std::ops::Range;
+
     use super::super::{
         Input, InputEffect, InputEvent, InputProps, Transcript, TranscriptEffect, TranscriptEvent,
     };
     use super::{Action, Effect, Props, State};
-    use crate::components::common::{Footer, FooterProps, PaneContentsEvent as Event};
+    use crate::components::common::{Footer, FooterProps, Hover, PaneContentsEvent as Event};
     use crate::stateful::Stateful;
 
     use insh_api::{
@@ -134,11 +136,10 @@ mod chat {
                 return self.footer(size);
             }
 
-            let transcript_size: Size = Self::transcript_size(size, self.input.rows(size.columns));
-            let input_rows: usize = size.rows - 1 - transcript_size.rows;
+            let input: Range<usize> = self.input_rows(size);
 
-            let mut fabric: Fabric = self.transcript.render(transcript_size);
-            fabric = fabric.quilt_bottom(self.input.render(Size::new(input_rows, size.columns)));
+            let mut fabric: Fabric = self.transcript.render(Size::new(input.start, size.columns));
+            fabric = fabric.quilt_bottom(self.input.render(Size::new(input.len(), size.columns)));
             fabric.quilt_bottom(self.footer(Size::new(1, size.columns)))
         }
     }
@@ -152,16 +153,40 @@ mod chat {
                 return None;
             }
 
-            let transcript_size: Size = Self::transcript_size(size, self.input.rows(size.columns));
-            let input_rows: usize = size.rows - 1 - transcript_size.rows;
-            let end: Location = self.input.end(Size::new(input_rows, size.columns));
+            let input: Range<usize> = self.input_rows(size);
+            let end: Location = self.input.end(Size::new(input.len(), size.columns));
 
             Some(
                 Location::builder()
-                    .row(transcript_size.rows + end.row)
+                    .row(input.start + end.row)
                     .column(end.column)
                     .build(),
             )
+        }
+
+        /// Return how the row is shown as being under the mouse when it is.
+        ///
+        /// Only the box which what to say is typed into is, and only in a pane which what is typed
+        /// does not go to, since pressing on it is what makes it the one it goes to. What has been
+        /// said does nothing when it is pressed on.
+        pub fn hovers(&self, row: usize) -> Option<Hover> {
+            let size: Size = self.state.size();
+            if !self.input.pane_unfocused()
+                || self.state.configured() == Some(false)
+                || size.rows <= 1
+            {
+                return None;
+            }
+
+            self.input_rows(size).contains(&row).then_some(Hover::Row)
+        }
+
+        /// Return which rows the box which what to say is typed into takes in a chat of a size.
+        ///
+        /// What has been said takes the rows above it and the footer takes the one below it.
+        fn input_rows(&self, size: Size) -> Range<usize> {
+            let transcript_size: Size = Self::transcript_size(size, self.input.rows(size.columns));
+            transcript_size.rows..size.rows.saturating_sub(1)
         }
 
         /// Return how much room what has been said gets, out of the whole of the chat.
@@ -357,9 +382,12 @@ mod chat {
                     });
                     self.transcript.handle(TranscriptEvent::Thinking {
                         uuid,
-                        word: match params.thinking() {
-                            true => Some(self.state.thinking_word().to_string()),
-                            false => None,
+                        // Using a tool says what it is doing, which says more than a word for it
+                        // thinking would.
+                        word: match (params.activity(), params.thinking()) {
+                            (Some(activity), _) => Some(activity.clone()),
+                            (None, true) => Some(self.state.thinking_word().to_string()),
+                            (None, false) => None,
                         },
                     });
 
@@ -688,7 +716,7 @@ use state::State;
 mod tests {
     use super::{Chat, Effect, Props};
 
-    use crate::components::common::PaneContentsEvent as Event;
+    use crate::components::common::{Hover, PaneContentsEvent as Event};
 
     use insh_api::{ChatResponseParams, Request, RequestParams, Response, ResponseParams};
     use rend::{Fabric, Size};
@@ -723,6 +751,22 @@ mod tests {
     /// Return the event for pressing a key.
     fn press(key: Key, mods: KeyMods) -> Event {
         Event::TermEvent(TermEvent::KeyEvent(KeyEvent { key, mods }))
+    }
+
+    /// Only the box which what to say is typed into is grayed under the mouse, and only while
+    /// another pane is the one which what is typed goes to.
+    #[test]
+    fn test_only_the_input_is_hovered_while_unfocused() {
+        // Ten rows are what has been said, one is the box, and one is the footer.
+        let mut chat = chat(Size::new(12, 20));
+        assert_eq!(chat.hovers(10), None);
+
+        chat.handle(Event::SetFocus { focused: false });
+
+        assert_eq!(chat.hovers(0), None);
+        assert_eq!(chat.hovers(9), None);
+        assert_eq!(chat.hovers(10), Some(Hover::Row));
+        assert_eq!(chat.hovers(11), None);
     }
 
     /// Whatever it is asked for, the chat has to give back a fabric of exactly that size.

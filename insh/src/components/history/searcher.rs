@@ -5,7 +5,7 @@ mod searcher {
     use super::super::{Chats, Entry, Movement};
     use super::{Effect, Focus};
     use crate::components::common::{
-        Footer, FooterProps, PaneContentsEvent as Event, Phrase, PhraseEffect, PhraseEvent,
+        Footer, FooterProps, Hover, PaneContentsEvent as Event, Phrase, PhraseEffect, PhraseEvent,
         PhraseProps,
     };
 
@@ -13,7 +13,7 @@ mod searcher {
         ChatSearchMode, Request, RequestParams, Response, ResponseParams, SearchChatsRequestParams,
     };
     use rend::{Fabric, Location, Size};
-    use term::{Key, KeyEvent, KeyMods, TermEvent};
+    use term::{Key, KeyEvent, KeyMods, MouseButton, MouseEvent, MouseEventKind, TermEvent};
     use til::Component;
 
     use uuid::Uuid;
@@ -23,6 +23,9 @@ mod searcher {
 
     /// The rows which the box what to search for is typed into and the footer take between them.
     const CHROME_ROWS: usize = 2;
+
+    /// The rows above the chats, which the box what to search for is typed into takes.
+    const PHRASE_ROWS: usize = 1;
 
     /// A search of the past chats.
     pub struct Searcher {
@@ -76,6 +79,7 @@ mod searcher {
                     self.chats.resize(size.rows.saturating_sub(CHROME_ROWS));
                     None
                 }
+                Event::TermEvent(TermEvent::Mouse(mouse_event)) => self.handle_mouse(mouse_event),
                 Event::TermEvent(term_event) => match self.focus {
                     Focus::Phrase => self.handle_phrase(term_event),
                     Focus::Chats => match term_event {
@@ -123,6 +127,20 @@ mod searcher {
             };
 
             Some(Location::builder().row(row).column(column).build())
+        }
+
+        /// Return how the row is shown as being under the mouse when it is.
+        ///
+        /// The box what to search for is typed into is while it is not being typed in, and
+        /// otherwise only a row with a chat in it is.
+        pub fn hovers(&self, row: usize) -> Option<Hover> {
+            match row.checked_sub(PHRASE_ROWS) {
+                None => (self.focus != Focus::Phrase).then_some(Hover::Row),
+                Some(row) => self
+                    .chats
+                    .hovers(row, self.focus == Focus::Chats && !self.pane_unfocused)
+                    .then_some(Hover::Text),
+            }
         }
 
         /// Handle something typed into the box which what to search for goes in.
@@ -176,6 +194,44 @@ mod searcher {
                 (Key::CarriageReturn, _) | (Key::Char('l'), KeyMods::NONE) => {
                     let entry: &Entry = self.chats.selected()?;
                     Some(Effect::Open { id: entry.id })
+                }
+                _ => None,
+            }
+        }
+
+        /// Handle something done with the mouse.
+        ///
+        /// Pressing on the box what to search for is typed into goes back to it, and pressing on
+        /// the chats goes to them, so the mouse goes between the two the way the keys do.
+        fn handle_mouse(&mut self, mouse_event: MouseEvent) -> Option<Effect> {
+            match mouse_event.kind {
+                MouseEventKind::Press(MouseButton::Left) if mouse_event.row < PHRASE_ROWS => {
+                    if self.focus == Focus::Chats {
+                        self.phrase.handle(PhraseEvent::Focus);
+                        self.focus = Focus::Phrase;
+                    }
+                    None
+                }
+                MouseEventKind::Press(MouseButton::Left) => {
+                    let focused: bool = self.focus == Focus::Chats && !self.pane_unfocused;
+                    let row: usize = mouse_event.row - PHRASE_ROWS;
+                    let opened: Option<i64> = self.chats.press(row, focused).map(|entry| entry.id);
+
+                    // Pressing below the chats which were found is not pressing on them.
+                    if self.focus == Focus::Phrase && self.chats.shows(row) {
+                        self.phrase.handle(PhraseEvent::Unfocus);
+                        self.focus = Focus::Chats;
+                    }
+
+                    Some(Effect::Open { id: opened? })
+                }
+                MouseEventKind::ScrollUp => {
+                    self.chats.wheel(true);
+                    None
+                }
+                MouseEventKind::ScrollDown => {
+                    self.chats.wheel(false);
+                    None
                 }
                 _ => None,
             }

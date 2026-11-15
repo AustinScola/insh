@@ -1,9 +1,9 @@
 //! The kind of API which an inference engine speaks.
 
 use super::anthropic::Anthropic;
-use super::chunk::Chunk;
+use super::client::ChatOptions;
+use super::delta::Delta;
 use super::error::ChatError;
-use super::message::Message;
 use super::openai::OpenAi;
 use super::sse::SseEvent;
 
@@ -50,24 +50,18 @@ impl Api {
     }
 
     /// Return the body of a request for a reply.
-    pub fn body(
-        &self,
-        model: &str,
-        max_tokens: usize,
-        messages: &[Message],
-        instructions: Option<&str>,
-    ) -> Value {
+    pub fn body(&self, model: &str, max_tokens: usize, options: &ChatOptions) -> Value {
         return match self {
-            Self::Anthropic => Anthropic::body(model, max_tokens, messages, instructions),
-            Self::OpenAi => OpenAi::body(model, max_tokens, messages, instructions),
+            Self::Anthropic => Anthropic::body(model, max_tokens, options),
+            Self::OpenAi => OpenAi::body(model, max_tokens, options),
         };
     }
 
-    /// Return the piece of the reply which an event carries, if it carries one.
-    pub fn chunk(&self, event: &SseEvent) -> Result<Option<Chunk>, ChatError> {
+    /// Return what an event adds to the reply.
+    pub fn deltas(&self, event: &SseEvent) -> Result<Vec<Delta>, ChatError> {
         return match self {
-            Self::Anthropic => Anthropic::chunk(event),
-            Self::OpenAi => OpenAi::chunk(event),
+            Self::Anthropic => Anthropic::deltas(event),
+            Self::OpenAi => OpenAi::deltas(event),
         };
     }
 }

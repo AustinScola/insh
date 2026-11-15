@@ -5,12 +5,14 @@ use std::time::Duration;
 
 use crate::ai_streamer::{AiStreamer, Streamed};
 use crate::config::Config;
+use crate::tools::Toolbox;
 
 use ai_client::{AiClient, ChatOptions, Message, Role};
 use embedder::{Embedder, MODEL_ID};
 use insh_api::{ChatRequestParams, ChatResponseParams, ResponseParams, ResponseParamsAndLast};
 use insh_db::{chats, DbConnPool};
 
+use chrono::Local;
 use crossbeam::channel::{self, Receiver, Sender};
 
 /// The role recorded for what the person using insh says.
@@ -122,7 +124,8 @@ impl Chat {
         self.embed(said, params.message());
 
         let messages: Vec<Message> = self.messages()?;
-        let instructions: Option<String> = config.ai().instructions();
+        let instructions: Option<String> = Self::instructions(&config);
+        let toolbox: Toolbox = Toolbox::from_config(config.ai().tools());
 
         let client: AiClient = AiClient::builder()
             .base_url(config.ai().base_url().cloned().unwrap_or_default())
@@ -134,7 +137,10 @@ impl Chat {
         let namer: AiClient = client.with_max_tokens(NAME_MAX_TOKENS);
 
         let (results_tx, results_rx): (Sender<Streamed>, Receiver<Streamed>) = channel::unbounded();
-        let mut ai_streamer: AiStreamer = AiStreamer::builder().results_tx(results_tx).build();
+        let mut ai_streamer: AiStreamer = AiStreamer::builder()
+            .results_tx(results_tx)
+            .toolbox(toolbox)
+            .build();
         let handle: JoinHandle<()> = thread::Builder::new()
             .name("ai-streamer".to_string())
             .spawn(move || ai_streamer.run(client, messages, instructions))
@@ -147,6 +153,18 @@ impl Chat {
         }
 
         return Ok(());
+    }
+
+    /// Return what the inference engine is told about how to answer.
+    ///
+    /// The date is said after the instructions, since the engine has no other way of knowing it
+    /// and needs it to tell what is recent. Instructions which were overridden with nothing say
+    /// nothing at all, the date included, since that is what overriding them with nothing is for.
+    fn instructions(config: &Config) -> Option<String> {
+        let instructions: String = config.ai().instructions()?;
+        let date: String = format!("Today's date is {}.", Local::now().format("%A, %B %-d, %Y"));
+
+        return Some(format!("{}\n\n{}", instructions, date));
     }
 
     /// Return the conversation so far, for the inference engine to reply to.
@@ -282,6 +300,7 @@ impl Chat {
         tokens: Option<(usize, usize)>,
         duration: Duration,
         thinking: bool,
+        activity: Option<String>,
         error: Option<String>,
     ) -> ResponseParams {
         return ResponseParams::Chat(
@@ -291,6 +310,7 @@ impl Chat {
                 .tokens(tokens.map(|(total, _)| total))
                 .thinking_tokens(tokens.map(|(_, thought)| thought))
                 .thinking(thinking)
+                .activity(activity)
                 .duration(duration)
                 .error(error)
                 .build(),
@@ -321,6 +341,7 @@ impl Iterator for Chat {
                         None,
                         Duration::ZERO,
                         false,
+                        None,
                         Some(failure),
                     ))
                     .last(true)
@@ -343,6 +364,7 @@ impl Iterator for Chat {
                             None,
                             Duration::ZERO,
                             false,
+                            None,
                             Some(error.to_string()),
                         ))
                         .last(true)
@@ -368,6 +390,7 @@ impl Iterator for Chat {
                     streamed.tokens,
                     streamed.duration,
                     streamed.thinking,
+                    streamed.activity,
                     streamed.error,
                 ))
                 .last(streamed.done)

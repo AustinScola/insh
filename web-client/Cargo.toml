@@ -1,0 +1,21 @@
+[package]
+name = "web-client"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+# Used for deserializing which web provider is configured.
+serde = { workspace = true }
+
+# Used for the JSON which web providers send and receive.
+serde_json = { workspace = true }
+
+# Used for generating the builder pattern for structs.
+typed-builder = { workspace = true }
+
+# Used for HTTP requests to web providers.
+ureq = { workspace = true }
+
+[dev-dependencies]
+# Used for parameterizing tests.
+test-case = { workspace = true }

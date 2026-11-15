@@ -122,6 +122,11 @@ mod input {
                 .build()
         }
 
+        /// Return whether what is typed goes to some pane other than the one the input is in.
+        pub fn pane_unfocused(&self) -> bool {
+            self.state.pane_unfocused()
+        }
+
         /// Return how many rows what is being typed needs at the given width.
         ///
         /// This is one to start with and grows as what is typed wraps, so the box is only as big
@@ -282,7 +287,10 @@ mod state {
                     }
                 }
                 Action::Paste { text } => {
-                    self.value.push_str(&text);
+                    // A terminal sends a new line in pasted text as a carriage return, the same as
+                    // pressing enter, so pasted lines would otherwise run together into one.
+                    self.value
+                        .push_str(&text.replace("\r\n", "\n").replace('\r', "\n"));
                     None
                 }
                 Action::Clear => {
@@ -340,5 +348,16 @@ mod tests {
     #[test_case("a\nb\nc", 10, 3; "two new lines are two rows")]
     fn test_rows_grow_with_what_is_typed(text: &str, columns: usize, expected: usize) {
         assert_eq!(typed(text).rows(columns), expected);
+    }
+
+    #[test_case("a\rb\rc", 3; "carriage returns")]
+    #[test_case("a\r\nb\r\nc", 3; "carriage returns and line feeds")]
+    #[test_case("a\nb\nc", 3; "line feeds")]
+    fn test_pasted_lines_are_kept_apart(text: &str, expected: usize) {
+        let mut input = Input::new(Props::builder().build());
+
+        input.handle(Event::TermEvent(TermEvent::Paste(text.to_string())));
+
+        assert_eq!(input.rows(10), expected);
     }
 }

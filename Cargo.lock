@@ -1733,7 +1733,7 @@ dependencies = [
 
 [[package]]
 name = "insh"
-version = "0.6.9"
+version = "0.6.10"
 dependencies = [
  "ansi",
  "bitflags",
@@ -1806,10 +1806,11 @@ dependencies = [
 
 [[package]]
 name = "inshd"
-version = "0.6.9"
+version = "0.6.10"
 dependencies = [
  "ai-client",
  "ansi",
+ "chrono",
  "clap",
  "common",
  "crossbeam",
@@ -1832,11 +1833,13 @@ dependencies = [
  "regex",
  "rend",
  "serde",
+ "serde_json",
  "signal-hook",
  "terminal-emulator",
  "test-case",
  "typed-builder",
  "uuid",
+ "web-client",
  "yaml_serde",
 ]
 
@@ -4552,6 +4555,17 @@ dependencies = [
  "log",
  "once_cell",
  "pkg-config",
+]
+
+[[package]]
+name = "web-client"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "test-case",
+ "typed-builder",
+ "ureq",
 ]
 
 [[package]]
