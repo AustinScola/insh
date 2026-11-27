@@ -47,7 +47,6 @@ pub use props::Props;
 
 /// Contains the [`Contents`] component.
 mod contents {
-    use std::cell::RefCell;
     use std::path::MAIN_SEPARATOR as PATH_SEPARATOR;
 
     use super::{Action, Effect, Event, Props, State};
@@ -58,9 +57,9 @@ mod contents {
     use crate::Stateful;
 
     use ansi::Underline;
-    use highlighter::{Highlighter, Language};
+    use highlighter::Span;
     use phrase_searcher::{FileHit, LineHit};
-    use rend::{Fabric, Size, Style, Yarn};
+    use rend::{Fabric, Size, Yarn};
     use term::{Key, KeyEvent, KeyMods, TermEvent};
     use til::{CommandParser, Component, KeyPattern, Parsed};
 
@@ -87,22 +86,6 @@ mod contents {
             Some(self.state.selected_row_number())
         }
 
-        /// Return a line of a file with the phrase underlined where it is going to be replaced.
-        fn preview(line: &str, phrase: &str) -> Yarn {
-            let underlined: Style = Style::builder().underline(Underline::Single).build();
-            let mut yarn = Yarn::from("");
-            for (at, piece) in line.split(phrase).enumerate() {
-                if at > 0 {
-                    let mut found = Yarn::from(phrase);
-                    let columns: usize = found.len();
-                    found.style(underlined, 0..columns);
-                    yarn = yarn.concat(found);
-                }
-                yarn = yarn.concat(Yarn::from(piece));
-            }
-            yarn
-        }
-
         /// Underline wherever the phrase is in the line, which the yarn is what is drawn of.
         fn underline(yarn: &mut Yarn, line: &str, phrase: &str) {
             if phrase.is_empty() {
@@ -118,19 +101,26 @@ mod contents {
             }
         }
 
-        /// Return a line of a file, colored the way an editor would color it.
+        /// Return a line of a file, colored the way an editor would color it, with its tabs spread
+        /// out.
         ///
-        /// A file in a language which is not known is left in whatever the terminal writes in,
-        /// which is what it looked like before there was any coloring at all.
-        fn highlight(&self, line: &str, language: Option<Language>) -> Yarn {
-            let language: Language = match language {
-                Some(language) => language,
-                None => return Yarn::from(line),
-            };
+        /// What each piece of the line is was worked out by the daemon along with the rest of the
+        /// file, so a line inside something started above it, like a comment, is colored the way
+        /// it is in the editor. A file in a language which is not known is left in whatever the
+        /// terminal writes in, which is what it looked like before there was any coloring at all.
+        fn highlight(&self, line_hit: &LineHit) -> Yarn {
+            let tab_width: usize = self.config.general().tab_width();
 
+            // NOTE: Spreading out the tabs in each piece on its own would start each from the
+            // wrong column, so each piece is what spreading out the line up to its end added.
             let mut yarn: Yarn = Yarn::from("");
-            for span in self.highlighter.borrow_mut().highlight(line, language) {
-                let mut piece: Yarn = Yarn::from(span.text.as_str());
+            let mut before: String = String::new();
+            let mut shown: usize = 0;
+            for span in Span::all(line_hit.line(), line_hit.runs()) {
+                before.push_str(&span.text);
+                let spread: String = before.as_str().detab(tab_width);
+                let mut piece: Yarn = Yarn::from(&spread[shown..]);
+                shown = spread.len();
 
                 if let Some(color) = Color::of_code(span.kind) {
                     piece.color(color.into());
@@ -139,7 +129,10 @@ mod contents {
                 yarn = yarn.concat(piece);
             }
 
-            yarn
+            // NOTE: Whatever the runs do not reach, which is all of it for a language which is not
+            // known, is left plain.
+            let spread: String = line_hit.line().detab(tab_width);
+            yarn.concat(Yarn::from(&spread[shown..]))
         }
 
         /// Return a parser for the keys which the contents responds to.
@@ -191,6 +184,10 @@ mod contents {
                 .bind([KeyPattern::any(Key::CarriageReturn)], Action::Edit)
                 .bind([KeyPattern::exact(Key::Right, KeyMods::NONE)], Action::Edit)
                 .bind(
+                    [KeyPattern::exact(Key::Char('v'), KeyMods::NONE)],
+                    Action::OpenVim,
+                )
+                .bind(
                     [KeyPattern::exact(Key::Char('g'), KeyMods::NONE)],
                     Action::Goto,
                 )
@@ -227,12 +224,6 @@ mod contents {
         state: State,
         /// Parses the keys pressed into actions.
         command_parser: CommandParser<Action>,
-        /// Works out which part of a line of code is what.
-        ///
-        /// Drawing is done from what is there rather than by being told to, so this is only
-        /// reachable through a shared reference. It holds the grammars, which are slow to read and
-        /// worth keeping.
-        highlighter: RefCell<Highlighter>,
     }
 
     impl Component<Props, Event, Effect> for Contents {
@@ -242,7 +233,6 @@ mod contents {
                 config: props.config,
                 state,
                 command_parser: Self::command_parser(),
-                highlighter: RefCell::new(Highlighter::new()),
             }
         }
 
@@ -343,14 +333,6 @@ mod contents {
                                     line_hits = line_hits.into_iter().skip(line_offset).collect();
                                 }
                             }
-                            // Which language the file is written in, so that what is in it can be
-                            // shown the way it would be in an editor.
-                            let language: Option<Language> = file_hit
-                                .path()
-                                .extension()
-                                .and_then(|extension| extension.to_str())
-                                .and_then(Language::of_extension);
-
                             for (line_hit_number, line_hit) in line_hits {
                                 if yarns.len() == rows {
                                     break;
@@ -370,16 +352,15 @@ mod contents {
                                 let decision: Option<bool> =
                                     self.state.decision(file_hit_number, line_hit_number);
                                 let text: Yarn = match (self.state.replacing(), decision) {
-                                    (None, _) => {
-                                        let mut text: Yarn = self.highlight(&line, language);
+                                    (None, _) | (Some(_), None) => {
+                                        let mut text: Yarn = self.highlight(line_hit);
                                         if let Some(phrase) = self.state.phrase() {
                                             Self::underline(&mut text, &line, phrase);
                                         }
                                         text
                                     }
-                                    (Some((phrase, _)), None) => Self::preview(&line, phrase),
                                     (Some((phrase, replacement)), Some(true)) => {
-                                        Yarn::from(line.replace(phrase, replacement))
+                                        self.highlight(&line_hit.replaced(phrase, replacement))
                                     }
                                     (Some(_), Some(false)) => {
                                         let mut text = Yarn::from(line.as_str());
@@ -464,9 +445,47 @@ mod contents {
 
     #[cfg(test)]
     mod tests {
+        use std::path::PathBuf;
+
         use super::*;
 
+        use highlighter::{Kind, Run};
         use test_case::test_case;
+
+        #[test_case(0, Some(Color::Keyword); "a keyword")]
+        #[test_case(2, None; "the tab spread out")]
+        #[test_case(4, Some(Color::Keyword); "a keyword after the tab")]
+        #[test_case(6, None; "what the runs do not reach")]
+        fn test_a_line_is_colored_the_way_the_daemon_says(column: usize, expected: Option<Color>) {
+            let contents: Contents = Contents::new(Props::new(
+                Config::default(),
+                PathBuf::from("/"),
+                Size::new(4, 20),
+                None,
+                None,
+            ));
+            let line_hit: LineHit = LineHit::new(1, "fn\tfn x").with_runs(vec![
+                Run {
+                    chars: 2,
+                    kind: Some(Kind::Keyword),
+                },
+                Run {
+                    chars: 1,
+                    kind: None,
+                },
+                Run {
+                    chars: 2,
+                    kind: Some(Kind::Keyword),
+                },
+            ]);
+
+            let yarn: Yarn = contents.highlight(&line_hit);
+
+            assert_eq!(yarn.len(), 8);
+            // NOTE: A column past the end of the styles is plain.
+            let color = yarn.styles().get(column).and_then(|style| style.color());
+            assert_eq!(color, expected.map(|color| color.into()));
+        }
 
         #[test_case("a foo b foo", "foo", vec![2, 3, 4, 8, 9, 10]; "every time the phrase is in the line")]
         #[test_case("😀foo", "foo", vec![2, 3, 4]; "after a character two columns wide")]
@@ -552,9 +571,9 @@ mod state {
     use crate::Stateful;
 
     use insh_api::{
-        GetFileContentsRequestParams, GetFileContentsResponseParams, ReplacePhraseRequestParams,
-        ReplacedLine, Request, RequestParams, Response, ResponseParams, SearchPhraseRequestParams,
-        SearchPhraseResponseParams,
+        GetFileContentsRequestParams, GetFileContentsResponseParams, Position,
+        ReplacePhraseRequestParams, ReplacedLine, Request, RequestParams, Response, ResponseParams,
+        SearchPhraseRequestParams, SearchPhraseResponseParams,
     };
     use phrase_searcher::{FileHit, LineHit};
     use rend::Size;
@@ -1309,9 +1328,29 @@ mod state {
             None
         }
 
-        /// Edit the selected file.
+        /// Edit the selected file, starting on the phrase in the selected line when a line is
+        /// selected.
         fn edit(&mut self) -> Option<Effect> {
-            let file_hit: &FileHit = self.hit().unwrap();
+            let file_hit: &FileHit = self.hit()?;
+            let path: PathBuf = file_hit.path().to_path_buf();
+
+            let at: Option<Position> = self.line_hit_number().map(|line_hit_number| {
+                let line_hit: &LineHit = &file_hit.line_hits()[line_hit_number];
+                let line: &str = line_hit.line();
+                let column: usize =
+                    match self.phrase.as_deref().and_then(|phrase| line.find(phrase)) {
+                        Some(byte) => line[..byte].chars().count(),
+                        None => 0,
+                    };
+                Position::new(line_hit.line_number().saturating_sub(1), column)
+            });
+
+            Some(Effect::OpenEditor { path, at })
+        }
+
+        /// Edit the selected file in vim, starting on the selected line when a line is selected.
+        fn open_vim(&mut self) -> Option<Effect> {
+            let file_hit: &FileHit = self.hit()?;
             let path: &Path = file_hit.path();
 
             let mut vim_args_builder = VimArgsBuilder::new().path(path);
@@ -1566,6 +1605,7 @@ mod state {
                 Action::ScrollUp => self.scroll_up(1),
                 Action::Refresh => self.refresh(),
                 Action::Edit => self.edit(),
+                Action::OpenVim => self.open_vim(),
                 Action::Goto => self.goto(),
                 Action::ReallyGoto => self.really_goto(),
                 Action::YankWord => self.yank_word(),
@@ -1742,6 +1782,8 @@ mod action {
         Refresh,
         /// Edit the selected file.
         Edit,
+        /// Edit the selected file in vim.
+        OpenVim,
         /// Browse the directory the selected file is in.
         Goto,
         /// Browse to the selected file.
@@ -1787,7 +1829,7 @@ mod effect {
 
     use crate::programs::VimArgs;
 
-    use insh_api::Request;
+    use insh_api::{Position, Request};
 
     /// A contents effect.
     pub enum Effect {
@@ -1801,6 +1843,14 @@ mod effect {
             file: Option<PathBuf>,
         },
         /// Edit a file.
+        OpenEditor {
+            /// The file.
+            path: PathBuf,
+            /// Where the cursor starts, which is the start of the file when it is nowhere in
+            /// particular.
+            at: Option<Position>,
+        },
+        /// Edit a file in vim.
         OpenVim(VimArgs),
         /// Ring the bell.
         Bell,

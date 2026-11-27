@@ -479,6 +479,9 @@ mod searcher {
                     return Some(Effect::Request(request));
                 }
                 Some(ContentsEffect::Goto { dir, file }) => Some(Action::Goto { dir, file }),
+                Some(ContentsEffect::OpenEditor { path, at }) => {
+                    Some(Action::OpenEditor { path, at })
+                }
                 Some(ContentsEffect::OpenVim(vim_args)) => Some(Action::OpenVim(vim_args)),
                 Some(ContentsEffect::Bell) => {
                     return Some(Effect::Bell);
@@ -565,7 +568,7 @@ mod effect {
 
     use crate::programs::VimArgs;
 
-    use insh_api::Request;
+    use insh_api::{Position, Request};
 
     /// A searcher effect.
     pub enum Effect {
@@ -577,6 +580,14 @@ mod effect {
             file: Option<PathBuf>,
         },
         /// Edit a file.
+        OpenEditor {
+            /// The file.
+            path: PathBuf,
+            /// Where the cursor starts, which is the start of the file when it is nowhere in
+            /// particular.
+            at: Option<Position>,
+        },
+        /// Edit a file in vim.
         OpenVim(VimArgs),
         /// Ring the bell.
         Bell,
@@ -601,6 +612,7 @@ mod state {
     use crate::programs::VimArgs;
     use crate::Stateful;
 
+    use insh_api::Position;
     use rend::Size;
     use term::TermEvent;
     use til::Component;
@@ -756,6 +768,11 @@ mod state {
         }
 
         /// Edit a file.
+        fn open_editor(&mut self, path: PathBuf, at: Option<Position>) -> Option<Effect> {
+            Some(Effect::OpenEditor { path, at })
+        }
+
+        /// Edit a file in vim.
         fn open_vim(&mut self, vim_args: VimArgs) -> Option<Effect> {
             Some(Effect::OpenVim(vim_args))
         }
@@ -812,6 +829,7 @@ mod state {
                 Action::FocusFiles => self.focus_files(),
                 Action::TakeFocus(focus) => self.take_focus(focus),
                 Action::Goto { dir, file } => self.goto(dir, file),
+                Action::OpenEditor { path, at } => self.open_editor(path, at),
                 Action::OpenVim(vim_args) => self.open_vim(vim_args),
                 Action::Quit => self.quit(),
             }
@@ -903,6 +921,8 @@ mod action {
     use super::Focus;
     use crate::programs::VimArgs;
 
+    use insh_api::Position;
+
     /// A searcher action.
     pub enum Action {
         /// Send the events to whatever was pressed on.
@@ -923,6 +943,13 @@ mod action {
             file: Option<PathBuf>,
         },
         /// Edit a file.
+        OpenEditor {
+            /// The file.
+            path: PathBuf,
+            /// Where the cursor starts.
+            at: Option<Position>,
+        },
+        /// Edit a file in vim.
         OpenVim(VimArgs),
         /// Quit.
         Quit,

@@ -14,6 +14,10 @@ file-info = { version = "0.1.0", path = "../file-info" }
 rend = { version = "0.1.0", path = "../rend", features = ["serde"] }
 terminal-emulator = { version = "0.1.0", path = "../terminal-emulator", features = ["serde"] }
 
+# The pieces of a file being edited are carried along with what each is, which the crate which
+# works that out owns.
+highlighter = { version = "0.1.0", path = "../highlighter", features = ["serde"] }
+
 # Used for generating the builder pattern for structs.
 typed-builder = { workspace = true }
 

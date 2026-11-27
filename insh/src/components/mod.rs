@@ -3,6 +3,7 @@
 mod browser;
 mod chat;
 mod common;
+mod editor;
 mod file_creator;
 mod finder;
 mod history;

@@ -154,8 +154,14 @@ mod file_creator {
                         return self.handle_dir_effect(dir_effect);
                     }
                     Focus::Phrase => {
+                        let typed: String = self.state.phrase.value().to_string();
                         let phrase_event = PhraseEvent::TermEvent(term_event);
                         let phrase_effect = self.state.phrase.handle(phrase_event);
+                        // NOTE: Why the file could not be made is about what was typed, so it is
+                        // not shown once that changes.
+                        if self.state.phrase.value() != typed {
+                            self.state.perform(Action::ClearError);
+                        }
                         match phrase_effect {
                             Some(PhraseEffect::Enter { phrase }) => {
                                 action = Some(Action::CreateFile { filename: phrase });
@@ -325,13 +331,12 @@ mod state {
     use crate::components::common::{
         Dir, DirEvent, DirProps, FooterInfo, Phrase, PhraseEvent, PhraseProps,
     };
-    use crate::programs::{VimArgs, VimArgsBuilder};
     use crate::Stateful;
 
     use file_type::FileType;
     use insh_api::{
-        CreateFileRequestParams, CreateFileResponseParams, Request, RequestParams, Response,
-        ResponseParams,
+        CreateFileRequestParams, CreateFileResponseParams, Position, Request, RequestParams,
+        Response, ResponseParams,
     };
     use til::Component;
 
@@ -390,6 +395,7 @@ mod state {
                 Action::FocusDir => self.focus_dir(),
                 Action::FocusPhrase => self.focus_phrase(),
                 Action::HandleResponse(response) => self.handle_response(response),
+                Action::ClearError => self.clear_error(),
                 Action::Bell => self.bell(),
                 Action::Quit => self.quit(),
             }
@@ -436,6 +442,12 @@ mod state {
             &self.error
         }
 
+        /// Stop showing why the file could not be made.
+        fn clear_error(&mut self) -> Option<Effect> {
+            self.error = None;
+            None
+        }
+
         /// Return the name of what is being created shown in the footer.
         pub fn name(&self) -> &str {
             match self.purpose {
@@ -452,9 +464,9 @@ mod state {
 
             let file_type: FileType = match self.purpose {
                 Purpose::Create(file_type) => file_type,
-                // NOTE: Nothing is made for a file which is to be edited, since vim makes it once
-                // it is written and leaving without writing it should leave nothing behind.
-                Purpose::Edit => return Some(Effect::OpenVim(self.vim_args(filename))),
+                // NOTE: Nothing is made for a file which is to be edited, since the editor makes it
+                // once it is written and leaving without writing it should leave nothing behind.
+                Purpose::Edit => return self.open_editor(filename),
             };
 
             let request = Request::builder()
@@ -471,25 +483,32 @@ mod state {
             Some(Effect::Request(request))
         }
 
-        /// Return what vim is run with to edit the file, which may be followed by the line and
-        /// column to start at the way it can be on the command line.
-        fn vim_args(&self, filename: &str) -> VimArgs {
+        /// Edit the file, which may be followed by the line and column to start at the way it can
+        /// be on the command line.
+        fn open_editor(&mut self, filename: &str) -> Option<Effect> {
             let file_line_column: FileLineColumn = match filename.parse() {
                 Ok(file_line_column) => file_line_column,
                 Err(_) => FileLineColumn::new(Some(PathBuf::from(filename)), None, None),
             };
 
-            let mut vim_args_builder = VimArgsBuilder::new();
-            if let Some(file) = file_line_column.file() {
-                vim_args_builder = vim_args_builder.path(&self.dir.join(file));
-            }
-            if let Some(line) = file_line_column.line() {
-                vim_args_builder = vim_args_builder.line(line);
-            }
-            if let Some(column) = file_line_column.column() {
-                vim_args_builder = vim_args_builder.column(column);
-            }
-            vim_args_builder.build()
+            // NOTE: Typing only a line and column, such as `:12`, leaves the file empty.
+            let path: PathBuf = match file_line_column
+                .file()
+                .as_ref()
+                .filter(|file| !file.as_os_str().is_empty())
+            {
+                Some(file) => self.dir.join(file),
+                None => {
+                    self.error = Some(String::from("Must enter file to edit."));
+                    return None;
+                }
+            };
+            let at: Option<Position> = file_line_column.line().map(|line| {
+                let column: usize = file_line_column.column().unwrap_or(1);
+                Position::new(line.saturating_sub(1), column.saturating_sub(1))
+            });
+
+            Some(Effect::OpenEditor { path, at })
         }
 
         /// Browse the new file, or show why it could not be made.
@@ -564,9 +583,7 @@ use focus::Focus;
 mod effect {
     use std::path::PathBuf;
 
-    use crate::programs::VimArgs;
-
-    use insh_api::Request;
+    use insh_api::{Position, Request};
 
     /// A file creator effect.
     pub enum Effect {
@@ -580,7 +597,12 @@ mod effect {
             file: Option<PathBuf>,
         },
         /// Edit a file.
-        OpenVim(VimArgs),
+        OpenEditor {
+            /// The file to edit.
+            path: PathBuf,
+            /// Where to start in it.
+            at: Option<Position>,
+        },
         /// Ring the bell.
         Bell,
         /// Quit.
@@ -613,6 +635,8 @@ mod action {
         FocusPhrase,
         /// Handle a response from inshd.
         HandleResponse(Response),
+        /// Stop showing why the file could not be made.
+        ClearError,
         /// Ring the bell.
         Bell,
         /// Quit.

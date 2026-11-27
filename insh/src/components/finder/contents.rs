@@ -93,6 +93,10 @@ mod contents {
                 .bind([KeyPattern::any(Key::CarriageReturn)], Action::Edit)
                 .bind([KeyPattern::exact(Key::Right, KeyMods::NONE)], Action::Edit)
                 .bind(
+                    [KeyPattern::exact(Key::Char('v'), KeyMods::NONE)],
+                    Action::OpenVim,
+                )
+                .bind(
                     [KeyPattern::exact(Key::Char('g'), KeyMods::NONE)],
                     Action::Goto,
                 )
@@ -672,13 +676,15 @@ mod state {
 
         /// Edit the selected file.
         fn edit(&mut self) -> Option<Effect> {
-            match self.entry_path() {
-                Some(path) => {
-                    let vim_args: VimArgs = VimArgsBuilder::new().path(path).build();
-                    Some(Effect::OpenVim(vim_args))
-                }
-                None => None,
-            }
+            let path: PathBuf = self.entry_path()?.to_path_buf();
+            Some(Effect::OpenEditor { path })
+        }
+
+        /// Edit the selected file in vim.
+        fn open_vim(&mut self) -> Option<Effect> {
+            let path: &Path = self.entry_path()?;
+            let vim_args: VimArgs = VimArgsBuilder::new().path(path).build();
+            Some(Effect::OpenVim(vim_args))
         }
 
         /// Browse the directory the selected file is in.
@@ -903,6 +909,7 @@ mod state {
                 Action::ReallyUp => self.really_up(),
                 Action::Refresh => self.refresh(),
                 Action::Edit => self.edit(),
+                Action::OpenVim => self.open_vim(),
                 Action::Goto => self.goto(),
                 Action::ReallyGoto => self.really_goto(),
                 Action::YankName => self.yank_name(),
@@ -1001,6 +1008,8 @@ mod action {
         Refresh,
         /// Edit the selected file.
         Edit,
+        /// Edit the selected file in vim.
+        OpenVim,
         /// Browse the directory the selected file is in.
         Goto,
         /// Browse to the selected file.
@@ -1062,6 +1071,11 @@ mod effect {
             file: Option<PathBuf>,
         },
         /// Edit a file.
+        OpenEditor {
+            /// The file.
+            path: PathBuf,
+        },
+        /// Edit a file in vim.
         OpenVim(VimArgs),
         /// Ring the bell.
         Bell,

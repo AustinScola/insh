@@ -9,10 +9,12 @@ and whoever is drawing decides what that should look like.
 #![deny(clippy::missing_docs_in_private_items)]
 #![allow(clippy::needless_return)]
 
+mod document;
 mod highlighter;
 mod language;
 mod span;
 
+pub use document::Document;
 pub use highlighter::Highlighter;
 pub use language::Language;
-pub use span::{Kind, Span};
+pub use span::{Kind, Run, Span};

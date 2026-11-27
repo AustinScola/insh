@@ -592,6 +592,10 @@ impl Contents {
             .bind([KeyPattern::any(Key::Char('l'))], Action::Push)
             .bind([KeyPattern::any(Key::CarriageReturn)], Action::Push)
             .bind([KeyPattern::exact(Key::Right, KeyMods::NONE)], Action::Push)
+            .bind(
+                [KeyPattern::exact(Key::Char('v'), KeyMods::NONE)],
+                Action::OpenVim,
+            )
             .bind([KeyPattern::any(Key::Char('h'))], Action::Pop)
             .bind([KeyPattern::any(Key::Backspace)], Action::Pop)
             .bind([KeyPattern::exact(Key::Left, KeyMods::NONE)], Action::Pop)
@@ -1102,11 +1106,21 @@ impl State {
             }
 
             if path.is_file() {
-                let vim_args: VimArgs = VimArgsBuilder::new().path(&path).build();
-                return Some(Effect::OpenVim(vim_args));
+                return Some(Effect::OpenEditor { path });
             }
         }
         None
+    }
+
+    /// Edit the selected file in vim.
+    fn open_vim(&mut self) -> Option<Effect> {
+        let path: PathBuf = self.entry()?.path().to_path_buf();
+        if !path.is_file() {
+            return None;
+        }
+
+        let vim_args: VimArgs = VimArgsBuilder::new().path(&path).build();
+        Some(Effect::OpenVim(vim_args))
     }
 
     /// Go to the directory above.
@@ -1410,6 +1424,7 @@ impl Stateful<Action, Effect> for State {
             Action::Refresh => self.refresh(),
             Action::Push => self.push(),
             Action::Pop => self.pop(),
+            Action::OpenVim => self.open_vim(),
             Action::YankName => self.yank_name(),
             Action::YankPath => self.yank_path(),
             Action::YankContents => self.yank_contents(),
@@ -1468,6 +1483,8 @@ enum Action {
     Refresh,
     /// Go into the selected directory, or edit the selected file.
     Push,
+    /// Edit the selected file in vim.
+    OpenVim,
     /// Go to the directory above.
     Pop,
     /// Copy the name of the selected file to the clipboard.
@@ -1566,6 +1583,11 @@ pub enum Effect {
         dir: PathBuf,
     },
     /// Edit a file.
+    OpenEditor {
+        /// The file.
+        path: PathBuf,
+    },
+    /// Edit a file in vim.
     OpenVim(VimArgs),
     /// Run a shell.
     RunBash {

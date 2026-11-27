@@ -1,3 +1,6 @@
+# 0.6.11
+- Add an editor.
+
 # 0.6.10
 - Add web search to Inshie.
 - Fix pasting multi-line content into Inshie.

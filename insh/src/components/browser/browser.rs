@@ -310,6 +310,7 @@ impl Browser {
                 Some(Effect::OpenSearcher { dir, replacing })
             }
             Some(ContentsEffect::OpenChat { dir }) => Some(Effect::OpenChat { dir }),
+            Some(ContentsEffect::OpenEditor { path }) => Some(Effect::OpenEditor { path }),
             Some(ContentsEffect::OpenVim(vim_args)) => Some(Effect::OpenVim(vim_args)),
             Some(ContentsEffect::RunBash { dir }) => Some(Effect::RunBash { dir }),
             Some(ContentsEffect::Bell) => Some(Effect::Bell),
@@ -439,6 +440,11 @@ pub enum Effect {
         dir: PathBuf,
     },
     /// Edit a file.
+    OpenEditor {
+        /// The file.
+        path: PathBuf,
+    },
+    /// Edit a file in vim.
     OpenVim(VimArgs),
     /// Run a shell.
     RunBash {

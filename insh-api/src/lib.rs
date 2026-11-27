@@ -9,7 +9,15 @@ use std::fmt::{Display, Error as FmtError, Formatter};
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
+mod editor;
 mod multiplexer;
+
+pub use editor::{
+    CloseEditorRequestParams, EditRequestParams, EditorClipboardResponseParams,
+    EditorClosedResponseParams, EditorCursor, EditorKey, EditorKeyRequestParams, EditorMode,
+    EditorView, EditorViewResponseParams, PasteEditorRequestParams, Position,
+    ResizeEditorRequestParams,
+};
 
 pub use multiplexer::{
     AttachRequestParams, ChangeDirRequestParams, ChangedDirResponseParams, CopyPaneRequestParams,
@@ -161,6 +169,17 @@ pub enum RequestParams {
     GetChat(GetChatRequestParams),
     /// Delete a chat.
     DeleteChat(DeleteChatRequestParams),
+
+    /// Edit a file, which goes on being reported on until the cursor is done with.
+    Edit(EditRequestParams),
+    /// Press a key for a cursor in a file being edited.
+    EditorKey(EditorKeyRequestParams),
+    /// Paste text for a cursor in a file being edited.
+    PasteEditor(PasteEditorRequestParams),
+    /// Take note of how much text is shown for a cursor.
+    ResizeEditor(ResizeEditorRequestParams),
+    /// Be done with a cursor which is no longer shown.
+    CloseEditor(CloseEditorRequestParams),
 }
 
 /// Request parameters for getting the files in a directory.
@@ -769,6 +788,13 @@ pub enum ResponseParams {
     GetChat(GetChatResponseParams),
     /// Whether the chat was deleted.
     DeleteChat(DeleteChatResponseParams),
+
+    /// What of a file being edited is shown.
+    EditorView(EditorViewResponseParams),
+    /// Text from a file being edited to put on the clipboard.
+    EditorClipboard(EditorClipboardResponseParams),
+    /// A cursor in a file being edited is done with.
+    EditorClosed(EditorClosedResponseParams),
 }
 
 /// Response parameters and whether they are the last.

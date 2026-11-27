@@ -336,6 +336,7 @@ mod finder {
                 }
                 Some(ContentsEffect::Request(request)) => Some(Effect::Request(request)),
                 Some(ContentsEffect::Goto { dir, file }) => Some(Effect::Browse { dir, file }),
+                Some(ContentsEffect::OpenEditor { path }) => Some(Effect::OpenEditor { path }),
                 Some(ContentsEffect::OpenVim(vim_args)) => Some(Effect::OpenVim(vim_args)),
                 Some(ContentsEffect::Bell) => Some(Effect::Bell),
                 None => None,
@@ -571,6 +572,11 @@ mod effect {
             file: Option<PathBuf>,
         },
         /// Edit a file.
+        OpenEditor {
+            /// The file.
+            path: PathBuf,
+        },
+        /// Edit a file in vim.
         OpenVim(VimArgs),
         /// Ring the bell.
         Bell,

@@ -18,6 +18,7 @@ use crate::conn_handler::ConnHandler;
 use crate::contexted_request::ContextedRequest;
 use crate::contexted_response::ContextedResponse;
 use crate::disconnected_client::DisconnectedClient;
+use crate::editor::Editor;
 use crate::log_forwarder::LogForwarder;
 use crate::log_subscription::LogSubscription;
 use crate::multiplexer::{Multiplexer, Output};
@@ -205,6 +206,29 @@ impl Server {
             .spawn(move || multiplexer.run())
             .unwrap();
 
+        // Create and spawn an editor thread. The editor owns every file being edited and every
+        // cursor in them, and tells the clients moving one about whatever happens to the file.
+        let (editor_requests_tx, editor_requests_rx): (
+            Sender<ContextedRequest>,
+            Receiver<ContextedRequest>,
+        ) = channel::unbounded();
+        let (editor_disconnected_clients_tx, editor_disconnected_clients_rx): (
+            Sender<DisconnectedClient>,
+            Receiver<DisconnectedClient>,
+        ) = channel::unbounded();
+        disconnected_clients_txs.push(editor_disconnected_clients_tx.clone());
+        let (editor_stop_tx, editor_stop_rx): (Sender<Stop>, Receiver<Stop>) = channel::unbounded();
+        let mut editor = Editor::builder()
+            .requests_rx(editor_requests_rx)
+            .disconnected_clients_rx(editor_disconnected_clients_rx)
+            .contexted_responses_tx(contexted_responses_tx.clone())
+            .stop_rx(editor_stop_rx)
+            .build();
+        let editor_handle: JoinHandle<()> = thread::Builder::new()
+            .name("editor".to_string())
+            .spawn(move || editor.run())
+            .unwrap();
+
         // Create and spawn a request handler manager thread. The request handler manager starts
         // the request handler threads, restarts them if they die, and stops when it is time.
         let mut contexted_requests_rxs: Vec<Receiver<ContextedRequest>> =
@@ -253,6 +277,7 @@ impl Server {
             .contexted_requests_txs(contexted_requests_txs.clone())
             .contexted_requests_rx(contexted_requests_rx)
             .multiplexer_requests_tx(multiplexer_requests_tx.clone())
+            .editor_requests_tx(editor_requests_tx.clone())
             .stop(scheduler_stop_rx)
             .build();
         let scheduler_handle: JoinHandle<_> = thread::Builder::new()
@@ -330,6 +355,10 @@ impl Server {
         multiplexer_stop_tx.send(Stop::new()).unwrap();
         let _ = multiplexer_handle.join();
         log::info!("Multiplexer stopped.");
+
+        editor_stop_tx.send(Stop::new()).unwrap();
+        let _ = editor_handle.join();
+        log::info!("Editor stopped.");
         log::info!("Log forwarder stopped.");
 
         let _ = signal_handler_handle.join();

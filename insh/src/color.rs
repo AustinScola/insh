@@ -11,6 +11,8 @@ pub enum Color {
     Highlight,
     /// Something which stands out but is not focused.
     UnfocusedHighlight,
+    /// Someone else's cursor in a file.
+    OtherCursor,
     /// What is written before something which stands out, which stands out a little less.
     LabelHighlight,
     /// Less important text.
@@ -168,6 +170,7 @@ impl Theme {
         return match color {
             Color::Highlight => self.highlight,
             Color::UnfocusedHighlight => Self::darker(self.inverted_background),
+            Color::OtherCursor => Self::darker(self.highlight),
             Color::LabelHighlight => Self::darker(self.highlight),
             Color::GrayedText => self.grayed_text,
             Color::LightGrayedText => self.light_grayed_text,

@@ -163,9 +163,10 @@ tokenizers = { version = "0.21.4", default-features = false, features = ["fancy-
 # Used to verify the model which the build script downloads.
 sha2 = "0.11.1"
 
-# Used to highlight code by parsing it. Tree-sitter is what editors use, so the grammars are worth
-# having beyond showing code in a chat.
-tree-sitter-highlight = "0.27.0"
+# Used to highlight code by parsing it, and to keep a file which is being edited parsed as it
+# changes rather than parsing all of it again for every key pressed. Tree-sitter is what editors
+# use, so the grammars are worth having beyond showing code in a chat.
+tree-sitter = "0.27.0"
 
 # The grammars which code is highlighted with. Each is the parser for one language, generated as C
 # and built by its own build script.
