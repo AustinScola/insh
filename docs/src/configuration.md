@@ -1,7 +1,6 @@
 # Configuration
 
 ## Insh Configuration
-
 Insh can be configured by the file `~/.insh/config.yaml`.
 
 **general.tab_width** (`usize`): The width of the `<Tab>` character (default=`4`).
@@ -21,7 +20,6 @@ Insh can be configured by the file `~/.insh/config.yaml`.
 **render.engine** (`full`|`incr`): The rendering engine to use (default=`incr`).
 
 ## Inshd Configuration
-
 Inshd can be configured by the file `~/.insh/inshd-config.yaml`.
 
 **server.request_handlers.num** (`usize`): The number of request handlers (default=`8`).

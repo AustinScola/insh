@@ -1,5 +1,4 @@
 # Searcher
-
 The file contents searcher searches all files in the current directory recursively for a given input
 string.
 

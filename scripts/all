@@ -2,10 +2,14 @@
 
 set -euo pipefail
 
-REPO_ROOT="$(git rev-parse --show-toplevel)"
+REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
 "${REPO_ROOT}/cargo-scripts/all"
 
 "${REPO_ROOT}/scripts/check-with-logging-feature"
 
 "${REPO_ROOT}/scripts/lint-arbsego"
+
+"${REPO_ROOT}/scripts/format-markdown"
+
+"${REPO_ROOT}/scripts/lint-markdown"

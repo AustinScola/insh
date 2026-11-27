@@ -1,0 +1,62 @@
+name: Markdown
+
+on:
+  push:
+
+permissions:
+  contents: read
+
+# Only one run per branch. A push which supersedes another stops it rather than competing with it
+# for runners, except on master and on tags, where every run should finish.
+concurrency:
+  group: markdown-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/master' && !startsWith(github.ref, 'refs/tags/') }}
+
+env:
+  # Used by cargo-binstall to look up the release of rumdl. Doing that without a token is subject to
+  # a much lower rate limit.
+  GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  RUSTUP_MAX_RETRIES: 10
+
+jobs:
+  lint:
+    name: Lint
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - uses: actions/checkout@v7
+
+      # The toolchain is pinned to a version which the runner images do not ship, so without this
+      # every job downloads it before Cargo even starts.
+      - name: Cache the Rust toolchain
+        uses: actions/cache@v6
+        env:
+          cache-name: toolchain
+        with:
+          path: |
+            ~/.rustup/toolchains/
+            ~/.rustup/update-hashes/
+          key: ${{ env.cache-name }}-${{ runner.os }}-${{ hashFiles('rust-toolchain.toml') }}
+
+      - name: Get versions
+        id: versions
+        run: |
+          echo "rumdl=$(yq '.rumdl.version' < truth.yaml)" >> "${GITHUB_OUTPUT}"
+          echo "cargo-binstall=$(yq '.cargo-binstall.version' < truth.yaml)" >> "${GITHUB_OUTPUT}"
+
+      - name: Install cargo-binstall
+        uses: cargo-bins/cargo-binstall@v1.27.0
+        with:
+          version: ${{ steps.versions.outputs.cargo-binstall }}
+
+      # Downloading a prebuilt binary takes seconds where compiling rumdl takes minutes, so there is
+      # nothing worth caching. Fail rather than quietly falling back to compiling.
+      - name: Install rumdl
+        run: |
+          cargo binstall rumdl --locked --version "${{ steps.versions.outputs.rumdl }}" \
+            --no-confirm --disable-strategies compile
+
+      - name: Lint the markdown
+        run: ./scripts/lint-markdown

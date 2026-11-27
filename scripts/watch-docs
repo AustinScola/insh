@@ -4,10 +4,14 @@
 
 set -euo pipefail
 
-REPO_ROOT="$(git rev-parse --show-toplevel)"
+REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
-source "${REPO_ROOT}/scripts/lib/ensure_mdbook_installed.sh"
+source "${REPO_ROOT}/scripts/lib/bootstrap.sh"
+source "${REPO_ROOT}/scripts/lib/ensure-mdbook-installed.sh"
 
-ensure_mdbook_installed
+BOOTSTRAP="$(bootstrap)"
+if [[ "${BOOTSTRAP}" == "yes" ]]; then
+    ensure_mdbook_installed
+fi
 
 mdbook serve --open "${REPO_ROOT}/docs"

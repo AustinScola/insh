@@ -115,8 +115,6 @@ jobs:
       # The master version of the docs is built from whatever was pushed so that a branch which
       # breaks the docs fails before it is merged.
       - name: Build the site
-        env:
-          CI: 1
         run: ./scripts/build-docs-site
 
       - name: Upload the site

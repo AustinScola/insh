@@ -1,12 +1,11 @@
 # Finder
-
 The file finder shows the directory at the top, then an input bar, then the found files. The finder
 starts out with the input bar focused. The input can be any valid regular expression.
 
 The finder finds files in the current directory (recursively) for which the regex pattern matches
 the file name.
 
-## Found Files Commands:
+## Found Files Commands
 | Command          | Description                                                                |
 |------------------|----------------------------------------------------------------------------|
 | `<Ctrl>-q`       | Return focus to the input bar.                                             |

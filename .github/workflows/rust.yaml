@@ -271,8 +271,6 @@ jobs:
             --tag "v${{ steps.arbsego-version.outputs.version }}"
 
       - name: Lint using Arbsego
-        env:
-          CI: 1
         run: ./scripts/lint-arbsego
 
   format:

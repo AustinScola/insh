@@ -1,0 +1,17 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+
+source "${REPO_ROOT}/scripts/lib/bootstrap.sh"
+source "${REPO_ROOT}/scripts/lib/ensure-rumdl-installed.sh"
+
+BOOTSTRAP="$(bootstrap)"
+if [[ "${BOOTSTRAP}" == "yes" ]]; then
+    ensure_rumdl_installed
+fi
+
+cd "${REPO_ROOT}"
+
+rumdl fmt "$@"

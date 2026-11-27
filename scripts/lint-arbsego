@@ -2,17 +2,12 @@
 
 set -euo pipefail
 
-REPO_ROOT="$(git rev-parse --show-toplevel)"
+REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
-# Determine if we are running in CI or not. The CI variable should be set to 1 when running in CI.
-set +u
-if [[ ! -v CI ]]; then
-set -u
-    CI=0
-fi
+source "${REPO_ROOT}/scripts/lib/bootstrap.sh"
 
-# If we are not in CI, then check that Arbsego is installed and that the right version is installed.
-if [[ "${CI}" -eq 0 ]]; then
+BOOTSTRAP="$(bootstrap)"
+if [[ "${BOOTSTRAP}" == "yes" ]]; then
     TRUTH_FILE="${REPO_ROOT}/truth.yaml"
 
     BASH_LIB="${REPO_ROOT}/bash-lib"
@@ -33,7 +28,7 @@ if [[ "${CI}" -eq 0 ]]; then
         echo -n "Would you like to install it and continue? "
         install="$(ask_yes_or_no)"
         if [[ "${install}" == "no" ]]; then
-            echo "Aborting..."
+            echo "Aborting..." >&2
             exit 1
         fi
         cargo install --git https://github.com/AustinScola/arbsego.git --tag "v${ARBSEGO_VERSION}"
