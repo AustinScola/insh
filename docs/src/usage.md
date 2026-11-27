@@ -1,8 +1,7 @@
 # Usage
-
 By default, Insh starts out in a file browser.
 
-## Universal commands
+## Universal Commands
 Some commands work from all components:
 | Command    | Description |
 |------------|-------------|

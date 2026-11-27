@@ -1,9 +1,8 @@
 # Multiplexing
-
 Insh has terminal multplexing inspired heavily by tmux. The session, window, and pane concepts
 are all borrowed. As is the usage of a prefix.
 
-## Normal mode
+## Normal Mode
 | Command                            | Status bar command                                   | Description                                                               |
 |------------------------------------|------------------------------------------------------|---------------------------------------------------------------------------|
 | `<Ctrl>-b %`                       | split-vertically                                     | Split the current pane vertically.                                        |
@@ -29,14 +28,14 @@ are all borrowed. As is the usage of a prefix.
 |                                    | rename-pane <name>                                   | Rename the current pane.                                                  |
 | `<Ctrl>-b ,`                       | rename-window <name>                                 | Rename the current window.                                                |
 | `<Ctrl>-b $`                       | rename-session <name>                                | Rename the current session.                                               |
-|                                    | set-dir [--window \| -w \| --session \| -s] <dir>    | Set the default starting directory for a window/session (default window). |
-|                                    | change-dir [--window \| -w \| --session \| -s] <dir> | Change the directory for a window/session (default window).               |
+|                                    | set-dir [--window \| -w \| --session \| -s] \<dir>   | Set the default starting directory for a window/session (default window). |
+|                                    | change-dir [--window \| -w \| --session \| -s] \<dir> | Change the directory for a window/session (default window).               |
 | `<Ctrl>-b [`                       | change-mode copy                                     | Enter copy mode                                                           |
 | `<Ctrl>-b s`                       | list-sessions \| ls                                  | View the session, window, and pane switcher.                              |
 | `<Ctrl>-b :`                       | change-mode prompt                                   | Prompt for a command.                                                     |
 |                                    | detach                                               | Detach from the current session.                                          |
 
-## Copy mode
+## Copy Mode
 | Command            | Description                                     |
 |--------------------|-------------------------------------------------|
 | `h` \| `<Left>`    | Move the cursor left.                           |
@@ -60,7 +59,7 @@ are all borrowed. As is the usage of a prefix.
 | `?`                | Search backwards.                               |
 | `q`                | Exit out of copy mode.                          |
 
-## Search mode
+## Search Mode
 | Command | Description             |
 |---------|-------------------------|
 | `n`     | Go to the next hit.     |

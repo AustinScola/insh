@@ -1,5 +1,4 @@
 # Find and Replace
-
 The find and replace component can be used to find and replace text.
 
 ## Commands

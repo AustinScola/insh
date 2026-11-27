@@ -1,5 +1,4 @@
-# Inshie 
-
+# Inshie
 Inshie is an AI chatbot.
 
 | Command          | Description                                |
@@ -15,7 +14,6 @@ Inshie is an AI chatbot.
 | `<Ctrl>-h`       | Open the Inshie conversation history.      |
 
 ## Inshie Conversation History
-
 View and manage the conversation history for Inshie.
 
 | Command          | Description                                                 |
@@ -33,5 +31,4 @@ View and manage the conversation history for Inshie.
 | `dd`             | Delete the selected chat.                                   |
 
 ## Inshie Conversation History Searcher
-
 Searches past chats.

@@ -1,15 +1,7 @@
-# Make sure that the version of mdbook which is pinned in the truth file is installed. In CI, mdbook
-# is installed by the workflow instead.
+# Ensure that mdbook is installed.
 function ensure_mdbook_installed() {
-    # Sourcing the bash-lib files sets HERE and REPO_ROOT. Declaring them here keeps them from
-    # leaking out to whatever sourced this file.
     local HERE
     local REPO_ROOT
-
-    # The CI variable should be set to 1 when running in CI.
-    if [[ "${CI:-0}" -ne 0 ]]; then
-        return
-    fi
 
     local this_dir
     this_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -30,12 +22,15 @@ function ensure_mdbook_installed() {
     mdbook_version="$(yq '.mdbook.version' < "${truth_file}")"
 
     if [[ $(check_cargo_crate_installed mdbook "${mdbook_version}") == "no" ]]; then
+        # Determine if mdbook should be installed.
         echo "Mdbook v${mdbook_version} is not installed."
         echo -n "Would you like to install it and continue? "
         if [[ "$(ask_yes_or_no)" == "no" ]]; then
-            echo "Aborting..."
+            echo "Aborting..." >&2
             exit 1
         fi
+
+        # Install mdbook.
         cargo install mdbook --locked --version "${mdbook_version}"
     fi
 }

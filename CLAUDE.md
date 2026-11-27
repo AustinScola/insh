@@ -1,16 +1,13 @@
 # CLAUDE.md
-
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-## What this is
-
+## What This Is
 Insh is a graphical, interactive terminal environment (a TUI file browser / file finder / file
 contents searcher). It ships as two binaries: `insh` (the terminal client) and `inshd` (a
 background daemon that does filesystem work on the client's behalf). See `README.md` for the user
 facing keybindings and the `~/.insh/config.yaml` configuration options.
 
-## Repository setup
-
+## Repository Setup
 The repo uses git submodules (`cargo-scripts`, `bash-lib`, `insh-db/pgvector`). Clone/checkout with
 `git submodule update --init` or the scripts under `cargo-scripts/` will be missing. `insh-db`
 **will not build at all** without its submodule — `insh-db/build.rs` compiles pgvector from it —
@@ -23,7 +20,6 @@ invoked by bare name (`check`, `lint`, `all`). Without direnv, invoke them by pa
 so it only works when they are on `PATH`.
 
 ## Commands
-
 | Command | What it does |
 |---|---|
 | `./cargo-scripts/check` | `cargo check` |
@@ -33,7 +29,9 @@ so it only works when they are on `PATH`.
 | `./cargo-scripts/format` | `cargo fmt` (pass `-- --check` to verify only) |
 | `./scripts/check-with-logging-feature` | `cargo check --features logging` |
 | `./scripts/lint-arbsego` | Runs `arbsego`, a custom linter; installs the version pinned in `truth.yaml` if missing |
-| `./scripts/all` | format + check + lint + logging-feature check + arbsego |
+| `./scripts/lint-markdown` | Runs `rumdl check` on the markdown; installs the version pinned in `truth.yaml` if missing |
+| `./scripts/format-markdown` | Runs `rumdl fmt` on the markdown (pass `--check` to verify only) |
+| `./scripts/all` | format + check + lint + logging-feature check + arbsego + markdown format + markdown lint |
 | `cargo test` | Run all tests |
 | `cargo test -p rend yarn` | Run tests in one crate matching a name |
 
@@ -41,12 +39,14 @@ Tests are inline `#[cfg(test)] mod tests` blocks (in `rend`, in `insh-db`, and i
 `ansi_escaped_text`, `args`, and `searcher/contents` modules), using `test-case` for
 parameterization. There are no integration test directories.
 
+The scripts offer to install the tools they need unless `BOOTSTRAP` is false, which it defaults to
+when `CI` is true (`scripts/lib/bootstrap.sh`).
+
 CI (`.github/workflows/rust.yaml`) runs check (ubuntu + macos), check-with-logging, clippy, format
-`--check`, arbsego, and `cargo test`. The test job installs `libxcb1-dev` (needed by `copypasta`
-for clipboard support).
+`--check`, arbsego, and `cargo test`. The test job installs `libxcb1-dev` (needed by `copypasta` for
+clipboard support). The markdown is linted with rumdl by `.github/workflows/markdown.yaml`.
 
-## Running it
-
+## Running It
 **Do not run `insh` or `inshd`.** The maintainer keeps both running while developing and does the
 testing himself; starting or restarting the daemon would disturb the instances already running.
 Build, check, lint, and `cargo test` freely — just stop short of launching the binaries. When a
@@ -57,11 +57,10 @@ at `~/.insh/daemon/inshd.sock` and exits if the connection fails. `inshd` takes 
 `restart`, and `status`; `insh` takes `browse`, `find`, `search`, and `edit`.
 
 ### Logging
-
 Logging is behind the `logging` cargo feature for `insh` (and is transitively enabled on `til`);
 `inshd` always logs. The recommended workflow (see `notes/logging.md`) is to log to a named pipe:
 
-```
+```bash
 socat -u pipe:/tmp/insh-log,mode=700 -                       # in one terminal
 cargo run --bin insh --features logging -- --log-file /tmp/insh-log \
     --log-level error --module-log-level insh::components::common::dir=debug
@@ -73,8 +72,7 @@ mistakes here — plain `cargo check` will not.
 
 ## Architecture
 
-### Crate roles (workspace members)
-
+### Crate Roles (Workspace Members)
 - **`insh`** — the TUI client. UI components, config, clipboard, and the client side of the daemon
   protocol.
 - **`inshd`** — the daemon. Multi-threaded server over a unix socket that performs file
@@ -105,9 +103,8 @@ mistakes here — plain `cargo check` will not.
   walking; `phrase-searcher` walks a directory tree matching file contents against a phrase;
   `common` holds the `~/.insh` path constants and directory permissions used by both binaries.
 
-### Client/daemon split
-
-`insh` and `inshd` share a version number and are released together (`notes/release_process.md`).
+### Client/Daemon Split
+`insh` and `inshd` share a version number and are released together (`notes/release-process.md`).
 Communication is a `UnixStream` at `common::paths::INSHD_SOCKET`, with postcard-encoded
 `insh_api::Request`/`Response`. Each `Request` carries a `Uuid`; responses echo that uuid and set
 `last` on the final one, so a single request may stream multiple responses (e.g. find-files
@@ -133,8 +130,7 @@ into one or up out of one in the browser, entering one in a directory bar, going
 and starting up — and **not** by `GetFiles`, so refreshing or toggling the metadata does not count
 as a visit. Adding a new way to reach a directory means sending it from there too.
 
-### Component model (`til`)
-
+### Component Model (`til`)
 ```rust
 pub trait Component<Props, Event, Effect> {
     fn new(props: Props) -> Self;
@@ -165,8 +161,7 @@ piped through a parser that strips alternative-screen escape codes.
 `Finder`, `Searcher`, or `FileCreator`, translating each child's `Effect` into an `Action` on its
 own state. Nesting follows the same shape all the way down (e.g. `Browser` → `Dir` + `Contents`).
 
-### Conventions to follow when adding code
-
+### Conventions to Follow When Adding Code
 - **Props/State/Effect/Action per component.** Each component file defines nested private
   `mod props`, `mod state`, `mod effect`, `mod action` blocks and re-exports the public names with
   `pub use`. This keeps each type's imports local. Match this layout rather than flattening.
@@ -190,8 +185,7 @@ own state. Nesting follows the same shape all the way down (e.g. `Browser` → `
 - New crates go in the workspace `members` list in the root `Cargo.toml` and depend on siblings by
   relative path.
 
-### Persistent state
-
+### Persistent State
 `~/.insh/` (mode 0700) holds `daemon/` (socket, pid file, logs) and `daemon/postgres/` (the
 embedded database). `insh` never touches any of it directly, instead going through the daemon
 (e.g. `SearchPhrase`/`SuggestSearchPhrase` requests).
@@ -263,9 +257,8 @@ structs should use `#[serde(default = "...")]` naming a function instead, the wa
 `DatabasePoolConfig::size` does.
 
 ## Releasing
-
 **Releases are done manually by the maintainer** — don't perform the release process. The steps are
-documented in `notes/release_process.md` (matching version bumps in `insh/Cargo.toml` and
+documented in `notes/release-process.md` (matching version bumps in `insh/Cargo.toml` and
 `inshd/Cargo.toml`, rebuild so `Cargo.lock` updates, changelog entry, then tagging `v<version>`,
 moving the `latest` tag, and drafting the GitHub release); treat it as reference for answering
 questions, not as a task to carry out.

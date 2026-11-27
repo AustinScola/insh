@@ -4,3 +4,7 @@ cargo-audit:
   version: 0.22.2
 mdbook:
   version: 0.5.4
+rumdl:
+  version: 0.3.8
+cargo-binstall:
+  version: 1.27.0

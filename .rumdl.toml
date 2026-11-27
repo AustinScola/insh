@@ -1,0 +1,25 @@
+[global]
+# Skip the submodules.
+exclude = ["bash-lib", "cargo-scripts", "insh-db/pgvector"]
+line_length = 100
+# Allow lists and code fences without blank lines around them.
+disable = ["MD031", "MD032"]
+
+[MD013]
+code-blocks = false
+
+# Allow content directly below a heading.
+[MD022]
+lines-below = 0
+
+# Allow a table directly below a heading.
+[MD058]
+minimum-before = 0
+
+[MD063]
+enabled = true
+style = "title-case"
+
+[per-file-ignores]
+# Allow long configuration descriptions.
+"docs/src/configuration.md" = ["MD013"]

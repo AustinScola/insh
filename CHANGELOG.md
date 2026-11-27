@@ -1,12 +1,14 @@
-# 0.6.11
+# Changelog
+
+## 0.6.11
 - Add an editor.
 
-# 0.6.10
+## 0.6.10
 - Add web search to Inshie.
 - Fix pasting multi-line content into Inshie.
 - Fix Inshie History mouse support.
 
-# 0.6.9
+## 0.6.9
 - Improve `set-dir` suggestions.
 - Add a `change-dir` command.
 - Expand the `kill-pane` command to optionally take the pane name.
@@ -20,13 +22,13 @@
 - Add `<Ctrl>-b +` for splitting panes vertically and then horizontally.
 - Improve styling.
 
-# 0.6.8
+## 0.6.8
 - Fix inshie on MacOS.
 
-# 0.6.7
-- Fix pasting into the text input. 
+## 0.6.7
+- Fix pasting into the text input.
 
-# 0.6.6
+## 0.6.6
 - Fix forwarding of mouse events to terminal panes.
 - Fix returning to the searcher after viewing a line.
 - Fix the copy mode cursor sticking to it's location as more output streams in.
@@ -40,7 +42,7 @@
 - Add file filtering in the searcher.
 - Add a find and replace component.
 
-# 0.6.5
+## 0.6.5
 - Fix artifacting on terminal resize.
 - Add mouse scroll support in terminal panes.
 - Fix terminal line wrapping responding to pane resize.
@@ -53,10 +55,10 @@
 - Preserve pane size ratio better on resizing.
 - Change directory suggestions to have `<Tab>` and `<Shift>-<Tab>`.
 
-# 0.6.4
-- Add a `set-dir` command for setting the default starting directory for a window or session. 
+## 0.6.4
+- Add a `set-dir` command for setting the default starting directory for a window or session.
 
-# 0.6.3
+## 0.6.3
 - Fix inshd log spam.
 - Fix the copy mode start position for the browser, finder, searcher, editor, and terminal.
 - Change the intersection point of panes to be highlighted.
@@ -67,31 +69,31 @@
 - Fix which panes show as focused after attaching to a session.
 - Change the color of the Inshie duration while a response is streaming to be more visible.
 
-# 0.6.2
+## 0.6.2
 - Fix tracking of the pane sizes.
 - Change metadata to only be shown in the file browser once it is known.
 - Fix updating of the cursor position in the terminal.
 
-# 0.6.1
+## 0.6.1
 - Fix running PostgreSQL and fix the pinning of the version of PostgreSQL that is installed.
 
-# 0.6.0
+## 0.6.0
 - Add multiplexing.
 
-# 0.5.1
+## 0.5.1
 - Add a new incremental rendering engine (enabled by default). And a `render.engine` configuration
 option to control which rendering engine is used.
 - Add directory editing.
 - Move config files to `~/.insh/config.yaml` and `~/.insh/inshd-config.yaml`.
 - Add `Inshie` an AI chatbot.
 
-# 0.5.0
+## 0.5.0
 - Add `inshd logs` command for streaming logs.
 - Change the searcher to use inshd to search for phrases and get search suggestions.
 - Add a configuration file for inshd (`~/.inshd-config.yaml`) and move the search history length to
 it.
 - Use PostgreSQL for data storage instead of a file.
-    - Add `database.pool.size` inshd configuration option.
+  - Add `database.pool.size` inshd configuration option.
 - Add `server.request_handlers.num` inshd configuration option.
 - Add footer.
 - Add colored logs and `--color` and `--no-color` arguments to `inshd`.
@@ -100,132 +102,132 @@ it.
 - Add arrow key and `<Home>` and `<End>` key support.
 - Add `inshd database shell` command for opening a PostgreSQL shell.
 
-# 0.4.10
+## 0.4.10
 - Add the ability to show metadata in the browser.
 - Fix the browser to maintain selection and position when refreshing.
 - Add browser file sorting.
 - Fix the error message when creating files/directories that already exist.
 
-# 0.4.9
-- Respect gitignore files. 
+## 0.4.9
+- Respect gitignore files.
 
-# 0.4.8
+## 0.4.8
 - Fix resetting the file finder.
 - Make the edit subcommand syntax more flexible.
 
-# 0.4.7
+## 0.4.7
 - Add support for Rust 1.80.0.
 
-# 0.4.6
+## 0.4.6
 - Change the browser to use inshd to get files in a directory.
 
-# 0.4.5
+## 0.4.5
 - Fix handling of rapid input (for example pasting or keys that send ANSI escape codes).
 
-# 0.4.4
+## 0.4.4
 - Add creating a directory with `C` from the file browser.
 
-# 0.4.3
+## 0.4.3
 - Fix exiting bash on MacOS.
 
-# 0.4.2
+## 0.4.2
 - Fix compilation on MacOS.
 
-# 0.4.1
+## 0.4.1
 - Add more inshd commands:
-    - `-f|--force` for `start`/`stop`
-    - `restart`
+  - `-f|--force` for `start`/`stop`
+  - `restart`
 
-# 0.4.0
-- Add a daemon for performing tasks. 
+## 0.4.0
+- Add a daemon for performing tasks.
 
-# 0.3.22
+## 0.3.22
 - Add the ability to create a file with the the `c` command from the file browser.
 
-# 0.3.21
+## 0.3.21
 - Fix the build for latest stable Rust.
 
-# 0.3.20
+## 0.3.20
 - Add the yank (`y`) and really yank (`Y`) commands to the file browser.
 
-# 0.3.19
+## 0.3.19
 - Fix restoring the terminal screen after running vim by wrapping vim's stdout and stripping the
 ANSI escape codes for enabling and disabling the alternative screen.
 
-# 0.3.18
+## 0.3.18
 - Add making of the bell sound for invalid commands. This can be turned off via the configuration
 option `general.bell`.
 
-# 0.3.17
+## 0.3.17
 - Fix yanking on Ubuntu 22.04.
 
-# 0.3.16
+## 0.3.16
 - Add a better message to the browser for when the directory does not exist.
 
-# 0.3.15
+## 0.3.15
 - Fix the displaying of tabs in the Searcher contents and add a configuration option
 `general.tab_width` to enable changing the width that is used for tabs.
 
-# 0.3.14
+## 0.3.14
 - Add logging as a compile feature.
 
-# 0.3.13
+## 0.3.13
 - Fix the crash in the browser when permission is denied or the directory cannot be read for some other
 reason.
 
-# 0.3.12
+## 0.3.12
 - Add documentation of the configuration options.
 - Fix the file used for configuration.
 
-# 0.3.11
+## 0.3.11
 - Add searcher history.
 - Add searcher auto complete and `<Tab>` completion.
 - Add a configuration file.
 
-# 0.3.10
+## 0.3.10
 - Add a message for an empty directory in the browser.
 - Fix crash when the width of the terminal is less than the length of the messages for no hits in the
 searcher and finder.
 
-# 0.3.9
+## 0.3.9
 - Bump the `clap` dependency from version `3.1.14` to version `3.2.17`.
 - Add an `edit` subcommand.
 
-# 0.3.8
+## 0.3.8
 - Fix bugs related to running with `-d` and a trailing slash in the directory argument.
 
-# 0.3.7
+## 0.3.7
 - Add the goto and really goto (`g` and `G`) commands to the searcher.
 - Add the yank and really yank (`y` and `Y`) commands to the finder.
 - Add refresh (`r`) command to the searcher and finder.
 - Add scroll to bottom (`J`) and scroll to top (`K`) commands to the browser, finder, and searcher.
 - Add scroll view down (`<Ctrl>-j`) and scroll view up (`<Ctrl>-k`) to searcher.
 
-# 0.3.6
+## 0.3.6
 - Add going to files in the browser and selecting them from the finder with `G`.
 
-# 0.3.5
+## 0.3.5
 - Add the yank and really yank commands (`y` and `Y`) to the searcher.
 
-# 0.3.4
+## 0.3.4
 - Fix the displaying of empty directories in the file browser.
 
-# 0.3.3
+## 0.3.3
 - Add installation instructions to the README.
 - Change the color of dot files (and directories) to light gray in the browser.
 - Add command line interface.
 - Fix the flickering of text.
 
-# 0.3.2
+## 0.3.2
 - Change to using the `PWD` environment variable to determine the current directory if set. This
 means that symbolic links are no longer resolved.
 
-# 0.3.1
+## 0.3.1
 - Add help information to the README.
 - Fix highlighting of searcher contents when unfocused.
 - Change the finder to show relative paths in addition to file names.
 
-# 0.3.0
+## 0.3.0
 - Fix crashing of finder from there being too many files open.
 - Remove the current directory from the finder contents.
 - Fix the displayed directory in the finder.
@@ -234,9 +236,9 @@ means that symbolic links are no longer resolved.
 - Change the finder to only display files.
 - Add back the searcher component.
 
-# 0.2.2
+## 0.2.2
 - Use `~` to represent the home directory.
 - Change the directory to end with a trailing path separator.
 
-# 0.2.1
+## 0.2.1
 - Add back refreshing the contents of the file browser with `r`.

@@ -1,8 +1,7 @@
 # Editor
-
 The editor is a modal editor heavily inspired by vim.
 
-# Modes
+## Modes
 | Mode         | Description                 |
 |--------------|-----------------------------|
 | Normal       | Navigate.                   |
@@ -13,13 +12,13 @@ The editor is a modal editor heavily inspired by vim.
 | Visual Block | Visually select blocks.     |
 | Search       | Search for text.            |
 
-# Common
+## Common
 | Command    | Description  |
 |------------|--------------|
 | `<Ctrl>-e` | Scroll down. |
 | `<Ctrl>-y` | Scroll up.   |
 
-# Normal Mode
+## Normal Mode
 | Command                | Description                                          |
 |------------------------|------------------------------------------------------|
 | `[modifier]<Movement>` | Move the cursor.                                     |
@@ -47,7 +46,7 @@ The editor is a modal editor heavily inspired by vim.
 | `n`                    | Go to next search hit.                               |
 | `N`                    | Go to previous search hit.                           |
 
-# Command Mode
+## Command Mode
 | Command       | Description                                   |
 |---------------|-----------------------------------------------|
 | `<Esc>`       | Cancel the command and enter normal mode.     |
@@ -55,7 +54,7 @@ The editor is a modal editor heavily inspired by vim.
 | `<Enter>`     | Run the command and enter normal mode.        |
 | `<Backspace>` | Backspace.                                    |
 
-# Commands
+## Commands
 | Command | Description                                                   |
 |---------|---------------------------------------------------------------|
 | `w`     | Write the file.                                               |
@@ -65,7 +64,7 @@ The editor is a modal editor heavily inspired by vim.
 | `vim`   | Open the file in vim (refuse if there are unwritten changes). |
 | `vim!`  | Open the file in vim (even if there are unwritten changes).   |
 
-# Insert Mode
+## Insert Mode
 | Command       | Description                     |
 |---------------|---------------------------------|
 | `<Esc>`       | Enter normal mode.              |
@@ -75,8 +74,7 @@ The editor is a modal editor heavily inspired by vim.
 | `<Backspace>` | Backspace.                      |
 | `<Paste>`     | Insert the clipboard.           |
 
-# Common Visual
-
+## Common Visual
 Visual modes share many of the same commands.
 
 | Command                | Description                                  |
@@ -91,25 +89,25 @@ Visual modes share many of the same commands.
 | `r`                    | Replace the selection.                       |
 | `p`                    | Replace the selection with the paste buffer. |
 
-# Visual Mode
+## Visual Mode
 | Command    | Description              |
 |------------|--------------------------|
 | `V`        | Enter visual line mode.  |
 | `<Ctrl>-v` | Enter visual block mode. |
 
-# Visual Line Mode
+## Visual Line Mode
 | Command    | Description              |
 |------------|--------------------------|
 | `v`        | Enter visual mode.       |
 | `<Ctrl>-v` | Enter visual block mode. |
 
-# Visual Block Mode
+## Visual Block Mode
 | Command | Description              |
 |---------|--------------------------|
 | `v`     | Enter visual mode.       |
 | `V`     | Enter visual line mode.  |
 
-# Search Mode
+## Search Mode
 | Command       | Description                                |
 |---------------|--------------------------------------------|
 | `<Esc>`       | Cancel the search and enter normal mode.   |
@@ -117,12 +115,12 @@ Visual modes share many of the same commands.
 | `<Printable>` | Add the printable character to the search. |
 | `<Backspace>` | Backspace.                                 |
 
-# Modifiers
+## Modifiers
 | Modifier | Description                                       |
 |----------|---------------------------------------------------|
 | `<Num>`  | Perform the action the specified number of times. |
 
-# Movements
+## Movements
 | Movement    | Description                                              |
 |-------------|----------------------------------------------------------|
 | `h`         | Left.                                                    |
