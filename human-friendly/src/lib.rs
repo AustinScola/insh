@@ -290,3 +290,54 @@ mod elapsed {
     }
 }
 pub use elapsed::Elapsed;
+
+/// Contains the [`Bytes`] struct.
+mod bytes {
+    use std::fmt::{Display, Error as FmtError, Formatter};
+
+    /// The number of bytes in each unit after the first.
+    const BYTES_PER_UNIT: f64 = 1000.0;
+
+    /// The units a number of bytes is written in, smallest first.
+    const UNITS: [&str; 5] = ["B", "KB", "MB", "GB", "TB"];
+
+    /// A number of bytes, written the way people read it.
+    ///
+    /// The largest unit which keeps the number at least one is used, so a small file is `512B` and
+    /// a larger one is `4.5MB`.
+    pub struct Bytes(pub usize);
+
+    impl Display for Bytes {
+        fn fmt(&self, formatter: &mut Formatter<'_>) -> Result<(), FmtError> {
+            let mut amount: f64 = self.0 as f64;
+            let mut unit: usize = 0;
+            while amount >= BYTES_PER_UNIT && unit < UNITS.len() - 1 {
+                amount /= BYTES_PER_UNIT;
+                unit += 1;
+            }
+
+            if unit == 0 {
+                write!(formatter, "{}{}", self.0, UNITS[unit])
+            } else {
+                write!(formatter, "{:.1}{}", amount, UNITS[unit])
+            }
+        }
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use super::*;
+
+        use test_case::test_case;
+
+        #[test_case(0, "0B"; "zero")]
+        #[test_case(512, "512B"; "bytes")]
+        #[test_case(1_000, "1.0KB"; "a kilobyte")]
+        #[test_case(4_500_000, "4.5MB"; "megabytes")]
+        #[test_case(2_000_000_000_000_000, "2000.0TB"; "past the largest unit")]
+        fn test_display(bytes: usize, expected: &str) {
+            assert_eq!(Bytes(bytes).to_string(), expected);
+        }
+    }
+}
+pub use bytes::Bytes;

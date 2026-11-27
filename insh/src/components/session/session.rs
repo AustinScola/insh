@@ -2257,9 +2257,22 @@ mod session {
                 }
             }
 
-            // The panes of a window which is no longer being looked at are not drawn any more.
-            self.panes
-                .retain(|pane, _| layout.panes().iter().any(|shown| shown.pane() == pane));
+            // The panes of a window which is no longer being looked at are not drawn any more, and
+            // the daemon is told that what they were showing is gone. The rest of the panes of a
+            // window which one pane has been made to fill are only hidden though, so they are kept
+            // as they are for when the window goes back to showing them.
+            let hidden: bool = layout.zoomed()
+                && self.layout.as_ref().is_some_and(|was| {
+                    was.session() == layout.session() && was.window() == layout.window()
+                });
+            let mut closed: Vec<Request> = Vec::new();
+            self.panes.retain(|pane, shown| {
+                let kept: bool = hidden || layout.panes().iter().any(|laid| laid.pane() == pane);
+                if !kept {
+                    closed.extend(shown.close());
+                }
+                kept
+            });
 
             for shown in layout.panes() {
                 match self.panes.get_mut(shown.pane()) {
@@ -2293,6 +2306,7 @@ mod session {
             let mut asked: Vec<Request> =
                 self.panes.values_mut().flat_map(Pane::take_asked).collect();
             asked.extend(put_back);
+            asked.extend(closed);
             return asked;
         }
 
@@ -2352,7 +2366,8 @@ mod session {
 
             // Whatever pressing on would go to is grayed while the mouse is over it, and written in
             // black so that it can be read on the gray. Only what is written in a row of a list is
-            // grayed, though the whole row is what the mouse is over.
+            // grayed, though the whole row is what the mouse is over. A bar which is gray already
+            // is whitened instead, so that it still stands out.
             if let Some(hovering) = self.hovering {
                 for shown in layout.panes() {
                     let (at, pane_size) = (shown.at(), shown.size());
@@ -2374,7 +2389,7 @@ mod session {
 
                     let row: Range<usize> = at.column..at.column + pane_size.columns;
                     let columns: Range<usize> = match hover {
-                        Hover::Row => row,
+                        Hover::Row | Hover::Whitened => row,
                         Hover::Text => match row.clone().rev().find(|column| {
                             *fabric.spot(hovering.row, *column).cell() != Cell::BLANK
                         }) {
@@ -2382,7 +2397,11 @@ mod session {
                             None => continue,
                         },
                     };
-                    fabric.set_background(Some(Color::Hover.into()), hovering.row, columns.clone());
+                    let background: Color = match hover {
+                        Hover::Whitened => Color::InvertedBackground,
+                        Hover::Row | Hover::Text => Color::Hover,
+                    };
+                    fabric.set_background(Some(background.into()), hovering.row, columns.clone());
                     // NOTE: What is grayed already, such as the directory a file found is in, stays
                     // grayed, the way it is on a selected row which is not focused, so that a row
                     // looks the same under the mouse as it does selected.
@@ -3580,6 +3599,44 @@ mod tests {
             .collect();
 
         assert!(footer.contains(expected), "{}", footer);
+    }
+
+    #[test]
+    fn test_the_other_panes_are_kept_while_one_fills_the_window() {
+        let mut session: Session = browsing();
+        let window: Uuid = Uuid::from_u128(200);
+        let both: Vec<PaneLayout> = vec![
+            shown(1, (0, 0), (23, 40), PaneKind::Component),
+            shown(2, (0, 41), (23, 39), PaneKind::Component),
+        ];
+        let zoomed: Layout = Layout::builder()
+            .session(Uuid::from_u128(201))
+            .name("0")
+            .windows(vec![Window::builder().window(window).name("0").build()])
+            .window(window)
+            .panes(vec![shown(2, (0, 0), (23, 80), PaneKind::Component)])
+            .pane(pane(2))
+            .zoomed(true)
+            .build();
+        session.handle(Event::Response(
+            Response::builder()
+                .uuid(REQUEST)
+                .params(ResponseParams::Layout(
+                    LayoutResponseParams::builder().layout(zoomed).build(),
+                ))
+                .build(),
+        ));
+
+        let effect: Option<Effect> = session.handle(layout_response(both, 2, Vec::new()));
+
+        let asked: Vec<Request> = match effect {
+            Some(Effect::Request(request)) => vec![request],
+            Some(Effect::Requests(requests)) => requests,
+            _ => Vec::new(),
+        };
+        assert!(!asked
+            .iter()
+            .any(|request| matches!(request.params(), RequestParams::GetFiles(_))));
     }
 
     #[test]

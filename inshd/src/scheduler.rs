@@ -19,6 +19,8 @@ pub struct Scheduler {
     contexted_requests_rx: Receiver<ContextedRequest>,
     /// A sender of the requests which are about panes, windows and sessions.
     multiplexer_requests_tx: Sender<ContextedRequest>,
+    /// A sender of the requests which are about files being edited.
+    editor_requests_tx: Sender<ContextedRequest>,
     /// A receiver for a stop sentinel.
     stop: Receiver<Stop>,
 }
@@ -63,6 +65,21 @@ impl Scheduler {
         );
     }
 
+    /// Return whether the request is one which the editor answers.
+    ///
+    /// NOTE: These are routed from here for the same reason the multiplexer's are, which is that
+    /// the keys pressed in a file have to reach it in the order they were pressed.
+    fn edits(params: &RequestParams) -> bool {
+        return matches!(
+            params,
+            RequestParams::Edit(_)
+                | RequestParams::EditorKey(_)
+                | RequestParams::PasteEditor(_)
+                | RequestParams::ResizeEditor(_)
+                | RequestParams::CloseEditor(_)
+        );
+    }
+
     /// Run the scheduler.
     pub fn run(&mut self) {
         log::info!("Scheduler running.");
@@ -91,6 +108,13 @@ impl Scheduler {
                         continue;
                     }
 
+                    if Self::edits(request.request().params()) {
+                        if let Err(error) = self.editor_requests_tx.send(request) {
+                            log::error!("Failed to hand a request to the editor: {}", error);
+                        }
+                        continue;
+                    }
+
                     log::debug!(
                         "Scheduling request with request handler {}.",
                         current_request_handler
@@ -110,7 +134,7 @@ impl Scheduler {
 mod tests {
     use super::*;
 
-    use insh_api::SearchPaneRequestParams;
+    use insh_api::{EditorKey, EditorKeyRequestParams, SearchPaneRequestParams};
     use rend::Location;
     use uuid::Uuid;
 
@@ -126,5 +150,17 @@ mod tests {
         );
 
         assert!(Scheduler::multiplexes(&params));
+    }
+
+    #[test]
+    fn test_pressing_a_key_in_a_file_goes_to_the_editor() {
+        let params = RequestParams::EditorKey(
+            EditorKeyRequestParams::builder()
+                .cursor(Uuid::from_u128(1))
+                .key(EditorKey::Char('x'))
+                .build(),
+        );
+
+        assert!(Scheduler::edits(&params));
     }
 }

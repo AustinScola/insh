@@ -1,13 +1,11 @@
 //! A language which code can be highlighted in.
 
-use tree_sitter_highlight::HighlightConfiguration;
-
-use super::span::NAMES;
+use tree_sitter::Language as TreeSitterLanguage;
 
 /// A language which code can be highlighted in.
 ///
 /// Adding one is a variant here, the three lines which name it in [`Language::of_name`] and
-/// [`Language::of_extension`], and its grammar in [`Language::configuration`].
+/// [`Language::of_extension`], and its grammar in [`Language::grammar`].
 #[derive(Debug, Clone, Copy, Eq, PartialEq, Hash)]
 pub enum Language {
     /// Bash, and close enough for other shells.
@@ -88,79 +86,50 @@ impl Language {
         };
     }
 
-    /// Return the grammar for the language, ready to be highlighted with.
-    ///
-    /// The grammars do not all carry the same queries, so the ones which are not there are asked
-    /// for as nothing rather than left out.
-    pub(crate) fn configuration(&self) -> Option<HighlightConfiguration> {
-        let (language, highlights, injections, locals) = match self {
+    /// Return the grammar for the language along with the query which picks out what each piece
+    /// of code in it is.
+    pub(crate) fn grammar(&self) -> (TreeSitterLanguage, &'static str) {
+        return match self {
             Self::Bash => (
                 tree_sitter_bash::LANGUAGE.into(),
                 tree_sitter_bash::HIGHLIGHT_QUERY,
-                "",
-                "",
             ),
             Self::C => (
                 tree_sitter_c::LANGUAGE.into(),
                 tree_sitter_c::HIGHLIGHT_QUERY,
-                "",
-                "",
             ),
             Self::Go => (
                 tree_sitter_go::LANGUAGE.into(),
                 tree_sitter_go::HIGHLIGHTS_QUERY,
-                "",
-                "",
             ),
             Self::JavaScript => (
                 tree_sitter_javascript::LANGUAGE.into(),
                 tree_sitter_javascript::HIGHLIGHT_QUERY,
-                tree_sitter_javascript::INJECTIONS_QUERY,
-                tree_sitter_javascript::LOCALS_QUERY,
             ),
             Self::Json => (
                 tree_sitter_json::LANGUAGE.into(),
                 tree_sitter_json::HIGHLIGHTS_QUERY,
-                "",
-                "",
             ),
             Self::Python => (
                 tree_sitter_python::LANGUAGE.into(),
                 tree_sitter_python::HIGHLIGHTS_QUERY,
-                "",
-                "",
             ),
             Self::Rust => (
                 tree_sitter_rust::LANGUAGE.into(),
                 tree_sitter_rust::HIGHLIGHTS_QUERY,
-                tree_sitter_rust::INJECTIONS_QUERY,
-                "",
             ),
             Self::Sql => (
                 tree_sitter_sequel::LANGUAGE.into(),
                 tree_sitter_sequel::HIGHLIGHTS_QUERY,
-                "",
-                "",
             ),
             Self::Toml => (
                 tree_sitter_toml_ng::LANGUAGE.into(),
                 tree_sitter_toml_ng::HIGHLIGHTS_QUERY,
-                "",
-                "",
             ),
             Self::Yaml => (
                 tree_sitter_yaml::LANGUAGE.into(),
                 tree_sitter_yaml::HIGHLIGHTS_QUERY,
-                "",
-                "",
             ),
         };
-
-        let mut configuration =
-            HighlightConfiguration::new(language, self.name(), highlights, injections, locals)
-                .ok()?;
-        configuration.configure(&NAMES);
-
-        return Some(configuration);
     }
 }

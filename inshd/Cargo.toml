@@ -1,6 +1,6 @@
 [package]
 name = "inshd"
-version = "0.6.10"
+version = "0.6.11"
 edition = "2021"
 description = "A daemon for insh."
 
@@ -23,6 +23,9 @@ embedder = { version = "0.1.0", path = "../embedder" }
 # Used for writing how long requests took.
 human-friendly = { version = "0.1.0", path = "../human-friendly" }
 insh-api = { version = "0.1.0", path = "../insh-api" }
+
+# Used to work out which part of a file being edited is what, so it can be shown in color.
+highlighter = { version = "0.1.0", path = "../highlighter" }
 
 # Used for working out what the bytes a program writes mean to show.
 terminal-emulator = { version = "0.1.0", path = "../terminal-emulator", features = ["serde"] }

@@ -86,6 +86,7 @@ mod pane {
     use crate::components::browser::{Browser, BrowserEffect, BrowserProps};
     use crate::components::chat::{Chat, ChatEffect, ChatProps};
     use crate::components::common::Hover;
+    use crate::components::editor::{Editor, EditorEffect, EditorProps};
     use crate::components::file_creator::{
         FileCreator, FileCreatorEffect, FileCreatorProps, FileCreatorPurpose,
     };
@@ -100,8 +101,8 @@ mod pane {
     use crate::config::Config;
 
     use insh_api::{
-        FileSortOptions, GetFilesRequestParams, PaneKind, PaneLayout, Request, RequestParams,
-        ResponseParams, VisitDirRequestParams,
+        FileSortOptions, GetFilesRequestParams, PaneKind, PaneLayout, Position, Request,
+        RequestParams, ResponseParams, VisitDirRequestParams,
     };
     use rend::{Fabric, Location, Size};
     use terminal_emulator::Modes;
@@ -152,6 +153,11 @@ mod pane {
         /// as having been asked.
         pub fn take_asked(&mut self) -> Vec<Request> {
             self.state.take_asked()
+        }
+
+        /// Return what has to be asked of the daemon once it has gone.
+        pub fn close(&self) -> Option<Request> {
+            self.state.close()
         }
 
         /// Return the ways the program in it has asked its terminal to behave, which are the ones
@@ -234,6 +240,8 @@ mod pane {
         History(Box<History>),
         /// Searching the past chats.
         HistorySearcher(Box<HistorySearcher>),
+        /// Editing a file.
+        Editor(Box<Editor>),
         /// The screen of a program running in the daemon.
         Terminal(Box<Terminal>),
     }
@@ -255,6 +263,15 @@ mod pane {
                 ResponseParams::ListChats(_) => matches!(self, Self::History(_)),
                 ResponseParams::SearchChats(_) => matches!(self, Self::HistorySearcher(_)),
                 _ => true,
+            }
+        }
+
+        /// Return what has to be asked of the daemon once it is no longer shown, which is for a
+        /// file being edited to be done with.
+        pub fn close(&self) -> Option<Request> {
+            match self {
+                Self::Editor(editor) => editor.close(),
+                _ => None,
             }
         }
 
@@ -321,6 +338,16 @@ mod pane {
                     )
                 }
                 Showing::Browser(dir, file) => Self::browser(dir, file.clone(), size, config),
+                Showing::Editor(path, at) => {
+                    let props = EditorProps::builder()
+                        .path(path.clone())
+                        .size(size)
+                        .at(*at)
+                        .build();
+                    let editor: Editor = Editor::new(props);
+                    let open: Request = editor.open();
+                    (Self::Editor(Box::new(editor)), vec![open])
+                }
             }
         }
 
@@ -377,6 +404,9 @@ mod pane {
             /// The directory to run it in.
             dir: Option<PathBuf>,
         },
+        /// Go back from editing the file to the finder it was edited from, or else to the browser
+        /// with it selected.
+        QuitEditor(PathBuf),
         /// Ask the daemon for something.
         Request(Request),
         /// Ask the daemon for more than one thing.
@@ -411,6 +441,8 @@ mod pane {
         Searcher(PathBuf, bool),
         /// Chatting about the given directory.
         Chat(PathBuf),
+        /// Editing the given file, starting at the given position when it says so.
+        Editor(PathBuf, Option<Position>),
     }
 
     impl Asked {
@@ -422,6 +454,9 @@ mod pane {
                     args: Vec::new(),
                     dir: Some(dir),
                 }),
+                BrowserEffect::OpenEditor { path } => {
+                    Some(Self::Show(Box::new(Showing::Editor(path, None))))
+                }
                 BrowserEffect::OpenVim(args) => Some(Self::Run {
                     program: String::from("vim"),
                     args: args.strings(),
@@ -446,6 +481,9 @@ mod pane {
         /// Return what the finder effect asks the pane for.
         pub fn of_finder(effect: FinderEffect) -> Option<Self> {
             match effect {
+                FinderEffect::OpenEditor { path } => {
+                    Some(Self::Show(Box::new(Showing::Editor(path, None))))
+                }
                 FinderEffect::OpenVim(args) => Some(Self::Run {
                     program: String::from("vim"),
                     args: args.strings(),
@@ -465,6 +503,9 @@ mod pane {
         /// Return what the searcher effect asks the pane for.
         pub fn of_searcher(effect: SearcherEffect) -> Option<Self> {
             match effect {
+                SearcherEffect::OpenEditor { path, at } => {
+                    Some(Self::Show(Box::new(Showing::Editor(path, at))))
+                }
                 SearcherEffect::OpenVim(args) => Some(Self::Run {
                     program: String::from("vim"),
                     args: args.strings(),
@@ -516,6 +557,19 @@ mod pane {
             }
         }
 
+        /// Return what the editor effect asks the pane for.
+        pub fn of_editor(effect: EditorEffect, path: &Path) -> Option<Self> {
+            match effect {
+                EditorEffect::Request(request) => Some(Self::Request(request)),
+                EditorEffect::Quit => Some(Self::QuitEditor(path.to_path_buf())),
+                EditorEffect::OpenVim(args) => Some(Self::Run {
+                    program: String::from("vim"),
+                    args: args.strings(),
+                    dir: None,
+                }),
+            }
+        }
+
         /// Return what the file creator effect asks the pane for.
         pub fn of_file_creator(effect: FileCreatorEffect, dir: &Path) -> Option<Self> {
             match effect {
@@ -526,11 +580,9 @@ mod pane {
                     dir.to_path_buf(),
                     None,
                 )))),
-                FileCreatorEffect::OpenVim(args) => Some(Self::Run {
-                    program: String::from("vim"),
-                    args: args.strings(),
-                    dir: None,
-                }),
+                FileCreatorEffect::OpenEditor { path, at } => {
+                    Some(Self::Show(Box::new(Showing::Editor(path, at))))
+                }
                 FileCreatorEffect::Request(request) => Some(Self::Request(request)),
                 FileCreatorEffect::Bell => Some(Self::Bell),
             }
@@ -579,6 +631,9 @@ mod state {
         /// The finder or searcher which a program was run from, which is shown again once the
         /// program has finished.
         left_for_program: Option<Contents>,
+        /// The finder or searcher which a file is being edited from, along with the directory the
+        /// pane was in, which are both gone back to once done.
+        left_for_editor: Option<(Contents, PathBuf)>,
     }
 
     impl From<Props> for State {
@@ -598,6 +653,7 @@ mod state {
                 focused: true,
                 chat_aside: None,
                 left_for_program: None,
+                left_for_editor: None,
             }
         }
     }
@@ -612,6 +668,11 @@ mod state {
         /// as having been asked.
         pub fn take_asked(&mut self) -> Vec<Request> {
             std::mem::take(&mut self.asked)
+        }
+
+        /// Return what has to be asked of the daemon once it has gone.
+        pub fn close(&self) -> Option<Request> {
+            self.contents.close()
         }
 
         /// Return what it holds.
@@ -658,8 +719,8 @@ mod state {
         pub fn cursor(&self) -> Option<Location> {
             match &self.contents {
                 Contents::Terminal(terminal) => terminal.cursor(),
-                // The components draw their own cursor as a colored row rather than putting the
-                // one the terminal shows anywhere.
+                // The components draw their own cursor as a colored row, and the editor as a
+                // colored cell, rather than putting the one the terminal shows anywhere.
                 _ => None,
             }
         }
@@ -677,6 +738,7 @@ mod state {
         pub fn hovers(&self, row: usize) -> Option<Hover> {
             match &self.contents {
                 Contents::Terminal(_) => None,
+                Contents::Editor(editor) => editor.hovers(row),
                 Contents::Chat(chat) => chat.hovers(row),
                 Contents::Browser(browser) => browser.hovers(row),
                 Contents::Finder(finder) => finder.hovers(row),
@@ -698,6 +760,7 @@ mod state {
                 Contents::History(history) => history.copy_start(),
                 Contents::HistorySearcher(searcher) => searcher.copy_start(),
                 Contents::Terminal(terminal) => terminal.copy_start(),
+                Contents::Editor(editor) => editor.cursor(),
             }
         }
 
@@ -729,11 +792,13 @@ mod state {
                     None => Contents::of(&self.layout, &self.dir, &self.config),
                 };
                 let was: Contents = std::mem::replace(&mut self.contents, contents);
+                self.asked = asked;
+                self.asked.extend(was.close());
                 if matches!(was, Contents::Finder(_) | Contents::Searcher(_)) {
                     self.left_for_program = Some(was);
                 }
-                self.asked = asked;
                 self.chat_aside = None;
+                self.left_for_editor = None;
 
                 match back {
                     // NOTE: It is told neither how big the pane is nor whether what is typed goes
@@ -751,10 +816,15 @@ mod state {
                 terminal.relayout(self.layout.clone());
             }
 
-            // NOTE: Changing size is something the components only take note of, so there is
-            // nothing which comes of it to be done.
+            // NOTE: Changing size is something most of the components only take note of, but the
+            // editor asks the daemon for the file to be shown at the new size, which is asked
+            // along with whatever else the new layout calls for.
             if resized {
-                self.term_event(TermEvent::Resize(self.layout.size()));
+                match self.term_event(TermEvent::Resize(self.layout.size())) {
+                    Some(Effect::Request(request)) => self.asked.push(request),
+                    Some(Effect::Requests(requests)) => self.asked.extend(requests),
+                    _ => {}
+                }
             }
         }
 
@@ -804,6 +874,9 @@ mod state {
                 }
                 Contents::HistorySearcher(searcher) => {
                     searcher.handle(event);
+                }
+                Contents::Editor(editor) => {
+                    editor.handle(event);
                 }
                 Contents::Terminal(_) => {}
             }
@@ -872,6 +945,23 @@ mod state {
                 Contents::HistorySearcher(searcher) => Asked::of_history_searcher(
                     searcher.handle(PaneContentsEvent::Response(response))?,
                 )?,
+                Contents::Editor(editor) => {
+                    // NOTE: The finder or searcher which the file is being edited from goes on
+                    // hearing about what it asked for too, the same as while a program is run
+                    // from it.
+                    match self.left_for_editor.as_mut() {
+                        Some((Contents::Finder(finder), _)) => {
+                            finder.handle(PaneContentsEvent::Response(response.clone()));
+                        }
+                        Some((Contents::Searcher(searcher), _)) => {
+                            searcher.handle(PaneContentsEvent::Response(response.clone()));
+                        }
+                        _ => {}
+                    }
+
+                    let path: PathBuf = editor.path().to_path_buf();
+                    Asked::of_editor(editor.handle(PaneContentsEvent::Response(response))?, &path)?
+                }
                 // NOTE: The finder or searcher which the program was run from goes on hearing about
                 // what it asked for, so that what it was still finding is there once it is shown
                 // again. Nothing it would go on to do is done while the program is shown instead.
@@ -897,6 +987,12 @@ mod state {
             // NOTE: A program in it has the pane to itself, so it is left alone. The daemon does
             // not say to change the directory of one, but it may have started since it said.
             if self.layout.kind() == PaneKind::Program {
+                return None;
+            }
+
+            // NOTE: Nor is a file being edited, since the changes to it which have not been written
+            // would be left behind.
+            if matches!(self.contents, Contents::Editor(_)) {
                 return None;
             }
 
@@ -932,6 +1028,13 @@ mod state {
                 Contents::HistorySearcher(searcher) => Asked::of_history_searcher(
                     searcher.handle(PaneContentsEvent::TermEvent(term_event))?,
                 )?,
+                Contents::Editor(editor) => {
+                    let path: PathBuf = editor.path().to_path_buf();
+                    Asked::of_editor(
+                        editor.handle(PaneContentsEvent::TermEvent(term_event))?,
+                        &path,
+                    )?
+                }
                 Contents::Terminal(_) => return None,
             };
 
@@ -944,17 +1047,29 @@ mod state {
                 Asked::Show(showing) => {
                     // The directory the pane is in is wherever it was last shown, so that going
                     // back to the browser from the finder shows where the finder was left.
-                    self.dir = match showing.as_ref() {
+                    let dir: PathBuf = match showing.as_ref() {
                         Showing::Browser(dir, _)
                         | Showing::FileCreator(dir, _)
                         | Showing::Finder(dir)
                         | Showing::Searcher(dir, _)
                         | Showing::Chat(dir) => dir.clone(),
+                        Showing::Editor(path, _) => match path.parent() {
+                            Some(dir) => dir.to_path_buf(),
+                            None => self.dir.clone(),
+                        },
                     };
 
-                    let (contents, asked) =
+                    let was_dir: PathBuf = std::mem::replace(&mut self.dir, dir);
+
+                    let (contents, mut asked) =
                         Contents::showing(showing.as_ref(), &self.layout, &self.config);
-                    self.contents = contents;
+                    let was: Contents = std::mem::replace(&mut self.contents, contents);
+                    asked.extend(was.close());
+                    if matches!(showing.as_ref(), Showing::Editor(..))
+                        && matches!(was, Contents::Finder(_) | Contents::Searcher(_))
+                    {
+                        self.left_for_editor = Some((was, was_dir));
+                    }
                     self.tell_new_contents_about_focus();
 
                     match asked.is_empty() {
@@ -962,6 +1077,23 @@ mod state {
                         false => Some(Effect::Requests(asked)),
                     }
                 }
+                Asked::QuitEditor(path) => match self.left_for_editor.take() {
+                    Some((left, dir)) => {
+                        self.contents = left;
+                        self.dir = dir;
+                        // NOTE: It is told neither how big the pane is nor whether what is typed
+                        // goes to it while the editor is being shown instead.
+                        self.term_event(TermEvent::Resize(self.layout.size()));
+                        self.tell_contents_about_focus()
+                    }
+                    None => {
+                        let dir: PathBuf = path.parent()?.to_path_buf();
+                        // NOTE: A new file which was left without being written is not there to
+                        // be selected.
+                        let file: Option<PathBuf> = Some(path).filter(|path| path.exists());
+                        self.asked(Asked::Show(Box::new(Showing::Browser(dir, file))))
+                    }
+                },
                 Asked::Run { program, args, dir } => Some(Effect::Run { program, args, dir }),
                 Asked::Request(request) => Some(Effect::Request(request)),
                 Asked::Requests(requests) => Some(Effect::Requests(requests)),
@@ -1031,6 +1163,7 @@ mod state {
                 Contents::Chat(chat) => chat.render(size),
                 Contents::History(history) => history.render(size),
                 Contents::HistorySearcher(searcher) => searcher.render(size),
+                Contents::Editor(editor) => editor.render(size),
                 Contents::Terminal(terminal) => terminal.render(size),
             }
         }
@@ -1051,9 +1184,10 @@ mod tests {
     use file_type::FileType;
     use insh_api::{
         AiStatusResponseParams, Chat, ChatMessage, ChatResponseParams, ChatRole,
-        DeleteChatResponseParams, FindFilesResponseParams, GetChatResponseParams,
-        GetFilesResponseParams, ListChatsResponseParams, PaneKind, PaneLayout, PaneScreen, Request,
-        RequestParams, Response, ResponseParams, SearchPhraseResponseParams,
+        DeleteChatResponseParams, EditorClosedResponseParams, EditorCursor, EditorMode, EditorView,
+        EditorViewResponseParams, FindFilesResponseParams, GetChatResponseParams,
+        GetFilesResponseParams, ListChatsResponseParams, PaneKind, PaneLayout, PaneScreen,
+        Position, Request, RequestParams, Response, ResponseParams, SearchPhraseResponseParams,
         SuggestFileResponseParams,
     };
     use path_finder::Entry as PathEntry;
@@ -1777,10 +1911,7 @@ mod tests {
     fn test_the_searcher_comes_back_once_the_line_looked_at_is_finished_with() {
         let mut pane: Pane = searching("/tmp/a");
         press(&mut pane, 'j');
-        assert!(matches!(
-            press_with(&mut pane, Key::CarriageReturn, KeyMods::NONE),
-            Some(Effect::Run { .. })
-        ));
+        assert!(matches!(press(&mut pane, 'v'), Some(Effect::Run { .. })));
 
         pane.relayout(running(20, 60));
         pane.relayout(layout(30, 60));
@@ -1788,6 +1919,59 @@ mod tests {
         assert!(pane.take_asked().is_empty());
         assert!(drawn(&pane).contains("x marks the spot"));
         assert_eq!(drawn(&pane).lines().count(), 30);
+    }
+
+    #[test]
+    fn test_a_hit_is_edited_on_the_phrase_and_the_searcher_comes_back_once_it_is_closed() {
+        let mut pane: Pane = browsing(20, 60, files(1, None));
+        press(&mut pane, 's');
+        press(&mut pane, 'x');
+        let request: Request = match press_with(&mut pane, Key::CarriageReturn, KeyMods::NONE) {
+            Some(Effect::Request(request)) => request,
+            _ => panic!("Expected the hits to be asked for."),
+        };
+        pane.handle(Event::Response(
+            Response::builder()
+                .uuid(*request.uuid())
+                .params(ResponseParams::SearchPhrase(
+                    SearchPhraseResponseParams::builder()
+                        .hits(vec![FileHit::new(
+                            Path::new("/tmp/a"),
+                            vec![LineHit::new(3, "é x marks the spot")],
+                        )])
+                        .searched(1)
+                        .duration(Duration::ZERO)
+                        .build(),
+                ))
+                .last(true)
+                .build(),
+        ));
+        press(&mut pane, 'j');
+
+        let open: Request = match press(&mut pane, 'l') {
+            Some(Effect::Requests(requests)) => requests.into_iter().next().unwrap(),
+            _ => panic!("Expected the file to be opened."),
+        };
+        match open.params() {
+            RequestParams::Edit(params) => {
+                assert_eq!(params.path(), Path::new("/tmp/a"));
+                assert_eq!(params.at(), Some(Position::new(2, 2)));
+            }
+            _ => panic!("Expected the file to be edited."),
+        }
+        assert!(!drawn(&pane).contains("x marks the spot"));
+
+        pane.handle(Event::Response(
+            Response::builder()
+                .uuid(*open.uuid())
+                .params(ResponseParams::EditorClosed(
+                    EditorClosedResponseParams::builder().build(),
+                ))
+                .last(true)
+                .build(),
+        ));
+
+        assert!(drawn(&pane).contains("x marks the spot"));
     }
 
     #[test]
@@ -1819,7 +2003,7 @@ mod tests {
         };
         pane.handle(hits("/tmp/a", "x marks the spot", false));
         press(&mut pane, 'j');
-        press_with(&mut pane, Key::CarriageReturn, KeyMods::NONE);
+        press(&mut pane, 'v');
         pane.relayout(running(20, 60));
 
         pane.handle(hits("/tmp/b", "x again", true));
@@ -1981,38 +2165,64 @@ mod tests {
     }
 
     #[test]
-    fn test_editing_a_file_from_the_browser_runs_vim_on_it() {
+    fn test_editing_a_file_from_the_browser_opens_it_in_the_editor() {
         let mut pane: Pane = browsing(20, 60, files(1, None));
         press(&mut pane, 'e');
         assert!(drawn(&pane).contains("file editor"));
 
         type_in(&mut pane, "new.txt");
-        let effect: Option<Effect> = press_with(&mut pane, Key::CarriageReturn, KeyMods::NONE);
+        let open: Request = match press_with(&mut pane, Key::CarriageReturn, KeyMods::NONE) {
+            Some(Effect::Requests(requests)) => requests.into_iter().next().unwrap(),
+            _ => panic!("Expected the file to be opened."),
+        };
 
-        match effect {
-            Some(Effect::Run { program, args, .. }) => {
-                assert_eq!(program, "vim");
-                assert!(args.iter().any(|arg| arg == "/tmp/new.txt"));
+        match open.params() {
+            RequestParams::Edit(params) => {
+                assert_eq!(params.path(), Path::new("/tmp/new.txt"));
+                assert_eq!(params.at(), None);
             }
-            _ => panic!("Expected vim to be run on the file."),
+            _ => panic!("Expected the file to be edited."),
+        }
+    }
+
+    #[test_case("new.txt:12:3", Some(Position::new(11, 2)); "line and column")]
+    #[test_case("new.txt:12", Some(Position::new(11, 0)); "line only")]
+    #[test_case("new.txt", None; "neither")]
+    fn test_a_file_to_edit_can_be_followed_by_the_line_and_column_to_start_at(
+        typed: &str,
+        at: Option<Position>,
+    ) {
+        let mut pane: Pane = browsing(20, 60, files(1, None));
+        press(&mut pane, 'e');
+
+        type_in(&mut pane, typed);
+        let open: Request = match press_with(&mut pane, Key::CarriageReturn, KeyMods::NONE) {
+            Some(Effect::Requests(requests)) => requests.into_iter().next().unwrap(),
+            _ => panic!("Expected the file to be opened."),
+        };
+
+        match open.params() {
+            RequestParams::Edit(params) => {
+                assert_eq!(params.path(), Path::new("/tmp/new.txt"));
+                assert_eq!(params.at(), at);
+            }
+            _ => panic!("Expected the file to be edited."),
         }
     }
 
     #[test]
-    fn test_a_file_to_edit_can_be_followed_by_the_line_and_column_to_start_at() {
+    fn test_a_file_to_edit_has_to_be_entered() {
         let mut pane: Pane = browsing(20, 60, files(1, None));
         press(&mut pane, 'e');
 
-        type_in(&mut pane, "new.txt:12:3");
+        type_in(&mut pane, ":12");
         let effect: Option<Effect> = press_with(&mut pane, Key::CarriageReturn, KeyMods::NONE);
 
-        match effect {
-            Some(Effect::Run { args, .. }) => {
-                assert!(args.iter().any(|arg| arg == "/tmp/new.txt"));
-                assert!(args.iter().any(|arg| arg.contains("12")));
-            }
-            _ => panic!("Expected vim to be run on the file."),
-        }
+        assert!(effect.is_none());
+        assert!(drawn(&pane).contains("Must enter file to edit."));
+
+        type_in(&mut pane, "a");
+        assert!(!drawn(&pane).contains("Must enter file to edit."));
     }
 
     #[test]
@@ -2043,13 +2253,153 @@ mod tests {
                 .build(),
         ));
         press_with(&mut pane, Key::BackTab, KeyMods::SHIFT);
-        let effect: Option<Effect> = press_with(&mut pane, Key::CarriageReturn, KeyMods::NONE);
+        let open: Request = match press_with(&mut pane, Key::CarriageReturn, KeyMods::NONE) {
+            Some(Effect::Requests(requests)) => requests.into_iter().next().unwrap(),
+            _ => panic!("Expected the file to be opened."),
+        };
 
-        match effect {
-            Some(Effect::Run { args, .. }) => {
-                assert!(args.iter().any(|arg| arg == "/tmp/main.rs"));
+        match open.params() {
+            RequestParams::Edit(params) => {
+                assert_eq!(params.path(), Path::new("/tmp/main.rs"));
             }
-            _ => panic!("Expected vim to be run on the file."),
+            _ => panic!("Expected the file to be edited."),
+        }
+    }
+
+    /// Return the response which says that the files asked to be found are the ones given.
+    fn found(request: &Request, paths: &str, last: bool) -> Event {
+        let entries: Vec<PathEntry> = yaml_serde::from_str(paths).unwrap();
+        Event::Response(
+            Response::builder()
+                .uuid(*request.uuid())
+                .params(ResponseParams::FindFiles(
+                    FindFilesResponseParams::builder()
+                        .entries(entries)
+                        .searched(1)
+                        .duration(Duration::ZERO)
+                        .build(),
+                ))
+                .last(last)
+                .build(),
+        )
+    }
+
+    #[test]
+    fn test_the_finder_comes_back_once_the_file_edited_from_it_is_closed() {
+        let mut pane: Pane = browsing(20, 60, files(1, None));
+        press(&mut pane, 'f');
+        press(&mut pane, 'x');
+        let find: Request = match press_with(&mut pane, Key::CarriageReturn, KeyMods::NONE) {
+            Some(Effect::Request(request)) => request,
+            _ => panic!("Expected the files to be asked for."),
+        };
+        pane.handle(found(&find, "[{path: /tmp/aaa}]", false));
+        press(&mut pane, 'j');
+        let open: Request = match press(&mut pane, 'l') {
+            Some(Effect::Requests(requests)) => requests.into_iter().next().unwrap(),
+            _ => panic!("Expected the file to be opened."),
+        };
+        assert!(!drawn(&pane).contains("finder"));
+
+        pane.handle(found(&find, "[{path: /tmp/bbb}]", true));
+        pane.handle(Event::Response(
+            Response::builder()
+                .uuid(*open.uuid())
+                .params(ResponseParams::EditorClosed(
+                    EditorClosedResponseParams::builder().build(),
+                ))
+                .last(true)
+                .build(),
+        ));
+
+        let drawn: String = drawn(&pane);
+        assert!(drawn.contains("finder"));
+        assert!(drawn.contains("aaa"));
+        assert!(drawn.contains("bbb"));
+    }
+
+    #[test]
+    fn test_the_file_being_edited_is_closed_once_the_pane_is_gone() {
+        let mut pane: Pane = browsing(20, 60, files(1, None));
+        press(&mut pane, 'f');
+        press(&mut pane, 'x');
+        let find: Request = match press_with(&mut pane, Key::CarriageReturn, KeyMods::NONE) {
+            Some(Effect::Request(request)) => request,
+            _ => panic!("Expected the files to be asked for."),
+        };
+        pane.handle(found(&find, "[{path: /tmp/aaa}]", true));
+        let open: Request = match press(&mut pane, 'l') {
+            Some(Effect::Requests(requests)) => requests.into_iter().next().unwrap(),
+            _ => panic!("Expected the file to be opened."),
+        };
+
+        let close: Request = pane.close().unwrap();
+
+        match close.params() {
+            RequestParams::CloseEditor(params) => assert_eq!(params.edit(), open.uuid()),
+            _ => panic!("Expected the file to be closed."),
+        }
+    }
+
+    #[test]
+    fn test_nothing_is_closed_for_a_pane_which_is_not_editing() {
+        let pane: Pane = browsing(20, 60, files(1, None));
+
+        assert!(pane.close().is_none());
+    }
+
+    #[test]
+    fn test_the_daemon_is_told_when_the_editor_changes_size() {
+        let mut pane: Pane = browsing(20, 60, files(1, None));
+        press(&mut pane, 'f');
+        press(&mut pane, 'x');
+        let find: Request = match press_with(&mut pane, Key::CarriageReturn, KeyMods::NONE) {
+            Some(Effect::Request(request)) => request,
+            _ => panic!("Expected the files to be asked for."),
+        };
+        pane.handle(found(&find, "[{path: /tmp/aaa}]", true));
+        press(&mut pane, 'j');
+        let open: Request = match press(&mut pane, 'l') {
+            Some(Effect::Requests(requests)) => requests.into_iter().next().unwrap(),
+            _ => panic!("Expected the file to be opened."),
+        };
+        let cursor: Uuid = Uuid::from_u128(2);
+        pane.handle(Event::Response(
+            Response::builder()
+                .uuid(*open.uuid())
+                .params(ResponseParams::EditorView(
+                    EditorViewResponseParams::builder()
+                        .view(
+                            EditorView::builder()
+                                .path(PathBuf::from("/tmp/aaa"))
+                                .cursor(cursor)
+                                .top(0)
+                                .lines(vec![String::from("hello")])
+                                .line_count(1)
+                                .cursors(vec![EditorCursor::builder()
+                                    .cursor(cursor)
+                                    .at(Position::new(0, 0))
+                                    .mode(EditorMode::Normal)
+                                    .build()])
+                                .build(),
+                        )
+                        .build(),
+                ))
+                .build(),
+        ));
+
+        pane.relayout(layout(30, 80));
+
+        let asked: Vec<Request> = pane.take_asked();
+        match asked.as_slice() {
+            [request] => match request.params() {
+                RequestParams::ResizeEditor(params) => {
+                    assert_eq!(*params.cursor(), cursor);
+                    assert_eq!(params.size(), Size::new(28, 80));
+                }
+                _ => panic!("Expected the editor to be resized."),
+            },
+            _ => panic!("Expected one request."),
         }
     }
 

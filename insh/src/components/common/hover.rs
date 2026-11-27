@@ -7,4 +7,6 @@ pub enum Hover {
     Row,
     /// Only what is written in it, which is what a row of a list is.
     Text,
+    /// The whole of it, whitened rather than grayed, which is what a bar which is gray already is.
+    Whitened,
 }

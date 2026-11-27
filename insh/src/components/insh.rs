@@ -4,6 +4,8 @@ use std::path::PathBuf;
 
 use crate::components::browser::{Browser, BrowserEffect, BrowserEvent, BrowserProps};
 use crate::components::chat::{Chat, ChatEffect, ChatProps};
+use crate::components::common::PaneContentsEvent;
+use crate::components::editor::{Editor, EditorEffect, EditorProps};
 use crate::components::file_creator::{
     FileCreator, FileCreatorEffect, FileCreatorEvent, FileCreatorProps, FileCreatorPurpose,
 };
@@ -15,12 +17,12 @@ use crate::components::session::{
 };
 use crate::config::Config;
 use crate::current_dir;
-use crate::programs::{Bash, Vim};
+use crate::programs::{Bash, Vim, VimArgs};
 use crate::stateful::Stateful;
 
 use insh_api::{
-    FileSortOptions, GetFilesRequestParams, Request, RequestParams, Response, ResponseParams,
-    VisitDirRequestParams,
+    FileSortOptions, GetFilesRequestParams, Position, Request, RequestParams, Response,
+    ResponseParams, VisitDirRequestParams,
 };
 use rend::{Fabric, Size};
 use term::{Key, KeyEvent, KeyMods, Term, TermEvent};
@@ -243,6 +245,9 @@ impl Component<Props, Event<Response>, SystemEffect<Request>> for Insh {
                     Some(BrowserEffect::OpenSearcher { dir, replacing }) => {
                         action = Some(Action::Search { dir, replacing });
                     }
+                    Some(BrowserEffect::OpenEditor { path }) => {
+                        action = Some(Action::Edit { path, at: None });
+                    }
                     Some(BrowserEffect::OpenVim(vim_args)) => {
                         let program = Box::new(Vim::new(vim_args));
                         return Some(SystemEffect::RunProgram { program });
@@ -282,10 +287,11 @@ impl Component<Props, Event<Response>, SystemEffect<Request>> for Insh {
                     Some(FileCreatorEffect::Bell) => {
                         action = Some(Action::Bell);
                     }
-                    Some(FileCreatorEffect::OpenVim(vim_args)) => {
+                    Some(FileCreatorEffect::OpenEditor { path, at }) => {
+                        // NOTE: The file creator is left first so that quitting the editor goes
+                        // back to the browser rather than to it.
                         self.state.perform(Action::QuitFileCreator);
-                        let program = Box::new(Vim::new(vim_args));
-                        return Some(SystemEffect::RunProgram { program });
+                        action = Some(Action::Edit { path, at });
                     }
                     Some(FileCreatorEffect::Quit) => {
                         action = Some(Action::QuitFileCreator);
@@ -302,6 +308,9 @@ impl Component<Props, Event<Response>, SystemEffect<Request>> for Insh {
                     }
                     Some(FinderEffect::Browse { dir, file }) => {
                         action = Some(Action::Browse { dir, file });
+                    }
+                    Some(FinderEffect::OpenEditor { path }) => {
+                        action = Some(Action::Edit { path, at: None });
                     }
                     Some(FinderEffect::OpenVim(vim_args)) => {
                         let program = Box::new(Vim::new(vim_args));
@@ -322,6 +331,9 @@ impl Component<Props, Event<Response>, SystemEffect<Request>> for Insh {
                 match searcher_effect {
                     Some(SearcherEffect::Goto { dir, file }) => {
                         action = Some(Action::Browse { dir, file });
+                    }
+                    Some(SearcherEffect::OpenEditor { path, at }) => {
+                        action = Some(Action::Edit { path, at });
                     }
                     Some(SearcherEffect::OpenVim(vim_args)) => {
                         let program = Box::new(Vim::new(vim_args));
@@ -399,6 +411,29 @@ impl Component<Props, Event<Response>, SystemEffect<Request>> for Insh {
                     None => {}
                 }
             }
+            Mode::Editor => {
+                // NOTE: The finder which the file is being edited from goes on hearing about what it
+                // asked for, so that what it was still finding is there once it is shown again.
+                if let (Mode::Finder, Event::Response(response)) = (&self.state.edited_from, &event)
+                {
+                    let finder = self.state.finder.as_mut().unwrap();
+                    finder.handle(PaneContentsEvent::Response(response.clone()));
+                }
+
+                let editor = self.state.editor.as_mut().unwrap();
+                match editor.handle(PaneContentsEvent::from(event)) {
+                    Some(EditorEffect::Request(request)) => {
+                        return Some(SystemEffect::Request(request));
+                    }
+                    Some(EditorEffect::Quit) => {
+                        action = Some(Action::QuitEditor);
+                    }
+                    Some(EditorEffect::OpenVim(vim_args)) => {
+                        action = Some(Action::QuitEditorForVim(vim_args));
+                    }
+                    None => {}
+                }
+            }
             Mode::Nothing => {
                 return Some(SystemEffect::Exit);
             }
@@ -422,6 +457,7 @@ impl Component<Props, Event<Response>, SystemEffect<Request>> for Insh {
             Mode::Chat => self.state.chat.as_ref().unwrap().render(size),
             Mode::History => self.state.history.as_ref().unwrap().render(size),
             Mode::HistorySearcher => self.state.history_searcher.as_ref().unwrap().render(size),
+            Mode::Editor => self.state.editor.as_ref().unwrap().render(size),
             Mode::Nothing => Fabric::new(size),
         }
     }
@@ -447,6 +483,10 @@ struct State {
     history: Option<History>,
     /// The search of the past chats.
     history_searcher: Option<HistorySearcher>,
+    /// The editor.
+    editor: Option<Editor>,
+    /// The mode the file being edited was edited from, which is gone back to once done.
+    edited_from: Mode,
     /// The configuration.
     config: Config,
 }
@@ -481,6 +521,8 @@ impl From<Props> for State {
                     chat: None,
                     history: None,
                     history_searcher: None,
+                    editor: None,
+                    edited_from: Mode::Browse,
                     config: props.config().clone(),
                 }
             }
@@ -494,6 +536,8 @@ impl From<Props> for State {
                 chat: None,
                 history: None,
                 history_searcher: None,
+                editor: None,
+                edited_from: Mode::Browse,
                 config: props.config().clone(),
             },
             Start::Finder { phrase } => {
@@ -513,6 +557,8 @@ impl From<Props> for State {
                     chat: None,
                     history: None,
                     history_searcher: None,
+                    editor: None,
+                    edited_from: Mode::Browse,
                     config: props.config().clone(),
                 }
             }
@@ -535,6 +581,8 @@ impl From<Props> for State {
                     chat: None,
                     history: None,
                     history_searcher: None,
+                    editor: None,
+                    edited_from: Mode::Browse,
                     config: props.config().clone(),
                 }
             }
@@ -555,6 +603,8 @@ impl From<Props> for State {
                     chat,
                     history: None,
                     history_searcher: None,
+                    editor: None,
+                    edited_from: Mode::Browse,
                     config: props.config().clone(),
                 }
             }
@@ -568,6 +618,8 @@ impl From<Props> for State {
                 chat: None,
                 history: None,
                 history_searcher: None,
+                editor: None,
+                edited_from: Mode::Browse,
                 config: props.config().clone(),
             },
         }
@@ -656,6 +708,31 @@ impl State {
         let chat_props = ChatProps::builder().dir(dir).size(size).build();
         self.chat = Some(Chat::new(chat_props));
         Some(SystemEffect::Request(Chat::initial_request()))
+    }
+
+    /// Edit a file, starting at the position.
+    fn edit(&mut self, path: PathBuf, at: Option<Position>) -> Option<SystemEffect<Request>> {
+        self.edited_from = std::mem::replace(&mut self.mode, Mode::Editor);
+        let size: Size = Term::size().unwrap();
+        let editor: Editor =
+            Editor::new(EditorProps::builder().path(path).size(size).at(at).build());
+        let request: Request = editor.open();
+        self.editor = Some(editor);
+        Some(SystemEffect::Request(request))
+    }
+
+    /// Go back from the editor to what the file was edited from.
+    fn quit_editor(&mut self) -> Option<SystemEffect<Request>> {
+        self.mode = std::mem::take(&mut self.edited_from);
+        self.editor = None;
+        None
+    }
+
+    /// Go back from the editor to what the file was edited from, and open the file in vim.
+    fn quit_editor_for_vim(&mut self, vim_args: VimArgs) -> Option<SystemEffect<Request>> {
+        self.quit_editor();
+        let program = Box::new(Vim::new(vim_args));
+        Some(SystemEffect::RunProgram { program })
     }
 
     /// Go back to the browser from the file creator.
@@ -776,6 +853,9 @@ impl Stateful<Action, SystemEffect<Request>> for State {
             Action::QuitHistory => self.quit_history(),
             Action::OpenChat { id } => self.open_chat(id),
             Action::NewChat => self.new_chat(),
+            Action::Edit { path, at } => self.edit(path, at),
+            Action::QuitEditor => self.quit_editor(),
+            Action::QuitEditorForVim(vim_args) => self.quit_editor_for_vim(vim_args),
             Action::QuitFileCreator => self.quit_file_creator(),
             Action::QuitFinder { dir } => self.quit_finder(dir),
             Action::QuitSearcher { dir } => self.quit_searcher(dir),
@@ -804,6 +884,8 @@ enum Mode {
     History,
     /// Searching the past chats.
     HistorySearcher,
+    /// Editing a file.
+    Editor,
     /// Nothing, so insh exits when anything happens.
     Nothing,
 }
@@ -841,6 +923,18 @@ enum Action {
         /// The directory to chat about.
         dir: PathBuf,
     },
+    /// Edit a file.
+    Edit {
+        /// The file.
+        path: PathBuf,
+        /// Where the cursor starts, which is the start of the file when it is nowhere in
+        /// particular.
+        at: Option<Position>,
+    },
+    /// Go back from the editor to what the file was edited from.
+    QuitEditor,
+    /// Go back from the editor to what the file was edited from, and open the file in vim.
+    QuitEditorForVim(VimArgs),
     /// Ring the bell.
     Bell,
     /// Go back to the browser from the file creator.
@@ -928,6 +1022,8 @@ mod tests {
                 chat: None,
                 history: None,
                 history_searcher: None,
+                editor: None,
+                edited_from: Mode::Browse,
                 config: Config::default(),
             },
         };

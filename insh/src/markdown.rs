@@ -261,17 +261,23 @@ mod markdown {
             };
             let language: Option<Language> = state.language.take();
 
-            for line in code.trim_end_matches('\n').split('\n') {
-                let mut runs: Vec<Run> = match language {
-                    Some(language) => self
-                        .highlighter
-                        .highlight(line, language)
-                        .iter()
-                        .map(Self::run_of)
-                        .collect(),
-                    None => vec![Run::plain(line)],
-                };
+            // NOTE: The block is highlighted as a whole, so that a line inside something started
+            // on a line above it, like a comment, is colored as being in it.
+            let code: &str = code.trim_end_matches('\n');
+            let lines: Vec<Vec<Run>> = match language {
+                Some(language) => self
+                    .highlighter
+                    .highlight(code, language)
+                    .iter()
+                    .map(|spans| spans.iter().map(Self::run_of).collect())
+                    .collect(),
+                None => code
+                    .split('\n')
+                    .map(|line| vec![Run::plain(line)])
+                    .collect(),
+            };
 
+            for mut runs in lines {
                 // The background has to reach across the whole row, or the block ends ragged where
                 // each line of code happens to stop.
                 let taken: usize = runs.iter().map(|run| Self::width(&run.text)).sum();

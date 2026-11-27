@@ -3,9 +3,22 @@ name = "highlighter"
 version = "0.1.0"
 edition = "2021"
 
+[features]
+# Explicitly, the default features are none.
+default = []
+
+# Lets what each piece of some code is be sent somewhere else and read back, which is what the
+# daemon telling a client how to color a file it is editing needs.
+serde = ["dep:serde"]
+
 [dependencies]
-# Used to work out which part of some code is what.
-tree-sitter-highlight = { workspace = true }
+# Used for sending what each piece of some code is somewhere else. (Only included if the serde
+# feature is enabled.)
+serde = { workspace = true, optional = true }
+
+# Used to parse code, and to keep it parsed as it changes so that only what changed is parsed
+# again.
+tree-sitter = { workspace = true }
 
 # The grammars for the languages which can be highlighted.
 tree-sitter-bash = { workspace = true }

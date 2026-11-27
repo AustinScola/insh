@@ -4,6 +4,9 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
+# Used to work out which part of each line with a hit is what, so it can be shown in color.
+highlighter = { version = "0.1.0", path = "../highlighter", features = ["serde"] }
+
 # Used for matching the names of the files to search.
 regex = { workspace = true }
 

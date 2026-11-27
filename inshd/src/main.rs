@@ -20,6 +20,7 @@ mod conn_handler;
 mod contexted_request;
 mod contexted_response;
 mod disconnected_client;
+mod editor;
 mod file_finder;
 mod file_searcher;
 mod log_forwarder;

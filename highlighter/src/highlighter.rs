@@ -2,26 +2,22 @@
 
 use std::collections::HashMap;
 
+use super::document::Document;
 use super::language::Language;
-use super::span::{Kind, Span};
-
-use tree_sitter_highlight::{
-    HighlightConfiguration, HighlightEvent, Highlighter as TreeSitterHighlighter,
-};
+use super::span::Span;
 
 /// Works out which part of some code is what.
 ///
-/// Reading a grammar takes long enough to be worth doing once, so this keeps the ones it has read
-/// and is meant to be kept around rather than made for every piece of code.
+/// Reading a grammar takes long enough to be worth doing once, so this keeps a [`Document`] for
+/// each language it has been asked about and is meant to be kept around rather than made for every
+/// piece of code.
 #[derive(Default)]
 pub struct Highlighter {
-    /// What does the highlighting.
-    highlighter: TreeSitterHighlighter,
-    /// The grammars which have been read, by the language they are for.
+    /// The documents which code is parsed in, by the language they are for.
     ///
     /// A language whose grammar could not be read is remembered as nothing, so that it is not tried
-    /// again for every code block.
-    configurations: HashMap<Language, Option<HighlightConfiguration>>,
+    /// again for every piece of code.
+    documents: HashMap<Language, Option<Document>>,
 }
 
 impl Highlighter {
@@ -30,80 +26,51 @@ impl Highlighter {
         return Self::default();
     }
 
-    /// Return the pieces of some code along with what each one is.
+    /// Return the pieces of each line of some code along with what each one is.
     ///
-    /// Code in a language which is not known, or which the grammar cannot make sense of, comes back
-    /// as one piece of nothing in particular rather than as an error. Showing it plainly is better
-    /// than not showing it.
-    pub fn highlight(&mut self, code: &str, language: Language) -> Vec<Span> {
-        let configuration = self
-            .configurations
-            .entry(language)
-            .or_insert_with(|| language.configuration());
+    /// The code is parsed as a whole, so a line which is inside something started on a line above
+    /// it, like a comment, is shown as being in it. Code in a language whose grammar cannot be
+    /// read comes back as one piece of nothing in particular per line rather than as an error, since
+    /// showing it plainly is better than not showing it.
+    pub fn highlight(&mut self, code: &str, language: Language) -> Vec<Vec<Span>> {
+        let lines: Vec<String> = code.split('\n').map(String::from).collect();
 
-        let configuration: &HighlightConfiguration = match configuration {
-            Some(configuration) => configuration,
-            None => return Self::plain(code),
+        let document: &mut Document = match self.document(language) {
+            Some(document) => document,
+            None => return lines.iter().map(|line| Self::plain(line)).collect(),
         };
 
-        let events =
-            match self
-                .highlighter
-                .highlight(configuration, code.as_bytes(), None, None, |_| None)
-            {
-                Ok(events) => events,
-                Err(_) => return Self::plain(code),
-            };
-
-        let mut spans: Vec<Span> = Vec::new();
-        // What a piece is is whatever was started most recently, since they nest.
-        let mut kinds: Vec<Option<Kind>> = Vec::new();
-
-        for event in events {
-            match event {
-                Ok(HighlightEvent::HighlightStart(highlight)) => {
-                    kinds.push(Kind::of_index(highlight.0));
-                }
-                Ok(HighlightEvent::HighlightEnd) => {
-                    kinds.pop();
-                }
-                Ok(HighlightEvent::Source { start, end }) => {
-                    let text: &str = match code.get(start..end) {
-                        Some(text) => text,
-                        None => continue,
-                    };
-                    if text.is_empty() {
-                        continue;
-                    }
-
-                    // The innermost one which says anything is the one which is meant: a name
-                    // inside a function call is the name, not the call.
-                    let kind: Option<Kind> = kinds.iter().rev().find_map(|kind| *kind);
-
-                    // Runs of the same thing are joined rather than left as one piece per token.
-                    match spans.last_mut() {
-                        Some(last) if last.kind == kind => last.text.push_str(text),
-                        _ => spans.push(Span {
-                            text: text.to_string(),
-                            kind,
-                        }),
-                    }
-                }
-                Err(_) => return Self::plain(code),
-            }
-        }
-
-        return spans;
+        return document
+            .highlight(&lines, 0..lines.len())
+            .iter()
+            .zip(lines.iter())
+            .map(|(runs, line)| Span::all(line, runs))
+            .collect();
     }
 
-    /// Return the code as one piece of nothing in particular.
-    fn plain(code: &str) -> Vec<Span> {
-        if code.is_empty() {
+    /// Return the document for the language, ready for some other code to be parsed in it, which
+    /// is nothing when its grammar cannot be read.
+    ///
+    /// This is for highlighting only some of the lines of some code, which
+    /// [`Document::highlight`] can be asked for as many times as is wanted.
+    pub fn document(&mut self, language: Language) -> Option<&mut Document> {
+        let document: &mut Option<Document> = self.documents.entry(language).or_insert_with(|| {
+            return Document::parse(language, &[]);
+        });
+
+        let document: &mut Document = document.as_mut()?;
+        document.rewrite();
+        return Some(document);
+    }
+
+    /// Return the line as one piece of nothing in particular.
+    fn plain(line: &str) -> Vec<Span> {
+        if line.is_empty() {
             return Vec::new();
         }
 
         return vec![Span {
-            text: code.to_string(),
+            text: line.to_string(),
             kind: None,
         }];
     }
@@ -112,17 +79,27 @@ impl Highlighter {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::span::Kind;
 
     use test_case::test_case;
 
     /// Return what the pieces of some code are, joined back up.
-    fn text(spans: &[Span]) -> String {
-        return spans.iter().map(|span| span.text.as_str()).collect();
+    fn text(lines: &[Vec<Span>]) -> String {
+        return lines
+            .iter()
+            .map(|spans| {
+                spans
+                    .iter()
+                    .map(|span| span.text.as_str())
+                    .collect::<String>()
+            })
+            .collect::<Vec<String>>()
+            .join("\n");
     }
 
     /// Return whether any piece of the code is the given thing.
-    fn has(spans: &[Span], kind: Kind) -> bool {
-        return spans.iter().any(|span| span.kind == Some(kind));
+    fn has(lines: &[Vec<Span>], kind: Kind) -> bool {
+        return lines.iter().flatten().any(|span| span.kind == Some(kind));
     }
 
     #[test_case(Language::Rust, "fn main() {}"; "rust")]
@@ -136,7 +113,7 @@ mod tests {
     #[test_case(Language::Toml, "a = 1"; "toml")]
     #[test_case(Language::Yaml, "a: 1"; "yaml")]
     fn test_every_language_keeps_the_code_it_was_given(language: Language, code: &str) {
-        let spans: Vec<Span> = Highlighter::new().highlight(code, language);
+        let spans: Vec<Vec<Span>> = Highlighter::new().highlight(code, language);
 
         // Whatever it makes of the code, none of it may go missing.
         assert_eq!(text(&spans), code);
@@ -146,7 +123,7 @@ mod tests {
     fn test_rust_is_taken_apart() {
         let code: &str = "// hi\nfn main() {\n    let x = 1;\n}";
 
-        let spans: Vec<Span> = Highlighter::new().highlight(code, Language::Rust);
+        let spans: Vec<Vec<Span>> = Highlighter::new().highlight(code, Language::Rust);
 
         assert_eq!(text(&spans), code);
         assert!(has(&spans, Kind::Comment), "the comment was not found");
@@ -157,14 +134,15 @@ mod tests {
 
     #[test]
     fn test_a_number_is_found() {
-        let spans: Vec<Span> = Highlighter::new().highlight(r#"{"a": 12}"#, Language::Json);
+        let spans: Vec<Vec<Span>> = Highlighter::new().highlight(r#"{"a": 12}"#, Language::Json);
 
         assert!(has(&spans, Kind::Number), "the number was not found");
     }
 
     #[test]
     fn test_a_string_is_found() {
-        let spans: Vec<Span> = Highlighter::new().highlight(r#"let a = "hi";"#, Language::Rust);
+        let spans: Vec<Vec<Span>> =
+            Highlighter::new().highlight(r#"let a = "hi";"#, Language::Rust);
 
         assert!(has(&spans, Kind::String), "the string was not found");
     }
@@ -173,14 +151,34 @@ mod tests {
     fn test_code_which_does_not_parse_is_still_all_there() {
         let code: &str = "fn fn fn ((( ";
 
-        let spans: Vec<Span> = Highlighter::new().highlight(code, Language::Rust);
+        let spans: Vec<Vec<Span>> = Highlighter::new().highlight(code, Language::Rust);
 
         assert_eq!(text(&spans), code);
     }
 
     #[test]
-    fn test_nothing_gives_nothing() {
-        assert!(Highlighter::new().highlight("", Language::Rust).is_empty());
+    fn test_nothing_gives_one_line_of_nothing() {
+        assert_eq!(
+            Highlighter::new().highlight("", Language::Rust),
+            vec![Vec::<Span>::new()]
+        );
+    }
+
+    #[test]
+    fn test_a_line_inside_a_comment_started_above_it_is_a_comment() {
+        let spans: Vec<Vec<Span>> = Highlighter::new().highlight("/*\nfn\n*/", Language::Rust);
+
+        assert_eq!(spans[1][0].kind, Some(Kind::Comment));
+    }
+
+    #[test]
+    fn test_one_piece_of_code_does_not_change_the_next() {
+        let mut highlighter: Highlighter = Highlighter::new();
+        highlighter.highlight("/*", Language::Rust);
+
+        let spans: Vec<Vec<Span>> = highlighter.highlight("fn", Language::Rust);
+
+        assert_eq!(spans[0][0].kind, Some(Kind::Keyword));
     }
 
     #[test_case("rs", Some(Language::Rust); "an extension")]

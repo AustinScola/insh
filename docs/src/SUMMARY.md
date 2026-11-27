@@ -6,6 +6,7 @@
   - [Multiplexing](multiplexing.md)
   - [Browser](browser.md)
   - [File Creator](file-creator.md)
+  - [Editor](editor.md)
   - [Finder](finder.md)
   - [Searcher](searcher.md)
   - [Find And Replace](find-and-replace.md)
